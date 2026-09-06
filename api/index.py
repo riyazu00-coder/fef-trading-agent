@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler
 from dataclasses import asdict
 import json
 import os
+import re
 import sys
 import time
 from typing import Optional, Tuple, Dict, Any
@@ -104,8 +105,24 @@ class handler(BaseHTTPRequestHandler):
 
         return self._send_json({"error": f"Endpoint not found: {path}"}, 404)
 
+    @staticmethod
+    def _sanitize_tunnel_url(raw_url: str) -> str:
+        if not raw_url:
+            return ""
+        raw = raw_url.strip()
+        # Markdown link format [label](url)
+        match = re.search(r'\((https?://[^\s)]+)\)', raw)
+        if match:
+            return match.group(1).strip().rstrip("/")
+        # Extract http(s) URL if wrapped in brackets, quotes, or angle brackets
+        http_match = re.search(r'https?://[^\s\]\)\'\"<>]+', raw)
+        if http_match:
+            return http_match.group(0).strip().rstrip("/")
+        return raw.strip().rstrip("/")
+
     def _forward_to_tunnel(self, endpoint_path: str, payload: dict) -> Optional[Tuple[Dict[str, Any], int]]:
-        tunnel_url = os.getenv("MT5_TUNNEL_URL", "").strip().rstrip("/")
+        raw_env_url = os.getenv("MT5_TUNNEL_URL", "")
+        tunnel_url = self._sanitize_tunnel_url(raw_env_url)
         if not tunnel_url:
             return None
 
@@ -119,7 +136,8 @@ class handler(BaseHTTPRequestHandler):
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {secret}",
-                    "User-Agent": "FEF-Vercel-Gateway/1.0"
+                    "User-Agent": "FEF-Institutional-Bridge/2.4.0",
+                    "Bypass-Tunnel-Reminder": "true"
                 },
                 method="POST"
             )
@@ -128,9 +146,28 @@ class handler(BaseHTTPRequestHandler):
                 return bridge_res, resp.status
         except urllib.error.HTTPError as e:
             try:
-                err_res = json.loads(e.read().decode("utf-8"))
+                raw_body = e.read().decode("utf-8", errors="replace")
             except Exception:
-                err_res = {"error": f"Bridge HTTP {e.code}: {e.reason}", "status": "BRIDGE_ERROR"}
+                raw_body = ""
+
+            print(f"⚠️ [Tunnel Forwarding] HTTP {e.code} ({e.reason}) from {target_url}:\n{raw_body}")
+
+            try:
+                err_res = json.loads(raw_body)
+            except Exception:
+                err_res = {
+                    "error": f"Bridge HTTP {e.code}: {e.reason}",
+                    "status": "BRIDGE_ERROR",
+                    "raw_response": raw_body,
+                    "tunnel_url": target_url
+                }
+
+            if e.code == 503:
+                err_res["status"] = "TUNNEL_UNAVAILABLE_503"
+                err_res["message"] = "The tunnel endpoint returned HTTP 503 (Tunnel Offline or Local Server Not Reachable)."
+                if "raw_response" not in err_res:
+                    err_res["raw_response"] = raw_body
+
             return err_res, e.code
         except Exception as e:
             return {

@@ -158,11 +158,59 @@ class TestCloudTunnelSecurity(unittest.TestCase):
         self.assertEqual(res.get("status"), "EXECUTED")
         self.assertTrue(res.get("forwarded"))
 
-        # Verify urllib.request was called with proper URL and Authorization header
+        # Verify urllib.request was called with proper URL, Auth, Bypass, and User-Agent headers
         mock_urlopen.assert_called_once()
         req_arg = mock_urlopen.call_args[0][0]
         self.assertEqual(req_arg.full_url, f"{tunnel_url}/api/quick_execute")
         self.assertEqual(req_arg.headers["Authorization"], f"Bearer {secret}")
+        self.assertEqual(req_arg.headers["Bypass-tunnel-reminder"], "true")
+        self.assertEqual(req_arg.headers["User-agent"], "FEF-Institutional-Bridge/2.4.0")
+
+    @patch("urllib.request.urlopen")
+    def test_tunnel_url_sanitization(self, mock_urlopen):
+        """Verify markdown links, brackets, and trailing slashes in MT5_TUNNEL_URL are cleanly sanitized."""
+        # Simulated markdown link as pasted by user
+        os.environ["MT5_TUNNEL_URL"] = "[https://three-women-give.loca.lt](https://three-women-give.loca.lt)/"
+        os.environ["FEF_BRIDGE_SECRET"] = "secret_abc"
+
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"status": "EXECUTED"}'
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        status, res = self._simulate_vercel_post(
+            "/api/quick_execute",
+            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 1.00}
+        )
+        self.assertEqual(status, 200)
+        req_arg = mock_urlopen.call_args[0][0]
+        self.assertEqual(req_arg.full_url, "https://three-women-give.loca.lt/api/quick_execute")
+
+    @patch("urllib.request.urlopen")
+    def test_tunnel_503_returns_raw_body_response(self, mock_urlopen):
+        """When tunnel returns HTTP 503, raw body response is logged and returned for debugging."""
+        os.environ["MT5_TUNNEL_URL"] = "https://three-women-give.loca.lt"
+        os.environ["FEF_BRIDGE_SECRET"] = "secret_abc"
+
+        raw_503_html = "<html><body>503 Service Unavailable: No active tunnel client</body></html>"
+        import urllib.error
+        http_error = urllib.error.HTTPError(
+            url="https://three-women-give.loca.lt/api/quick_execute",
+            code=503,
+            msg="Service Unavailable",
+            hdrs={},
+            fp=io.BytesIO(raw_503_html.encode("utf-8"))
+        )
+        mock_urlopen.side_effect = http_error
+
+        status, res = self._simulate_vercel_post(
+            "/api/quick_execute",
+            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 1.00}
+        )
+        self.assertEqual(status, 503)
+        self.assertEqual(res.get("status"), "TUNNEL_UNAVAILABLE_503")
+        self.assertIn("raw_response", res)
+        self.assertEqual(res["raw_response"], raw_503_html)
 
 
 if __name__ == "__main__":
