@@ -145,5 +145,49 @@ class EconomicCalendar:
             for e in upcoming[:limit]
         ]
 
+    def get_next_high_impact_event(self, current_time: Optional[float] = None) -> Optional[Dict]:
+        """
+        Returns the next upcoming high-impact economic event and whether
+        an active news blackout window is currently in effect (+/- 15 mins).
+        """
+        now = current_time if current_time is not None else time.time()
+        
+        # Check if any event is within +/- 15 minutes (active blackout window)
+        active_blackout_event = None
+        min_active_diff = float("inf")
+        for e in self._events:
+            if e.impact == "HIGH":
+                diff = abs(e.timestamp - now)
+                if diff <= 900:  # 15 minutes
+                    if diff < min_active_diff:
+                        min_active_diff = diff
+                        active_blackout_event = e
+
+        # Next upcoming event
+        future_events = [e for e in self._events if e.impact == "HIGH" and e.timestamp >= now]
+        future_events.sort(key=lambda x: x.timestamp)
+        next_event = future_events[0] if future_events else None
+
+        chosen = active_blackout_event if active_blackout_event else next_event
+        if not chosen:
+            return None
+
+        diff_seconds = chosen.timestamp - now
+        mins_remaining = round(diff_seconds / 60.0, 1)
+        is_blackout = abs(diff_seconds) <= 900
+
+        return {
+            "name": chosen.name,
+            "currency": chosen.currency,
+            "impact": chosen.impact,
+            "timestamp": chosen.timestamp,
+            "time_str": datetime.fromtimestamp(chosen.timestamp, timezone.utc).strftime("%H:%M UTC"),
+            "forecast": chosen.forecast,
+            "previous": chosen.previous,
+            "minutes_remaining": max(0.0, mins_remaining) if mins_remaining >= 0 else mins_remaining,
+            "news_blackout": is_blackout,
+            "blackout_reason": f"High-Impact event {'approaching' if mins_remaining >= 0 else 'released'} ({chosen.name} [{chosen.currency}], {abs(mins_remaining)}m)" if is_blackout else None
+        }
+
 
 economic_calendar = EconomicCalendar()

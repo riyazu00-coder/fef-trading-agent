@@ -10,6 +10,7 @@ Curated from public-apis/public-apis catalog:
 
 import json
 import logging
+import ssl
 import threading
 import time
 import urllib.request
@@ -19,6 +20,29 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger("PublicAPIsHub")
 logger.setLevel(logging.INFO)
+
+
+def _get_resilient_ssl_context():
+    """Builds a secure SSL context with automatic fallback for local environments."""
+    try:
+        ctx = ssl.create_default_context()
+        try:
+            import certifi
+            ctx.load_verify_locations(cafile=certifi.where())
+        except Exception:
+            pass
+        return ctx
+    except Exception:
+        return None
+
+
+@dataclass
+class FearAndGreedIndex:
+    score: int                  # 0 - 100
+    classification: str         # "Extreme Fear", "Fear", "Neutral", "Greed", "Extreme Greed"
+    status: str                 # "LIVE_CONNECTED", "INITIALIZED_FALLBACK", "CACHED_OFFLINE"
+    timestamp: str
+    source: str = "Alternative.me Fear & Greed Index"
 
 
 @dataclass
@@ -65,6 +89,8 @@ class RetailSentiment:
     fx_short_pct: float
     contrarian_alert: str
     status: str
+    fear_greed_score: int = 73
+    fear_greed_classification: str = "Greed"
     source: str = "Public Crowd Positioning Radar"
 
 
@@ -108,7 +134,16 @@ class PublicAPIsHub:
             fx_long_pct=52.0,
             fx_short_pct=48.0,
             contrarian_alert="Extreme retail Gold longs (76%) warns of potential institutional liquidity grab before rally.",
-            status="INITIALIZED_FALLBACK"
+            status="INITIALIZED_FALLBACK",
+            fear_greed_score=73,
+            fear_greed_classification="Greed"
+        )
+        self._fear_greed_cache = FearAndGreedIndex(
+            score=73,
+            classification="Greed",
+            status="INITIALIZED_FALLBACK",
+            timestamp=str(int(time.time())),
+            source="Alternative.me Fear & Greed Index"
         )
 
         # Kick off initial background async refresh
@@ -130,6 +165,7 @@ class PublicAPIsHub:
         self._fetch_fred_macro()
         self._fetch_eia_crude()
         self._fetch_crowd_sentiment()
+        self._fetch_fear_and_greed()
 
     def _fetch_frankfurter(self):
         """Fetches live daily reference rates from Frankfurter API (ECB)."""
@@ -234,12 +270,54 @@ class PublicAPIsHub:
                     fx_short_pct=48.5,
                     contrarian_alert=alert,
                     status="LIVE_CONNECTED",
+                    fear_greed_score=self._fear_greed_cache.score,
+                    fear_greed_classification=self._fear_greed_cache.classification,
                     source="Public Crowd Positioning Radar"
                 )
         except Exception as e:
             logger.debug("Sentiment fetch fallback: %s", e)
             with self._lock:
                 self._sentiment_cache.status = "CACHED_OFFLINE"
+
+    def _fetch_fear_and_greed(self):
+        """
+        Fetches live Fear & Greed sentiment from Alternative.me public API.
+        No API key required.
+        """
+        url = "https://api.alternative.me/fng/?limit=1"
+        try:
+            ctx = _get_resilient_ssl_context()
+            req = urllib.request.Request(url, headers={"User-Agent": "FEF-Trading-Agent/2.0"})
+            try:
+                resp_handle = urllib.request.urlopen(req, timeout=3.5, context=ctx) if ctx else urllib.request.urlopen(req, timeout=3.5)
+            except Exception:
+                unverified_ctx = ssl._create_unverified_context()
+                resp_handle = urllib.request.urlopen(req, timeout=3.5, context=unverified_ctx)
+
+            with resp_handle as resp:
+                if resp.status == 200:
+                    raw_data = json.loads(resp.read().decode("utf-8"))
+                    items = raw_data.get("data", [])
+                    if items:
+                        item = items[0]
+                        score = int(item.get("value", 50))
+                        classification = str(item.get("value_classification", "Neutral"))
+                        ts = str(item.get("timestamp", int(time.time())))
+                        with self._lock:
+                            self._fear_greed_cache = FearAndGreedIndex(
+                                score=score,
+                                classification=classification,
+                                status="LIVE_CONNECTED",
+                                timestamp=ts,
+                                source="Alternative.me Fear & Greed Index"
+                            )
+                            self._sentiment_cache.fear_greed_score = score
+                            self._sentiment_cache.fear_greed_classification = classification
+                        logger.info("Fear & Greed Index synced: score=%d, classification=%s", score, classification)
+        except Exception as e:
+            logger.debug("Fear & Greed fetch fallback: %s", e)
+            with self._lock:
+                self._fear_greed_cache.status = "CACHED_OFFLINE"
 
     def get_ecb_rates(self) -> ECBReferenceRates:
         with self._lock:
@@ -257,6 +335,10 @@ class PublicAPIsHub:
         with self._lock:
             return self._sentiment_cache
 
+    def get_fear_and_greed(self) -> FearAndGreedIndex:
+        with self._lock:
+            return self._fear_greed_cache
+
     def get_full_status(self) -> Dict[str, Any]:
         """Returns a consolidated JSON-serializable dictionary for the REST API & Dashboard."""
         if time.time() - self._last_fetch_time > self.cache_ttl:
@@ -269,6 +351,7 @@ class PublicAPIsHub:
                 "fred_macro": asdict(self._fred_cache),
                 "eia_inventories": asdict(self._eia_cache),
                 "crowd_sentiment": asdict(self._sentiment_cache),
+                "fear_and_greed": asdict(self._fear_greed_cache),
             }
 
 

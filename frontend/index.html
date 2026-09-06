@@ -229,13 +229,23 @@
         </div>
 
         <!-- Upper Floating Session Clock Monitor (Exact Match to Picture) -->
-        <div class="hidden md:flex flex-col items-center bg-slate-950/80 border border-amber-500/40 px-5 py-1 rounded-xl shadow-lg shadow-amber-500/10">
+        <div class="hidden md:flex flex-col items-center bg-slate-950/80 border border-amber-500/40 px-4 py-1 rounded-xl shadow-lg shadow-amber-500/10">
           <div class="text-[9px] font-mono font-bold text-amber-400 tracking-widest uppercase">
             SESSION CLOCK: LONDON OPEN / NY OVERLAP
           </div>
           <div class="text-[11px] font-mono text-slate-300 font-bold" id="session-clock-time">
             (14:32:15 GMT / 09:32:15 EST)
           </div>
+        </div>
+
+        <!-- Economic News Horizon / Blackout Alert Banner -->
+        <div id="news-horizon-badge" class="hidden lg:flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-950/80 border border-slate-800 text-[10px] font-mono transition-all">
+          <span id="news-horizon-icon" class="text-xs">⏳</span>
+          <div>
+            <div class="text-[8px] text-slate-400 uppercase font-bold tracking-wider" id="news-horizon-label">NEWS HORIZON</div>
+            <div class="text-slate-200 font-bold text-[10px] truncate max-w-[170px]" id="news-horizon-detail">Synchronizing...</div>
+          </div>
+          <span id="news-blackout-pill" class="hidden text-[8px] px-1.5 py-0.2 rounded font-bold uppercase bg-red-950 text-red-300 border border-red-500 animate-pulse">BLACKOUT</span>
         </div>
 
         <!-- Ticker Selector Buttons -->
@@ -369,18 +379,18 @@
           </div>
         </div>
 
-        <!-- Feed 4: Retail Crowd Sentiment -->
+        <!-- Feed 4: Retail Crowd Sentiment & Live Fear & Greed -->
         <div class="holo-card px-2.5 py-1.5 text-xs font-mono border border-purple-500/30 flex flex-col justify-between">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span>
               <span class="text-[9px] font-bold text-purple-300 uppercase tracking-wider">Retail Crowd Radar</span>
             </div>
-            <span class="text-[8px] px-1 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800">CONTRARIAN</span>
+            <span class="text-[8px] px-1 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800 font-bold" id="api-fng-badge">F&G: 73 GREED</span>
           </div>
           <div class="mt-0.5 flex items-baseline justify-between">
             <span class="text-[10px] text-slate-300">Gold: <span class="font-bold text-red-400" id="api-sentiment-gold">74.5% Long</span></span>
-            <span class="text-[9px] text-amber-400 font-bold" id="api-sentiment-alert">Trap Alert</span>
+            <span class="text-[9px] text-emerald-400 font-bold" id="api-fng-sentiment">Greed (73)</span>
           </div>
         </div>
       </div>
@@ -1038,6 +1048,34 @@
         document.getElementById("top-equity").innerText = `$${data.account.equity.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
         document.getElementById("mt5-status-badge").innerText = data.mt5_bridge.mode;
 
+        // Economic News Horizon & Blackout Guardian
+        const horizonBadge = document.getElementById("news-horizon-badge");
+        const horizonLabel = document.getElementById("news-horizon-label");
+        const horizonDetail = document.getElementById("news-horizon-detail");
+        const horizonIcon = document.getElementById("news-horizon-icon");
+        const blackoutPill = document.getElementById("news-blackout-pill");
+
+        if (data.next_event && horizonBadge && horizonDetail) {
+          const ev = data.next_event;
+          const isBlackout = !!data.news_blackout;
+          const mins = Math.abs(ev.minutes_remaining);
+          const minsText = mins >= 60 ? `${(mins / 60).toFixed(1)}h` : `${mins.toFixed(0)}m`;
+
+          if (isBlackout) {
+            horizonBadge.className = "hidden lg:flex items-center gap-2 px-3 py-1 rounded-xl bg-red-950/90 border border-red-500/80 text-red-200 shadow-md shadow-red-500/30 animate-pulse transition-all";
+            if (horizonIcon) horizonIcon.innerText = "⚠️";
+            if (horizonLabel) horizonLabel.innerHTML = '<span class="text-red-400 font-black tracking-wider uppercase text-[8px]">NEWS BLACKOUT ACTIVE</span>';
+            horizonDetail.innerHTML = `<span class="text-red-200 font-bold">${ev.name} [${ev.currency}] (${minsText})</span>`;
+            if (blackoutPill) blackoutPill.classList.remove("hidden");
+          } else {
+            horizonBadge.className = "hidden lg:flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-950/80 border border-slate-800 text-[10px] font-mono transition-all";
+            if (horizonIcon) horizonIcon.innerText = "⏳";
+            if (horizonLabel) horizonLabel.innerHTML = '<span class="text-slate-400 font-bold tracking-wider uppercase text-[8px]">NEWS HORIZON</span>';
+            horizonDetail.innerHTML = `<span class="text-slate-300 font-medium">${ev.name} [${ev.currency}] in ${minsText}</span>`;
+            if (blackoutPill) blackoutPill.classList.add("hidden");
+          }
+        }
+
         if (data.account && data.account.equity) {
           currentAccountEquity = data.account.equity;
         }
@@ -1083,6 +1121,27 @@
           }
           if (pf.crowd_sentiment && document.getElementById("api-sentiment-gold")) {
             document.getElementById("api-sentiment-gold").innerText = `${pf.crowd_sentiment.gold_long_pct}% Long`;
+          }
+          if (pf.fear_and_greed || (pf.crowd_sentiment && pf.crowd_sentiment.fear_greed_score)) {
+            const fng = pf.fear_and_greed || {};
+            const score = fng.score !== undefined ? fng.score : pf.crowd_sentiment.fear_greed_score;
+            const cls = fng.classification || pf.crowd_sentiment.fear_greed_classification || "Neutral";
+            const badge = document.getElementById("api-fng-badge");
+            const sentimentEl = document.getElementById("api-fng-sentiment");
+            if (badge) {
+              badge.innerText = `F&G: ${score} ${cls.toUpperCase()}`;
+              if (score >= 60) {
+                badge.className = "text-[8px] px-1 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold";
+              } else if (score <= 40) {
+                badge.className = "text-[8px] px-1 py-0.2 rounded bg-red-950 text-red-300 border border-red-700 font-bold";
+              } else {
+                badge.className = "text-[8px] px-1 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-700 font-bold";
+              }
+            }
+            if (sentimentEl) {
+              sentimentEl.innerText = `${cls} (${score})`;
+              sentimentEl.className = `text-[9px] font-bold ${score >= 60 ? 'text-emerald-400' : score <= 40 ? 'text-red-400' : 'text-amber-400'}`;
+            }
           }
         }
 

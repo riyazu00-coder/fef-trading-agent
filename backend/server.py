@@ -88,6 +88,9 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
                     "low_24h": q.low_24h
                 }
 
+            next_event = economic_calendar.get_next_high_impact_event()
+            news_blackout = next_event.get("news_blackout", False) if next_event else False
+
             data = {
                 "server_time": time.time(),
                 "account": asdict(account),
@@ -95,6 +98,8 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
                 "mt5_bridge": mt5_status,
                 "instruments": quotes,
                 "upcoming_news": economic_calendar.get_upcoming_events(3),
+                "next_event": next_event,
+                "news_blackout": news_blackout,
                 "public_feeds": public_apis_hub.get_full_status()
             }
             return self._send_json(data)

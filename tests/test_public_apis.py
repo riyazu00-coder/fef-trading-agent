@@ -61,6 +61,37 @@ class TestPublicAPIs(unittest.TestCase):
         gold_report = commodity_analyst.analyze("XAUUSD")
         self.assertTrue(any("Retail Crowd Radar" in c for c in gold_report.catalysts))
 
+    def test_fear_and_greed_feed(self):
+        hub = PublicAPIsHub(cache_ttl_seconds=60)
+        status = hub.get_full_status()
+        self.assertIn("fear_and_greed", status)
+        fng = status["fear_and_greed"]
+        self.assertIn("score", fng)
+        self.assertIn("classification", fng)
+        self.assertTrue(0 <= fng["score"] <= 100)
+        self.assertTrue(len(fng["classification"]) > 0)
+        self.assertEqual(fng["source"], "Alternative.me Fear & Greed Index")
+
+        # Retail sentiment should also reflect fear_greed_score
+        sentiment = hub.get_retail_sentiment()
+        self.assertTrue(hasattr(sentiment, "fear_greed_score"))
+        self.assertTrue(0 <= sentiment.fear_greed_score <= 100)
+
+    def test_economic_calendar_news_horizon_and_blackout(self):
+        from backend.data.economic_calendar import EconomicCalendar
+        cal = EconomicCalendar()
+        next_ev = cal.get_next_high_impact_event()
+        self.assertIsNotNone(next_ev)
+        self.assertIn("minutes_remaining", next_ev)
+        self.assertIn("news_blackout", next_ev)
+
+        # Inject event 5 minutes from now -> blackout should be True
+        cal.add_simulated_event("Breaking FOMC Rate Flash", "USD", offset_seconds=300)
+        blackout_ev = cal.get_next_high_impact_event()
+        self.assertIsNotNone(blackout_ev)
+        self.assertTrue(blackout_ev["news_blackout"])
+        self.assertLessEqual(blackout_ev["minutes_remaining"], 6.0)
+
 
 if __name__ == "__main__":
     unittest.main()
