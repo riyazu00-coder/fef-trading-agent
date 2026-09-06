@@ -4,7 +4,7 @@ Serves REST endpoints, runs the multi-agent graph, manages MT5/Paper execution,
 and delivers the 3D Cinematic Command Center.
 """
 
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServer
 import functools
 import hashlib
 import hmac
@@ -30,7 +30,8 @@ from backend.execution.paper_simulator import paper_simulator
 from backend.execution.mt5_socket_bridge import mt5_bridge
 
 
-class ReusableHTTPServer(HTTPServer):
+class ReusableHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
     allow_reuse_address = True
 
     def server_bind(self):
