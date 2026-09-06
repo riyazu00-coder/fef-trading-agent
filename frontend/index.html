@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FEF TRADING AGENT — 3D Cinematic Command Center</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;0,800;1,400&family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@400;600;700&display=swap');
+
+    :root {
+      --gold-glow: #eab308;
+      --cyan-glow: #06b6d4;
+      --green-glow: #10b981;
+      --red-glow: #ef4444;
+      --amber-glow: #f59e0b;
+    }
+
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background-color: #030712;
+      color: #f8fafc;
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    .font-orbitron {
+      font-family: 'Orbitron', monospace;
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* 3D Cinematic Parallax Deck */
+    .deck-viewport {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      perspective: 1000px;
+      z-index: 0;
+    }
+
+    .deck-bg {
+      position: absolute;
+      top: -5%;
+      left: -5%;
+      width: 110%;
+      height: 110%;
+      background: radial-gradient(circle at center, rgba(3,7,18,0.2) 0%, rgba(3,7,18,0.7) 100%), url('assets/command_deck_bg.jpg') no-repeat center center;
+      background-size: cover;
+      transition: transform 0.15s ease-out;
+      filter: contrast(1.08) brightness(0.95);
+    }
+
+    /* Holographic Floating Displays */
+    .holo-card {
+      background: rgba(8, 14, 28, 0.72);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      box-shadow: 0 0 25px rgba(6, 182, 212, 0.15), inset 0 0 15px rgba(56, 189, 248, 0.08);
+      border-radius: 12px;
+      position: relative;
+    }
+
+    .holo-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.8), transparent);
+    }
+
+    .holo-gold {
+      border: 1px solid rgba(234, 179, 8, 0.45) !important;
+      box-shadow: 0 0 30px rgba(234, 179, 8, 0.2), inset 0 0 15px rgba(234, 179, 8, 0.1) !important;
+    }
+
+    .holo-gold::before {
+      background: linear-gradient(90deg, transparent, rgba(234, 179, 8, 0.9), transparent) !important;
+    }
+
+    .holo-amber {
+      border: 1px solid rgba(245, 158, 11, 0.45) !important;
+      box-shadow: 0 0 25px rgba(245, 158, 11, 0.2), inset 0 0 15px rgba(245, 158, 11, 0.1) !important;
+    }
+
+    .holo-green {
+      border: 1px solid rgba(16, 185, 129, 0.45) !important;
+      box-shadow: 0 0 25px rgba(16, 185, 129, 0.2), inset 0 0 15px rgba(16, 185, 129, 0.1) !important;
+    }
+
+    .holo-red {
+      border: 1px solid rgba(239, 68, 68, 0.45) !important;
+      box-shadow: 0 0 25px rgba(239, 68, 68, 0.2), inset 0 0 15px rgba(239, 68, 68, 0.1) !important;
+    }
+
+    /* Ambient Scanline overlay */
+    .scanlines {
+      background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25));
+      background-size: 100% 4px;
+      pointer-events: none;
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      z-index: 5;
+      opacity: 0.6;
+    }
+
+    /* Pulsing animations */
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.85; filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.6)); }
+      50% { opacity: 1; filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.9)); }
+    }
+
+    .glow-active {
+      animation: pulse-glow 2.5s infinite;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: rgba(3, 7, 18, 0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.3); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(56, 189, 248, 0.6); }
+
+    /* Pro Hotkey & Risk Chips styling */
+    .risk-chip {
+      transition: all 0.15s ease;
+      cursor: pointer;
+    }
+    .risk-chip:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.2);
+    }
+    .risk-chip.active-chip {
+      background: rgba(245, 158, 11, 0.45) !important;
+      border-color: rgba(251, 191, 36, 0.9) !important;
+      color: #fef08a !important;
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+    }
+
+    /* Quick Buy/Sell Button Glow */
+    .btn-glow-emerald {
+      box-shadow: 0 0 18px rgba(16, 185, 129, 0.4), inset 0 0 8px rgba(255, 255, 255, 0.2);
+    }
+    .btn-glow-emerald:hover {
+      box-shadow: 0 0 26px rgba(16, 185, 129, 0.7), inset 0 0 10px rgba(255, 255, 255, 0.3);
+    }
+    .btn-glow-rose {
+      box-shadow: 0 0 18px rgba(244, 63, 94, 0.4), inset 0 0 8px rgba(255, 255, 255, 0.2);
+    }
+    .btn-glow-rose:hover {
+      box-shadow: 0 0 26px rgba(244, 63, 94, 0.7), inset 0 0 10px rgba(255, 255, 255, 0.3);
+    }
+
+    /* Cyber HUD Toast */
+    .toast-anim {
+      animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1), fadeOutToast 0.4s ease 3.5s forwards;
+    }
+    @keyframes slideInRight {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes fadeOutToast {
+      to { opacity: 0; transform: translateY(-8px); pointer-events: none; }
+    }
+  </style>
+</head>
+<body class="min-h-screen text-slate-100 flex flex-col justify-between">
+
+  <!-- HUD Toast Notifications Container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- 3D Cinematic Background Deck with Interactive Parallax -->
+  <div class="deck-viewport" id="viewport">
+    <div class="deck-bg" id="bg-deck"></div>
+  </div>
+
+  <!-- Ambient CRT Scanline Overlay -->
+  <div class="scanlines"></div>
+
+  <!-- Interactive HUD Layer -->
+  <div class="relative z-10 p-3 lg:p-5 flex flex-col justify-between min-h-screen max-w-[1920px] mx-auto w-full">
+    
+    <!-- TOP SECTION: Branding, Session Clocks, and Upper Overhead Monitors -->
+    <header class="flex flex-col gap-3">
+      
+      <!-- Main Brand & Global Session Bar -->
+      <div class="holo-card p-3 lg:px-5 lg:py-2.5 flex flex-wrap items-center justify-between gap-4">
+        
+        <!-- Project Title: FEF TRADING AGENT -->
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 via-cyan-500 to-emerald-500 p-0.5 shadow-lg shadow-cyan-500/20">
+            <div class="w-full h-full bg-slate-950 rounded-[7px] flex items-center justify-center font-orbitron font-black text-amber-400 text-lg">
+              FEF
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 class="text-xl lg:text-2xl font-orbitron font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-cyan-300 to-emerald-400">
+                FEF TRADING AGENT
+              </h1>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/50 text-cyan-300 tracking-wider font-bold">
+                COMMODITIES & FX
+              </span>
+            </div>
+            <p class="text-[11px] font-mono text-slate-400 tracking-wide">Autonomous Multi-Agent Institutional Trading Framework</p>
+          </div>
+        </div>
+
+        <!-- Upper Floating Session Clock Monitor (Exact Match to Picture) -->
+        <div class="hidden md:flex flex-col items-center bg-slate-950/80 border border-amber-500/40 px-6 py-1.5 rounded-xl shadow-lg shadow-amber-500/10">
+          <div class="text-[10px] font-mono font-bold text-amber-400 tracking-widest uppercase">
+            SESSION CLOCK: LONDON OPEN / NY OVERLAP
+          </div>
+          <div class="text-xs font-mono text-slate-300 font-bold" id="session-clock-time">
+            (14:32:15 GMT / 09:32:15 EST)
+          </div>
+        </div>
+
+        <!-- Ticker Selector Buttons -->
+        <div class="flex items-center gap-1.5 bg-slate-950/90 p-1.5 rounded-xl border border-slate-800">
+          <button onclick="switchSymbol('XAUUSD')" id="tab-XAUUSD" class="px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all bg-amber-500/20 text-amber-300 border border-amber-500/60 shadow-md shadow-amber-500/20">
+            XAU/USD
+          </button>
+          <button onclick="switchSymbol('USOIL')" id="tab-USOIL" class="px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
+            US OIL
+          </button>
+          <button onclick="switchSymbol('EURUSD')" id="tab-EURUSD" class="px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
+            EUR/USD
+          </button>
+          <button onclick="switchSymbol('GBPUSD')" id="tab-GBPUSD" class="px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
+            GBP/USD
+          </button>
+          <button onclick="switchSymbol('USDJPY')" id="tab-USDJPY" class="px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
+            USD/JPY
+          </button>
+        </div>
+
+        <!-- Audio, Voice & Hotkeys Controls -->
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="toggleAudio()" id="btn-audio-toggle" title="Toggle Sound FX [Shortcut: Mute]" class="px-2.5 py-1 rounded-xl bg-slate-950/90 border border-cyan-500/40 text-cyan-300 font-mono text-[10px] font-bold flex items-center gap-1.5 hover:border-cyan-400 transition-all">
+            <span id="audio-icon">🔊</span>
+            <span id="audio-status-text">AUDIO ON</span>
+          </button>
+          <button type="button" onclick="toggleVoice()" id="btn-voice-toggle" title="Toggle AI Speech Announcements" class="px-2.5 py-1 rounded-xl bg-slate-950/90 border border-purple-500/40 text-purple-300 font-mono text-[10px] font-bold flex items-center gap-1.5 hover:border-purple-400 transition-all">
+            <span id="voice-icon">🗣️</span>
+            <span id="voice-status-text">VOICE ON</span>
+          </button>
+        </div>
+
+        <!-- MT5 Broker Status & Account Value -->
+        <div class="flex items-center gap-4 text-xs font-mono">
+          <div class="flex items-center gap-2 bg-emerald-950/70 border border-emerald-500/50 px-3 py-1 rounded-xl text-emerald-400 shadow-md shadow-emerald-500/10">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span id="mt5-status-badge" class="font-bold">MetaTrader 5 Connected</span>
+          </div>
+          <div class="text-right">
+            <div class="text-slate-400 text-[10px]">ACCOUNT EQUITY</div>
+            <div class="text-emerald-400 font-orbitron font-bold text-sm" id="top-equity">$50,000.00</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Overhead Floating Agent Monitors (Like in the 3D Picture) -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        
+        <!-- Monitor 1: Central Bank & Macro Analyst -->
+        <div class="holo-card p-3 text-xs font-mono flex items-center justify-between border border-cyan-500/30">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>
+            <div>
+              <span class="text-[11px] font-bold text-cyan-300 tracking-wider uppercase">CENTRAL BANK & MACRO ANALYST</span>
+              <div class="text-[10px] text-slate-400">Fed 5.25-5.50% | ECB 3.75% | BOE 5.00% | BOJ 0.25%</div>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 text-[10px] font-bold" id="overhead-macro-bias">
+              BULLISH
+            </span>
+            <div class="text-[10px] text-slate-400 mt-0.5">DXY: <span class="text-slate-200" id="overhead-dxy">101.45</span></div>
+          </div>
+        </div>
+
+        <!-- Monitor 2: Geopolitics & Energy Analyst -->
+        <div class="holo-card p-3 text-xs font-mono flex items-center justify-between border border-amber-500/30">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></div>
+            <div>
+              <span class="text-[11px] font-bold text-amber-300 tracking-wider uppercase">GEOPOLITICAL & OPEC ANALYST</span>
+              <div class="text-[10px] text-slate-400">EIA Crude Stocks | Middle East Risk Premium | Safe-Haven Flows</div>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="px-2 py-0.5 rounded bg-amber-950 text-amber-400 border border-amber-800 text-[10px] font-bold" id="overhead-geo-bias">
+              ELEVATED RISK
+            </span>
+            <div class="text-[10px] text-slate-400 mt-0.5">Gold Reserve Accumulation: <span class="text-emerald-400 font-bold">Active</span></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Institutional Public API Radar (Curated from public-apis catalog) -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <!-- Feed 1: Frankfurter / ECB Reference Rates -->
+        <div class="holo-card p-2.5 text-xs font-mono border border-blue-500/30 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+              <span class="text-[10px] font-bold text-blue-300 uppercase tracking-wider">ECB Benchmark</span>
+            </div>
+            <span class="text-[9px] px-1.5 py-0.2 rounded bg-blue-950 text-blue-300 border border-blue-800" id="api-ecb-status">LIVE</span>
+          </div>
+          <div class="mt-1 flex items-baseline justify-between">
+            <span class="text-[11px] text-slate-300">EUR/USD: <span class="font-bold text-amber-300" id="api-ecb-eurusd">1.0845</span></span>
+            <span class="text-[10px] text-slate-400" id="api-ecb-date">ECB Today</span>
+          </div>
+        </div>
+
+        <!-- Feed 2: FRED US 10Y Yield & DXY -->
+        <div class="holo-card p-2.5 text-xs font-mono border border-emerald-500/30 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span class="text-[10px] font-bold text-emerald-300 uppercase tracking-wider">FRED US 10Y & DXY</span>
+            </div>
+            <span class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800" id="api-fred-status">SYNCED</span>
+          </div>
+          <div class="mt-1 flex items-baseline justify-between">
+            <span class="text-[11px] text-slate-300">Yield: <span class="font-bold text-emerald-400" id="api-fred-yield">4.12%</span> (<span id="api-fred-bps">-3.8 bps</span>)</span>
+            <span class="text-[10px] text-slate-400">DXY: <span class="text-slate-200 font-bold" id="api-fred-dxy">101.35</span></span>
+          </div>
+        </div>
+
+        <!-- Feed 3: U.S. EIA Crude Stocks -->
+        <div class="holo-card p-2.5 text-xs font-mono border border-amber-500/30 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+              <span class="text-[10px] font-bold text-amber-300 uppercase tracking-wider">U.S. EIA Crude Stocks</span>
+            </div>
+            <span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800" id="api-eia-status">ONLINE</span>
+          </div>
+          <div class="mt-1 flex items-baseline justify-between">
+            <span class="text-[11px] text-slate-300">Delta: <span class="font-bold text-emerald-400" id="api-eia-delta">-1.85M bbl</span></span>
+            <span class="text-[10px] text-slate-400">Cushing: <span class="text-slate-200 font-bold" id="api-eia-cushing">48.5%</span></span>
+          </div>
+        </div>
+
+        <!-- Feed 4: Retail Crowd Sentiment -->
+        <div class="holo-card p-2.5 text-xs font-mono border border-purple-500/30 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+              <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Retail Crowd Radar</span>
+            </div>
+            <span class="text-[9px] px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800">CONTRARIAN</span>
+          </div>
+          <div class="mt-1 flex items-baseline justify-between">
+            <span class="text-[11px] text-slate-300">Gold: <span class="font-bold text-red-400" id="api-sentiment-gold">74.5% Long</span></span>
+            <span class="text-[10px] text-amber-400 font-bold" id="api-sentiment-alert">Trap Alert</span>
+          </div>
+        </div>
+      </div>
+
+    </header>
+
+    <!-- CENTER SECTION: Floating Curved Holographic Displays & Candlestick Canvas -->
+    <main class="grid grid-cols-1 lg:grid-cols-12 gap-4 my-3 items-center">
+      
+      <!-- Left Floating Holographic Screen: Target Asset (e.g. Gold / XAUUSD) -->
+      <div class="lg:col-span-4 flex flex-col gap-3">
+        
+        <div class="holo-card holo-gold p-4 transition-all duration-300" id="primary-hologram">
+          <div class="flex justify-between items-start mb-2">
+            <div>
+              <span class="text-[10px] font-mono text-amber-400 tracking-wider font-bold uppercase" id="card-symbol-badge">
+                COMMODITY SPOT
+              </span>
+              <div class="text-2xl lg:text-3xl font-orbitron font-black text-amber-300 tracking-wide flex items-center gap-2" id="hero-price">
+                $2,514.80
+              </div>
+              <span class="text-xs font-mono text-slate-300" id="hero-name">Gold Spot / US Dollar</span>
+            </div>
+            <div class="text-right">
+              <div class="text-sm font-orbitron font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 inline-block" id="hero-change">
+                +1.15%
+              </div>
+              <div class="text-[11px] font-mono text-cyan-300 mt-1">Spread: <span id="hero-spread">1.2 pips</span></div>
+            </div>
+          </div>
+
+          <!-- Multi-Timeframe Toolbar & Chart Header -->
+          <div class="flex flex-wrap items-center justify-between gap-1 mt-2 mb-1 border-b border-slate-800/80 pb-1.5 text-[10px] font-mono">
+            <div class="flex items-center gap-1">
+              <span class="text-cyan-400 font-bold uppercase tracking-wider">TF:</span>
+              <div class="flex items-center gap-0.5 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800">
+                <button type="button" onclick="switchTimeframe('1')" id="tf-1" class="px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-400 hover:text-slate-200">1m</button>
+                <button type="button" onclick="switchTimeframe('3')" id="tf-3" class="px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-400 hover:text-slate-200">3m</button>
+                <button type="button" onclick="switchTimeframe('5')" id="tf-5" class="px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-400 hover:text-slate-200">5m</button>
+                <button type="button" onclick="switchTimeframe('15')" id="tf-15" class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/30 text-amber-300 border border-amber-500/60 shadow-sm">15m</button>
+                <button type="button" onclick="switchTimeframe('30')" id="tf-30" class="px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-400 hover:text-slate-200">30m</button>
+                <button type="button" onclick="switchTimeframe('60')" id="tf-60" class="px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-400 hover:text-slate-200">1h</button>
+                <button type="button" onclick="switchTimeframe('240')" id="tf-240" class="px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-400 hover:text-slate-200">4h</button>
+                <button type="button" onclick="switchTimeframe('D')" id="tf-D" class="px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-400 hover:text-slate-200">1D</button>
+              </div>
+            </div>
+
+            <!-- View Mode Toggle: Real Candlesticks vs AI SMC Radar -->
+            <div class="flex items-center gap-1">
+              <button type="button" onclick="setChartMode('PRO')" id="btn-mode-pro" class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-600 font-bold text-[9px] shadow-sm">REAL CANDLES</button>
+              <button type="button" onclick="setChartMode('SMC')" id="btn-mode-smc" class="px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 text-[9px] hover:text-slate-200">AI SMC</button>
+            </div>
+          </div>
+
+          <!-- Real Interactive Candlestick Chart Viewport -->
+          <div class="relative bg-slate-950/95 rounded-xl border border-cyan-500/30 overflow-hidden shadow-inner my-2" style="min-height: 250px;">
+            <!-- Real TradingView Widget Container -->
+            <div id="tradingview-chart-box" class="w-full h-[250px] relative">
+              <iframe id="tv-widget-iframe" class="w-full h-full border-0 rounded-xl"
+                      src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=OANDA%3AXAUUSD&interval=15&hidesidetoolbar=0&symboledit=0&saveimage=0&toolbarbg=030712&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&overrides=%7B%22paneProperties.background%22%3A%22%23030712%22%2C%22paneProperties.vertGridProperties.color%22%3A%22rgba(56%2C%20189%2C%20248%2C%200.05)%22%2C%22paneProperties.horzGridProperties.color%22%3A%22rgba(56%2C%20189%2C%20248%2C%200.05)%22%7D&locale=en"
+                      allowtransparency="true" scrolling="no" allowfullscreen>
+              </iframe>
+            </div>
+
+            <!-- Alternative AI SMC Structure Canvas (Toggled via AI SMC button) -->
+            <div id="ai-smc-chart-box" class="hidden w-full h-[250px] p-2 flex flex-col justify-between">
+              <div class="flex justify-between text-[10px] font-mono text-slate-400 mb-1 border-b border-slate-800 pb-1">
+                <span class="text-cyan-400 font-bold">SMC ORDER BLOCKS & LIQUIDITY SWEEPS</span>
+                <span class="text-amber-400 font-bold">FAIR VALUE GAPS (FVG)</span>
+              </div>
+              <canvas id="candleCanvas" width="400" height="180" class="w-full h-[180px]"></canvas>
+            </div>
+          </div>
+
+          <div class="flex justify-between text-[10px] font-mono text-slate-400 mb-2 px-1">
+            <span>Support: <span class="text-emerald-400 font-bold" id="chart-support">$4,410.00</span></span>
+            <span class="text-amber-300 font-bold" id="chart-active-tf-label">TF: 15M (Structure)</span>
+            <span>Resistance: <span class="text-red-400 font-bold" id="chart-res">$4,450.00</span></span>
+          </div>
+
+          <!-- SMC Technical Metrics -->
+          <div class="grid grid-cols-3 gap-2 text-center text-xs font-mono bg-slate-950/70 p-2 rounded-lg border border-slate-800">
+            <div>
+              <div class="text-[10px] text-slate-400">RSI (14)</div>
+              <div class="font-bold text-emerald-400" id="tech-rsi-val">58.4</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-400">ATR VOLATILITY</div>
+              <div class="font-bold text-cyan-300" id="tech-atr-val">185 pips</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-400">STRUCTURE</div>
+              <div class="font-bold text-emerald-400" id="tech-bias-val">BULLISH BOS</div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Center Stage: The 3D Clashing Debate Stream (Overlaid on Holographic Bull vs Bear) -->
+      <div class="lg:col-span-4 flex flex-col justify-center">
+        
+        <div class="holo-card p-4 border border-cyan-500/40 bg-slate-950/85">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+              <span class="text-xs font-orbitron font-bold tracking-wider text-amber-300 uppercase">
+                BULL VS. BEAR ARENA
+              </span>
+            </div>
+            <div class="text-xs font-mono">
+              <span class="text-slate-400">Consensus: </span>
+              <span class="font-bold text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-950 border border-emerald-800" id="arena-consensus-badge">+0.76</span>
+            </div>
+          </div>
+
+          <!-- Consensus Ratio Bar -->
+          <div class="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800 mb-3 flex">
+            <div id="meter-bear-bar" class="bg-gradient-to-r from-red-600 to-red-500 h-full transition-all duration-500" style="width: 20%;"></div>
+            <div id="meter-bull-bar" class="bg-gradient-to-r from-amber-400 via-emerald-400 to-emerald-500 h-full transition-all duration-500" style="width: 80%;"></div>
+          </div>
+
+          <!-- Live Debate Dialogue Box -->
+          <div class="space-y-2 max-h-[220px] overflow-y-auto pr-1 text-xs font-mono" id="debate-chat-stream">
+            <!-- Dynamic turns will populate here -->
+          </div>
+
+          <div class="mt-2 pt-2 border-t border-slate-800 text-[11px] font-mono text-slate-400 text-center italic" id="debate-summary-caption">
+            "Bulls hold distinct macro and technical dominance. Target $2,528.30."
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Floating Holographic Screen: Other Major Instruments & Pips -->
+      <div class="lg:col-span-4 flex flex-col gap-2.5">
+        
+        <!-- Multi-Instrument Pip Monitors (US OIL, EUR/USD, GBP/USD, USD/JPY) -->
+        <div class="grid grid-cols-2 gap-2.5">
+          
+          <!-- EUR/USD Card -->
+          <div onclick="switchSymbol('EURUSD')" class="holo-card p-3 cursor-pointer hover:border-cyan-400 transition-all">
+            <div class="flex justify-between text-[11px] font-mono font-bold text-cyan-300">
+              <span>EUR/USD</span>
+              <span class="text-emerald-400">+25.3 pips</span>
+            </div>
+            <div class="text-xl font-orbitron font-bold text-slate-100 mt-1" id="pip-eurusd">1.1095</div>
+            <div class="text-[10px] font-mono text-slate-400 mt-0.5">Spread: 0.8 pips</div>
+          </div>
+
+          <!-- GBP/USD Card -->
+          <div onclick="switchSymbol('GBPUSD')" class="holo-card p-3 cursor-pointer hover:border-emerald-400 transition-all">
+            <div class="flex justify-between text-[11px] font-mono font-bold text-emerald-300">
+              <span>GBP/USD</span>
+              <span class="text-emerald-400">+18.7 pips</span>
+            </div>
+            <div class="text-xl font-orbitron font-bold text-slate-100 mt-1" id="pip-gbpusd">1.3040</div>
+            <div class="text-[10px] font-mono text-slate-400 mt-0.5">Spread: 1.1 pips</div>
+          </div>
+
+          <!-- US OIL Card -->
+          <div onclick="switchSymbol('USOIL')" class="holo-card holo-amber p-3 cursor-pointer hover:border-amber-400 transition-all">
+            <div class="flex justify-between text-[11px] font-mono font-bold text-amber-300">
+              <span>US OIL (WTI)</span>
+              <span class="text-red-400">-0.85%</span>
+            </div>
+            <div class="text-xl font-orbitron font-bold text-amber-200 mt-1" id="pip-usoil">$74.20</div>
+            <div class="text-[10px] font-mono text-slate-400 mt-0.5">EIA Build: +1.4M bbl</div>
+          </div>
+
+          <!-- USD/JPY Card -->
+          <div onclick="switchSymbol('USDJPY')" class="holo-card holo-red p-3 cursor-pointer hover:border-red-400 transition-all">
+            <div class="flex justify-between text-[11px] font-mono font-bold text-red-300">
+              <span>USD/JPY</span>
+              <span class="text-red-400">-41.2 pips</span>
+            </div>
+            <div class="text-xl font-orbitron font-bold text-slate-100 mt-1" id="pip-usdjpy">147.60</div>
+            <div class="text-[10px] font-mono text-slate-400 mt-0.5">BOJ Hike Bias</div>
+          </div>
+
+        </div>        <!-- Open Positions HUD with One-Click Break-Even and Close-All -->
+        <div class="holo-card p-3 text-xs font-mono max-h-[160px] overflow-y-auto">
+          <div class="flex justify-between items-center mb-1.5 border-b border-slate-800 pb-1 text-[11px] font-bold text-slate-300">
+            <div class="flex items-center gap-2">
+              <span>ACTIVE BROKER POSITIONS</span>
+              <span class="text-emerald-400 font-bold" id="positions-count-text">0 Open</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="triggerBreakEven()" title="Move SL to Entry +1 pip buffer [Shortcut: Space]" class="text-[9px] font-mono px-2 py-0.5 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-500/60 text-cyan-300 font-bold flex items-center gap-1 transition-all active:scale-95 shadow-sm">
+                <span>🛡️ BREAK-EVEN</span>
+                <span class="text-[8px] bg-cyan-900 px-1 rounded text-cyan-200">Space</span>
+              </button>
+              <button type="button" onclick="triggerCloseAll()" title="Close All Open Positions Immediately [Shortcut: X]" class="text-[9px] font-mono px-2 py-0.5 rounded bg-rose-950 hover:bg-rose-900 border border-rose-500/60 text-rose-300 font-bold flex items-center gap-1 transition-all active:scale-95 shadow-sm">
+                <span>🚨 CLOSE ALL</span>
+                <span class="text-[8px] bg-rose-900 px-1 rounded text-rose-200">X</span>
+              </button>
+            </div>
+          </div>
+          <div class="space-y-1.5" id="open-positions-container">
+            <div class="text-center text-slate-500 py-3 text-[11px]">No active broker positions</div>
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+
+    <!-- BOTTOM SECTION: Illuminated Command Deck Trade Panel -->
+    <footer class="holo-card p-3 lg:px-5 lg:py-3 mt-2 border-t-2 border-cyan-400/50 shadow-2xl shadow-cyan-500/20">
+      
+      <div class="flex flex-col lg:flex-row items-center justify-between gap-4 font-mono">
+        
+        <!-- Live Order Parameters & Option B Risk Sizing -->
+        <div class="flex flex-wrap items-center gap-3 text-xs md:text-sm">
+          <div class="px-2.5 py-1 rounded bg-amber-500/20 border border-amber-500/50 text-amber-300 font-bold" id="deck-symbol-pill">
+            TRADE PANEL: XAU/USD
+          </div>
+          
+          <!-- Manual Lot Selector & Dollar-Risk Chips -->
+          <div class="flex flex-col gap-1 bg-slate-950/90 px-2.5 py-1 rounded-xl border border-cyan-500/50 shadow-inner">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-cyan-300 font-mono font-bold tracking-wider uppercase">LOT:</span>
+              <input type="number" id="manual-lot-input" value="1.00" step="0.01" min="0.01" max="50.0" 
+                     onchange="onManualLotChange()" oninput="onManualLotChange()"
+                     class="w-16 bg-slate-900 border border-cyan-500/40 text-amber-300 font-mono font-bold text-xs px-2 py-0.5 rounded text-center focus:border-amber-400 focus:outline-none" />
+              
+              <div class="flex items-center gap-1">
+                <button type="button" onclick="setManualLot(0.01)" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">0.01</button>
+                <button type="button" onclick="setManualLot(0.10)" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">0.10</button>
+                <button type="button" onclick="setManualLot(1.00)" id="pill-lot-1" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-300 border border-amber-500/60 font-bold">1.00</button>
+                <button type="button" onclick="setManualLot('AUTO')" id="pill-lot-auto" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 hover:bg-cyan-900">AI AUTO</button>
+              </div>
+            </div>
+
+            <!-- Option B: Dollar-Risk Sizing Chips (Calculates Lot for Guaranteed 100-Pip Stop) -->
+            <div class="flex items-center gap-1 pt-1 border-t border-slate-800/80">
+              <span class="text-[9px] text-amber-400/90 font-mono font-bold tracking-wider">RISK:</span>
+              <button type="button" onclick="setRiskLot(100)" id="chip-risk-100" class="risk-chip text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/40 font-bold transition-all">$100</button>
+              <button type="button" onclick="setRiskLot(250)" id="chip-risk-250" class="risk-chip text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/40 font-bold transition-all">$250</button>
+              <button type="button" onclick="setRiskLot(500)" id="chip-risk-500" class="risk-chip text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/40 font-bold transition-all">$500</button>
+              <button type="button" onclick="setRiskLot(1000)" id="chip-risk-1000" class="risk-chip text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/40 font-bold transition-all">$1,000</button>
+              <button type="button" onclick="setRiskLot(0.5, true)" id="chip-risk-p05" class="risk-chip text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 border border-cyan-500/40 font-bold transition-all">0.5%</button>
+              <button type="button" onclick="setRiskLot(1.0, true)" id="chip-risk-p10" class="risk-chip text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 border border-cyan-500/40 font-bold transition-all">1.0%</button>
+            </div>
+          </div>
+
+          <div class="text-slate-300">
+            Action: <span class="font-bold text-emerald-400" id="deck-action">BUY</span>
+          </div>
+          <div class="text-slate-300">
+            Entry: <span class="font-bold text-slate-100" id="deck-entry">4,430.26</span>
+          </div>
+          
+          <!-- Auto 100 Pips Stop Loss Guaranteed Badge -->
+          <div class="text-red-400 flex items-center gap-1.5">
+            <span class="text-[9px] px-1.5 py-0.5 rounded bg-red-950/90 border border-red-500/60 text-red-300 font-bold uppercase tracking-wider">AUTO 100p SL</span>
+            <span class="font-bold" id="deck-sl">4,420.26 (-100 p)</span>
+          </div>
+          <div class="text-emerald-400 flex items-center gap-1.5">
+            <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/90 border border-emerald-500/60 text-emerald-300 font-bold uppercase tracking-wider">TP</span>
+            <span class="font-bold" id="deck-tp">4,455.26 (+200 p)</span>
+          </div>
+        </div>
+
+        <!-- Option A: Dual One-Click Instant BUY / SELL Buttons & Actions -->
+        <div class="flex items-center gap-2.5 w-full lg:w-auto">
+          
+          <!-- Instant 1-Click BUY Button -->
+          <button type="button" onclick="quickExecute('BUY')" id="btn-quick-buy" class="btn-glow-emerald px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-orbitron font-black text-xs tracking-wider transition-all transform active:scale-95 flex flex-col items-center justify-center min-w-[125px]">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-slate-950 animate-ping"></span>
+              <span>BUY (100p SL)</span>
+              <kbd class="text-[8px] bg-slate-950/80 text-emerald-300 px-1 rounded font-mono">B</kbd>
+            </div>
+            <span class="text-[10px] font-mono text-emerald-950 font-bold mt-0.5" id="quick-buy-price">@ 4,430.31</span>
+          </button>
+
+          <!-- Instant 1-Click SELL Button -->
+          <button type="button" onclick="quickExecute('SELL')" id="btn-quick-sell" class="btn-glow-rose px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-slate-100 font-orbitron font-black text-xs tracking-wider transition-all transform active:scale-95 flex flex-col items-center justify-center min-w-[125px]">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-rose-200 animate-ping"></span>
+              <span>SELL (100p SL)</span>
+              <kbd class="text-[8px] bg-slate-950/80 text-rose-300 px-1 rounded font-mono">S</kbd>
+            </div>
+            <span class="text-[10px] font-mono text-rose-200 font-bold mt-0.5" id="quick-sell-price">@ 4,430.26</span>
+          </button>
+
+          <button type="button" onclick="runMultiAgentAnalysis(currentActiveSymbol)" class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-mono text-xs font-bold transition-all shadow-md flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            <span class="hidden sm:inline">ANALYZE</span>
+          </button>
+
+          <button type="button" onclick="executeBrokerOrder()" id="btn-main-execute" class="flex-1 lg:flex-none px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-orbitron font-black text-xs tracking-wider transition-all shadow-lg shadow-cyan-500/20 transform active:scale-95 flex items-center justify-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            <span class="hidden sm:inline">CONFIRM & EXECUTE</span>
+          </button>
+
+        </div>
+
+      </div>
+
+      <!-- Hotkeys Legend Footer Bar -->
+      <div class="mt-2 pt-1.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-[10px] font-mono text-slate-400">
+        <div class="flex items-center gap-2">
+          <span class="text-cyan-400 font-bold uppercase tracking-wider">HOTKEYS:</span>
+          <span><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-emerald-300 font-bold">B</kbd> BUY</span>
+          <span><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-rose-300 font-bold">S</kbd> SELL</span>
+          <span><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-red-300 font-bold">X</kbd> CLOSE ALL</span>
+          <span><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-cyan-300 font-bold">Space</kbd> BREAK-EVEN</span>
+          <span class="hidden md:inline"><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-amber-300 font-bold">1</kbd> GOLD</span>
+          <span class="hidden md:inline"><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-blue-300 font-bold">2</kbd> EUR/USD</span>
+          <span class="hidden md:inline"><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-purple-300 font-bold">3</kbd> GBP/USD</span>
+          <span class="hidden md:inline"><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-amber-400 font-bold">4</kbd> OIL</span>
+          <span class="hidden md:inline"><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-rose-300 font-bold">5</kbd> USD/JPY</span>
+        </div>
+        <div class="text-[9px] text-slate-500 font-bold">
+          ⚡ GUARANTEED 100-PIP STOP LOSS AUTO-ATTACHED TO ALL EXECUTIONS
+        </div>
+      </div>
+
+    </footer>
+
+  </div>
+
+  <!-- Client Logic & Live Canvas Rendering -->
+  <script>
+    let currentActiveSymbol = "XAUUSD";
+    let activeAnalysisData = null;
+
+    // --- Interactive 3D Parallax Tracking ---
+    const viewport = document.getElementById("viewport");
+    const bgDeck = document.getElementById("bg-deck");
+    window.addEventListener("mousemove", (e) => {
+      const x = (e.clientX / window.innerWidth - 0.5) * 20;
+      const y = (e.clientY / window.innerHeight - 0.5) * 15;
+      bgDeck.style.transform = `translate3d(${x}px, ${y}px, 0px) scale(1.04)`;
+    });
+
+    // --- Live Canvas Candlestick Chart Renderer ---
+    const canvas = document.getElementById("candleCanvas");
+    const ctx = canvas.getContext("2d");
+
+    function renderCandles(symbol, basePrice) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw subtle grid
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.08)";
+      ctx.lineWidth = 1;
+      for (let y = 20; y < canvas.height; y += 30) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      // Draw 18 procedural candlesticks
+      const candleCount = 18;
+      const step = canvas.width / candleCount;
+      let curr = basePrice - 10;
+
+      // Draw FVG Zone box in the center
+      ctx.fillStyle = "rgba(234, 179, 8, 0.12)";
+      ctx.strokeStyle = "rgba(234, 179, 8, 0.4)";
+      ctx.fillRect(step * 9, 35, step * 4, 60);
+      ctx.strokeRect(step * 9, 35, step * 4, 60);
+
+      for (let i = 0; i < candleCount; i++) {
+        const x = i * step + step / 2;
+        const drift = (Math.sin(i * 0.7) + (i > 10 ? 1.2 : -0.2)) * 6;
+        const open = 90 - drift;
+        const close = open + (i % 2 === 0 ? -12 : 14);
+        const high = Math.min(open, close) - 10;
+        const low = Math.max(open, close) + 10;
+        const isBullish = close < open; // canvas inverted y
+
+        // Wick
+        ctx.strokeStyle = isBullish ? "#10b981" : "#ef4444";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x, high);
+        ctx.lineTo(x, low);
+        ctx.stroke();
+
+        // Body
+        ctx.fillStyle = isBullish ? "#10b981" : "#ef4444";
+        ctx.fillRect(x - step * 0.3, Math.min(open, close), step * 0.6, Math.max(Math.abs(close - open), 3));
+      }
+
+      // Draw glowing EMA line
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "#38bdf8";
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      for (let i = 0; i < candleCount; i++) {
+        const x = i * step + step / 2;
+        const y = 80 - Math.sin(i * 0.6) * 18 - (i > 10 ? 15 : 0);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0; // reset
+    }
+
+    // --- Option B: Dollar-Risk Sizing & Instrument Specifications ---
+    const INSTRUMENT_SPECS = {
+      "XAUUSD": { pip_size: 0.10, tick_value_per_lot: 10.0, digits: 2, name: "Gold" },
+      "USOIL":  { pip_size: 0.01, tick_value_per_lot: 10.0, digits: 2, name: "US Oil" },
+      "EURUSD": { pip_size: 0.0001, tick_value_per_lot: 10.0, digits: 5, name: "EUR/USD" },
+      "GBPUSD": { pip_size: 0.0001, tick_value_per_lot: 10.0, digits: 5, name: "GBP/USD" },
+      "USDJPY": { pip_size: 0.01, tick_value_per_lot: 6.80, digits: 3, name: "USD/JPY" }
+    };
+
+    let userSelectedLot = 1.00;
+    let isAutoLot = false;
+    let currentAccountEquity = 50000.0;
+
+    function setManualLot(val) {
+      document.querySelectorAll(".risk-chip").forEach(c => c.classList.remove("active-chip"));
+      if (typeof soundFX === 'function') soundFX('chip');
+
+      if (val === 'AUTO') {
+        isAutoLot = true;
+        document.getElementById("pill-lot-auto").className = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500 text-slate-950 font-black border border-cyan-300";
+        const p1 = document.getElementById("pill-lot-1");
+        if (p1) p1.className = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700";
+        runMultiAgentAnalysis(currentActiveSymbol);
+      } else {
+        isAutoLot = false;
+        userSelectedLot = parseFloat(val);
+        document.getElementById("manual-lot-input").value = userSelectedLot.toFixed(2);
+        document.getElementById("pill-lot-auto").className = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 hover:bg-cyan-900";
+        runMultiAgentAnalysis(currentActiveSymbol);
+      }
+    }
+
+    function onManualLotChange() {
+      document.querySelectorAll(".risk-chip").forEach(c => c.classList.remove("active-chip"));
+      const val = parseFloat(document.getElementById("manual-lot-input").value);
+      if (!isNaN(val) && val > 0) {
+        userSelectedLot = val;
+        isAutoLot = false;
+        document.getElementById("pill-lot-auto").className = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 hover:bg-cyan-900";
+        runMultiAgentAnalysis(currentActiveSymbol);
+      }
+    }
+
+    function setRiskLot(riskVal, isPct = false) {
+      if (typeof soundFX === 'function') soundFX('chip');
+      isAutoLot = false;
+      document.getElementById("pill-lot-auto").className = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 hover:bg-cyan-900";
+      
+      const spec = INSTRUMENT_SPECS[currentActiveSymbol] || INSTRUMENT_SPECS["XAUUSD"];
+      // For 100 pips stop loss distance:
+      const lossPerLot = 100.0 * spec.tick_value_per_lot;
+      
+      const dollarRisk = isPct ? ((currentAccountEquity || 50000.0) * (riskVal / 100.0)) : riskVal;
+      let calculatedLot = dollarRisk / lossPerLot;
+      calculatedLot = Math.max(0.01, Math.min(50.0, Math.round(calculatedLot * 100) / 100));
+
+      userSelectedLot = calculatedLot;
+      document.getElementById("manual-lot-input").value = calculatedLot.toFixed(2);
+
+      // Highlight clicked risk chip
+      document.querySelectorAll(".risk-chip").forEach(c => c.classList.remove("active-chip"));
+      const chipId = isPct ? (riskVal === 0.5 ? "chip-risk-p05" : "chip-risk-p10") : `chip-risk-${riskVal}`;
+      const activeEl = document.getElementById(chipId);
+      if (activeEl) activeEl.classList.add("active-chip");
+
+      if (typeof showExecutionToast === 'function') {
+        showExecutionToast(`⚡ Sizing: $${dollarRisk.toFixed(0)} (${isPct ? riskVal + '%' : 'Fixed'}) = ${calculatedLot.toFixed(2)} Lots for 100p SL`, 'info');
+      }
+      runMultiAgentAnalysis(currentActiveSymbol);
+    }
+
+    // --- Real Multi-Timeframe Chart Controller ---
+    let currentActiveTimeframe = '15';
+    let currentChartMode = 'PRO'; // 'PRO' or 'SMC'
+
+    const TV_SYMBOLS = {
+      "XAUUSD": "OANDA:XAUUSD",
+      "USOIL": "TVC:USOIL",
+      "EURUSD": "FX:EURUSD",
+      "GBPUSD": "FX:GBPUSD",
+      "USDJPY": "FX:USDJPY"
+    };
+
+    const TF_LABELS = {
+      "1": "TF: 1M (Scalp)",
+      "3": "TF: 3M (Fast Momentum)",
+      "5": "TF: 5M (Intraday)",
+      "15": "TF: 15M (Structure)",
+      "30": "TF: 30M (Session Trend)",
+      "60": "TF: 1H (Swing)",
+      "240": "TF: 4H (Macro)",
+      "D": "TF: 1D (Daily)"
+    };
+
+    function updateTradingViewChart(sym, tf) {
+      const tvSym = encodeURIComponent(TV_SYMBOLS[sym] || "OANDA:XAUUSD");
+      const iframe = document.getElementById("tv-widget-iframe");
+      if (iframe) {
+        iframe.src = `https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${tvSym}&interval=${tf}&hidesidetoolbar=0&symboledit=0&saveimage=0&toolbarbg=030712&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&overrides=%7B%22paneProperties.background%22%3A%22%23030712%22%2C%22paneProperties.vertGridProperties.color%22%3A%22rgba(56%2C%20189%2C%20248%2C%200.05)%22%2C%22paneProperties.horzGridProperties.color%22%3A%22rgba(56%2C%20189%2C%20248%2C%200.05)%22%7D&locale=en`;
+      }
+      const tfLabel = document.getElementById("chart-active-tf-label");
+      if (tfLabel) {
+        tfLabel.innerText = TF_LABELS[tf] || `TF: ${tf}`;
+      }
+    }
+
+    function switchTimeframe(tf) {
+      currentActiveTimeframe = tf;
+      ['1', '3', '5', '15', '30', '60', '240', 'D'].forEach(t => {
+        const el = document.getElementById(`tf-${t}`);
+        if (el) {
+          if (t === tf) {
+            el.className = "px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/30 text-amber-300 border border-amber-500/60 shadow-sm";
+          } else {
+            el.className = "px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-400 hover:text-slate-200";
+          }
+        }
+      });
+      updateTradingViewChart(currentActiveSymbol, tf);
+    }
+
+    function setChartMode(mode) {
+      currentChartMode = mode;
+      const tvBox = document.getElementById("tradingview-chart-box");
+      const smcBox = document.getElementById("ai-smc-chart-box");
+      const btnPro = document.getElementById("btn-mode-pro");
+      const btnSmc = document.getElementById("btn-mode-smc");
+
+      if (mode === 'PRO') {
+        tvBox.classList.remove("hidden");
+        smcBox.classList.add("hidden");
+        btnPro.className = "px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-600 font-bold text-[9px] shadow-sm";
+        btnSmc.className = "px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 text-[9px] hover:text-slate-200";
+      } else {
+        tvBox.classList.add("hidden");
+        smcBox.classList.remove("hidden");
+        btnSmc.className = "px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600 font-bold text-[9px] shadow-sm";
+        btnPro.className = "px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 text-[9px] hover:text-slate-200";
+        if (activeAnalysisData && activeAnalysisData.technical_report) {
+          renderCandles(currentActiveSymbol, activeAnalysisData.technical_report.current_price);
+        }
+      }
+    }
+
+    // --- Switch Symbol & Run Analysis ---
+    function switchSymbol(sym) {
+      currentActiveSymbol = sym;
+      document.querySelectorAll('[id^="tab-"]').forEach(b => {
+        b.className = "px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200";
+      });
+      const activeTab = document.getElementById(`tab-${sym}`);
+      if (activeTab) {
+        activeTab.className = "px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all bg-amber-500/20 text-amber-300 border border-amber-500/60 shadow-md shadow-amber-500/20";
+      }
+      updateTradingViewChart(sym, currentActiveTimeframe);
+      runMultiAgentAnalysis(sym);
+    }
+
+    async function runMultiAgentAnalysis(sym) {
+      try {
+        let url = `/api/analyze?symbol=${sym}`;
+        if (!isAutoLot && userSelectedLot > 0) {
+          url += `&lot_size=${userSelectedLot}`;
+        }
+        const res = await fetch(url);
+        const data = await res.json();
+        activeAnalysisData = data;
+        updateUIWithData(data);
+      } catch (e) {
+        console.error("Analysis error:", e);
+      }
+    }
+
+    function updateUIWithData(data) {
+      const tech = data.technical_report;
+      const macro = data.macro_report;
+      const debate = data.debate_outcome;
+      const ticket = data.order_ticket;
+
+      // Update Hero Hologram
+      document.getElementById("card-symbol-badge").innerText = tech.setup_direction + " SETUP (" + data.symbol + ")";
+      document.getElementById("hero-price").innerText = `$${tech.current_price}`;
+      document.getElementById("hero-name").innerText = data.symbol === 'XAUUSD' ? 'Gold Spot / US Dollar' :
+                                                       data.symbol === 'USOIL' ? 'WTI Crude Oil' :
+                                                       data.symbol === 'EURUSD' ? 'Euro / US Dollar' :
+                                                       data.symbol === 'GBPUSD' ? 'British Pound / US Dollar' : 'US Dollar / Japanese Yen';
+      document.getElementById("hero-spread").innerText = `${tech.atr_pips > 50 ? '1.2' : '0.8'} pips`;
+      document.getElementById("chart-support").innerText = `$${tech.key_support}`;
+      document.getElementById("chart-res").innerText = `$${tech.key_resistance}`;
+      document.getElementById("tech-rsi-val").innerText = tech.rsi_14;
+      document.getElementById("tech-atr-val").innerText = `${tech.atr_pips} pips`;
+      document.getElementById("tech-bias-val").innerText = tech.trend_bias;
+
+      // Update Overhead Monitors
+      document.getElementById("overhead-macro-bias").innerText = macro.bias;
+      document.getElementById("overhead-dxy").innerText = macro.dxy_status;
+
+      // Update Debate Arena
+      document.getElementById("arena-consensus-badge").innerText = `${debate.consensus_score > 0 ? '+' : ''}${debate.consensus_score.toFixed(2)}`;
+      const bullPct = Math.round((debate.consensus_score + 1) / 2 * 100);
+      document.getElementById("meter-bull-bar").style.width = `${bullPct}%`;
+      document.getElementById("meter-bear-bar").style.width = `${100 - bullPct}%`;
+      document.getElementById("debate-summary-caption").innerText = `"${debate.debate_summary}"`;
+
+      // Render debate dialogue turns
+      const chatStream = document.getElementById("debate-chat-stream");
+      chatStream.innerHTML = "";
+      debate.turns.forEach(t => {
+        const isBull = t.speaker.includes("Bull");
+        const bubble = document.createElement("div");
+        bubble.className = `p-2 rounded-lg border ${isBull ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200' : 'bg-red-950/40 border-red-500/40 text-red-200'}`;
+        bubble.innerHTML = `
+          <div class="flex justify-between font-bold text-[10px] ${isBull ? 'text-emerald-400' : 'text-red-400'} mb-0.5">
+            <span>${t.speaker}</span>
+            <span>Target: $${t.target_price}</span>
+          </div>
+          <p class="text-[11px] leading-tight text-slate-300">${t.argument}</p>
+        `;
+        chatStream.appendChild(bubble);
+      });
+
+      // Update Bottom Illuminated Trade Panel
+      document.getElementById("deck-symbol-pill").innerText = `TRADE PANEL: ${data.symbol}`;
+      if (isAutoLot && document.getElementById("manual-lot-input")) {
+        document.getElementById("manual-lot-input").value = ticket.lot_size.toFixed(2);
+      }
+      document.getElementById("deck-action").innerText = ticket.action;
+      document.getElementById("deck-action").className = `font-bold ${ticket.action === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`;
+      document.getElementById("deck-entry").innerText = `$${ticket.entry_price}`;
+      document.getElementById("deck-sl").innerText = `$${ticket.stop_loss} (-${ticket.stop_pips} p)`;
+      document.getElementById("deck-tp").innerText = `$${ticket.take_profit} (+${ticket.tp_pips} p)`;
+
+      // Render Candlesticks on canvas
+      renderCandles(data.symbol, tech.current_price);
+    }
+
+    // --- Polling Broker Status & Quotes ---
+    async function pollLiveEngine() {
+      try {
+        const res = await fetch("/api/status");
+        const data = await res.json();
+        
+        // Clock
+        const d = new Date(data.server_time * 1000);
+        document.getElementById("session-clock-time").innerText = `(${d.toUTCString().slice(17, 25)} GMT / 09:32:15 EST)`;
+        document.getElementById("top-equity").innerText = `$${data.account.equity.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+        document.getElementById("mt5-status-badge").innerText = data.mt5_bridge.mode;
+
+        if (data.account && data.account.equity) {
+          currentAccountEquity = data.account.equity;
+        }
+
+        // Live Active Instrument (Gold, Oil, FX)
+        if (data.instruments[currentActiveSymbol]) {
+          const q = data.instruments[currentActiveSymbol];
+          document.getElementById("hero-price").innerText = `$${q.bid}`;
+          document.getElementById("hero-spread").innerText = `${q.spread_pips} pips`;
+          document.getElementById("hero-change").innerText = `${q.change_pct >= 0 ? '+' : ''}${q.change_pct}%`;
+          document.getElementById("deck-entry").innerText = `$${q.bid}`;
+          const qBuy = document.getElementById("quick-buy-price");
+          if (qBuy) qBuy.innerText = `@ ${q.ask}`;
+          const qSell = document.getElementById("quick-sell-price");
+          if (qSell) qSell.innerText = `@ ${q.bid}`;
+        }
+
+        // Pip card prices
+        if (data.instruments["EURUSD"]) document.getElementById("pip-eurusd").innerText = data.instruments["EURUSD"].bid;
+        if (data.instruments["GBPUSD"]) document.getElementById("pip-gbpusd").innerText = data.instruments["GBPUSD"].bid;
+        if (data.instruments["USOIL"]) document.getElementById("pip-usoil").innerText = `$${data.instruments["USOIL"].bid}`;
+        if (data.instruments["USDJPY"]) document.getElementById("pip-usdjpy").innerText = data.instruments["USDJPY"].bid;
+
+        // Populate Public API Radar Feeds
+        if (data.public_feeds) {
+          const pf = data.public_feeds;
+          if (pf.ecb_rates && document.getElementById("api-ecb-eurusd")) {
+            document.getElementById("api-ecb-eurusd").innerText = pf.ecb_rates.eurusd;
+            document.getElementById("api-ecb-date").innerText = pf.ecb_rates.effective_date;
+            document.getElementById("api-ecb-status").innerText = pf.ecb_rates.status.replace("_", " ");
+          }
+          if (pf.fred_macro && document.getElementById("api-fred-yield")) {
+            document.getElementById("api-fred-yield").innerText = `${pf.fred_macro.us10y_yield}%`;
+            document.getElementById("api-fred-bps").innerText = `${pf.fred_macro.us10y_change_bps > 0 ? '+' : ''}${pf.fred_macro.us10y_change_bps} bps`;
+            document.getElementById("api-fred-dxy").innerText = pf.fred_macro.dxy_index;
+            document.getElementById("overhead-dxy").innerText = pf.fred_macro.dxy_index;
+          }
+          if (pf.eia_inventories && document.getElementById("api-eia-delta")) {
+            const delta = pf.eia_inventories.weekly_change_mbbl;
+            document.getElementById("api-eia-delta").innerText = `${delta > 0 ? '+' : ''}${delta}M bbl`;
+            document.getElementById("api-eia-delta").className = `font-bold ${delta < 0 ? 'text-emerald-400' : 'text-red-400'}`;
+            document.getElementById("api-eia-cushing").innerText = `${pf.eia_inventories.cushing_capacity_pct}%`;
+          }
+          if (pf.crowd_sentiment && document.getElementById("api-sentiment-gold")) {
+            document.getElementById("api-sentiment-gold").innerText = `${pf.crowd_sentiment.gold_long_pct}% Long`;
+          }
+        }
+
+        // Render Positions
+        renderOpenPositions(data.account.open_positions);
+      } catch (e) {
+        console.error("Poll error:", e);
+      }
+    }
+
+    function renderOpenPositions(positions) {
+      const container = document.getElementById("open-positions-container");
+      document.getElementById("positions-count-text").innerText = `${positions.length} Open`;
+      if (!positions || positions.length === 0) {
+        container.innerHTML = '<div class="text-center text-slate-500 py-3 text-[11px]">No active broker positions</div>';
+        return;
+      }
+      container.innerHTML = "";
+      positions.forEach(p => {
+        const isProfit = p.floating_pnl_usd >= 0;
+        const row = document.createElement("div");
+        row.className = "flex justify-between items-center p-1.5 rounded bg-slate-950/80 border border-slate-800 text-[11px]";
+        row.innerHTML = `
+          <div>
+            <span class="font-bold ${p.action === 'BUY' ? 'text-emerald-400' : 'text-red-400'}">${p.symbol} ${p.action}</span>
+            <span class="text-slate-400"> ${p.lots}L @ ${p.entry_price}</span>
+            <span class="text-red-400 text-[9px] ml-1">SL: ${p.stop_loss || 'Auto 100p'}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold ${isProfit ? 'text-emerald-400' : 'text-red-400'}">${isProfit ? '+' : ''}$${p.floating_pnl_usd.toFixed(2)}</span>
+            <button onclick="closeBrokerPosition(${p.ticket_id})" class="text-[9px] px-1.5 py-0.5 rounded bg-red-950 border border-red-800 text-red-300 hover:bg-red-900 active:scale-95">Close</button>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    // --- Option A: Quick Instant BUY / SELL Execution ---
+    async function quickExecute(action) {
+      soundFX(action === 'BUY' ? 'buy' : 'sell');
+      const lotVal = parseFloat(document.getElementById("manual-lot-input").value) || userSelectedLot || 1.00;
+      const btn = document.getElementById(action === 'BUY' ? 'btn-quick-buy' : 'btn-quick-sell');
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add("opacity-70");
+      }
+
+      try {
+        const res = await fetch("/api/quick_execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbol: currentActiveSymbol,
+            action: action,
+            lot_size: lotVal
+          })
+        });
+        const data = await res.json();
+        if (data.status === "EXECUTED") {
+          const ticket = data.ticket;
+          const spec = INSTRUMENT_SPECS[currentActiveSymbol] || { name: currentActiveSymbol };
+          speakVoice(`${action} ${lotVal.toFixed(2)} Lot ${spec.name} executed. 100-pip Stop Loss active at ${ticket.stop_loss}.`);
+          showExecutionToast(`⚡ ${action} ${lotVal.toFixed(2)}L ${currentActiveSymbol} FILLED! 100p SL: ${ticket.stop_loss}`, 'success');
+          pollLiveEngine();
+        } else {
+          showExecutionToast(`Execution Error: ${data.error || 'Failed'}`, 'error');
+        }
+      } catch (err) {
+        showExecutionToast(`Execution Failed: ${err.message}`, 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove("opacity-70");
+        }
+      }
+    }
+
+    // --- Option A: One-Click Break-Even & Close All Management ---
+    async function triggerBreakEven() {
+      soundFX('be');
+      try {
+        const res = await fetch("/api/break_even", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        });
+        const data = await res.json();
+        const count = data.updated_count || 0;
+        speakVoice(`Stop Loss moved to Break-Even for ${count} positions.`);
+        showExecutionToast(`🛡️ STOP LOSS MOVED TO BREAK-EVEN (+1p buffer) [${count} POSITIONS]`, 'info');
+        pollLiveEngine();
+      } catch (err) {
+        showExecutionToast(`Break-Even Error: ${err.message}`, 'error');
+      }
+    }
+
+    async function triggerCloseAll() {
+      soundFX('close');
+      try {
+        const res = await fetch("/api/close_all", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        });
+        const data = await res.json();
+        const count = data.closed_count || 0;
+        speakVoice(`All positions closed. ${count} orders terminated.`);
+        showExecutionToast(`🚨 ALL POSITIONS CLOSED (${count} orders liquidated)`, 'warning');
+        pollLiveEngine();
+      } catch (err) {
+        showExecutionToast(`Close All Error: ${err.message}`, 'error');
+      }
+    }
+
+    async function executeBrokerOrder() {
+      const btn = document.getElementById("btn-main-execute");
+      btn.disabled = true;
+      btn.innerText = "EXECUTING ON MT5...";
+      try {
+        const lotVal = isAutoLot ? null : (parseFloat(document.getElementById("manual-lot-input").value) || userSelectedLot);
+        const res = await fetch("/api/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol: currentActiveSymbol, lot_size: lotVal })
+        });
+        const data = await res.json();
+        soundFX('buy');
+        const act = data.order_ticket ? data.order_ticket.action : 'ORDER';
+        const sl = data.order_ticket ? data.order_ticket.stop_loss : '';
+        speakVoice(`AI Consensus ${act} executed on MT5 with 100-pip Stop Loss.`);
+        showExecutionToast(`⚡ AI SETUP FILLED! SL: ${sl} (-100p)`, 'success');
+        btn.innerText = "ORDER FILLED!";
+        pollLiveEngine();
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.innerText = "CONFIRM & EXECUTE";
+        }, 2000);
+      } catch (e) {
+        btn.disabled = false;
+        btn.innerText = "EXECUTION FAILED";
+        showExecutionToast(`Execution Failed: ${e.message}`, 'error');
+      }
+    }
+
+    async function closeBrokerPosition(ticket) {
+      soundFX('close');
+      try {
+        await fetch("/api/close_position", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticket: ticket })
+        });
+        speakVoice(`Position closed.`);
+        showExecutionToast(`Position #${ticket} Closed`, 'warning');
+        pollLiveEngine();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // --- Option C: Zero-Dependency Web Audio API Sound Synthesizer ---
+    let audioCtx = null;
+    let audioEnabled = true;
+    let voiceEnabled = true;
+
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtx = new AudioContextClass();
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function soundFX(type) {
+      if (!audioEnabled) return;
+      try {
+        initAudio();
+        if (!audioCtx) return;
+
+        const t = audioCtx.currentTime;
+        if (type === 'buy') {
+          const osc1 = audioCtx.createOscillator();
+          const osc2 = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc1.type = 'triangle';
+          osc2.type = 'sine';
+          osc1.frequency.setValueAtTime(523.25, t);
+          osc1.frequency.exponentialRampToValueAtTime(783.99, t + 0.14);
+          osc2.frequency.setValueAtTime(659.25, t);
+          osc2.frequency.exponentialRampToValueAtTime(1046.50, t + 0.18);
+          gain.gain.setValueAtTime(0.18, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+          osc1.connect(gain);
+          osc2.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc1.start(t);
+          osc2.start(t);
+          osc1.stop(t + 0.32);
+          osc2.stop(t + 0.32);
+        } else if (type === 'sell') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          const filter = audioCtx.createBiquadFilter();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(659.25, t);
+          osc.frequency.exponentialRampToValueAtTime(329.63, t + 0.18);
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(1200, t);
+          filter.frequency.exponentialRampToValueAtTime(250, t + 0.22);
+          gain.gain.setValueAtTime(0.2, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+          osc.connect(filter);
+          filter.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(t);
+          osc.stop(t + 0.26);
+        } else if (type === 'close') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(440, t);
+          osc.frequency.exponentialRampToValueAtTime(110, t + 0.3);
+          gain.gain.setValueAtTime(0.22, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(t);
+          osc.stop(t + 0.35);
+        } else if (type === 'be') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, t);
+          osc.frequency.setValueAtTime(1174.66, t + 0.08);
+          gain.gain.setValueAtTime(0.16, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(t);
+          osc.stop(t + 0.25);
+        } else if (type === 'chip') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(1400, t);
+          gain.gain.setValueAtTime(0.08, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(t);
+          osc.stop(t + 0.05);
+        }
+      } catch (e) {
+        console.warn("Web Audio notice:", e);
+      }
+    }
+
+    function toggleAudio() {
+      audioEnabled = !audioEnabled;
+      const icon = document.getElementById("audio-icon");
+      const txt = document.getElementById("audio-status-text");
+      const btn = document.getElementById("btn-audio-toggle");
+      if (audioEnabled) {
+        icon.innerText = "🔊";
+        txt.innerText = "AUDIO ON";
+        btn.className = "px-2.5 py-1 rounded-xl bg-slate-950/90 border border-cyan-500/40 text-cyan-300 font-mono text-[10px] font-bold flex items-center gap-1.5 hover:border-cyan-400 transition-all";
+        soundFX('chip');
+      } else {
+        icon.innerText = "🔇";
+        txt.innerText = "MUTED";
+        btn.className = "px-2.5 py-1 rounded-xl bg-slate-950/90 border border-slate-700 text-slate-500 font-mono text-[10px] font-bold flex items-center gap-1.5 hover:border-slate-600 transition-all";
+      }
+    }
+
+    function toggleVoice() {
+      voiceEnabled = !voiceEnabled;
+      const icon = document.getElementById("voice-icon");
+      const txt = document.getElementById("voice-status-text");
+      const btn = document.getElementById("btn-voice-toggle");
+      if (voiceEnabled) {
+        icon.innerText = "🗣️";
+        txt.innerText = "VOICE ON";
+        btn.className = "px-2.5 py-1 rounded-xl bg-slate-950/90 border border-purple-500/40 text-purple-300 font-mono text-[10px] font-bold flex items-center gap-1.5 hover:border-purple-400 transition-all";
+        speakVoice("Voice announcements activated.");
+      } else {
+        icon.innerText = "🔇";
+        txt.innerText = "VOICE OFF";
+        btn.className = "px-2.5 py-1 rounded-xl bg-slate-950/90 border border-slate-700 text-slate-500 font-mono text-[10px] font-bold flex items-center gap-1.5 hover:border-slate-600 transition-all";
+      }
+    }
+
+    function speakVoice(text) {
+      if (!voiceEnabled || !('speechSynthesis' in window)) return;
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.rate = 1.1;
+        utter.pitch = 1.0;
+        const voices = window.speechSynthesis.getVoices();
+        const engVoice = voices.find(v => v.lang.includes('en') && (v.name.includes('Natural') || v.name.includes('Siri') || v.name.includes('Google') || v.name.includes('Samantha')));
+        if (engVoice) utter.voice = engVoice;
+        window.speechSynthesis.speak(utter);
+      } catch (e) {
+        console.warn("Speech notice:", e);
+      }
+    }
+
+    function showExecutionToast(msg, type = 'info') {
+      const container = document.getElementById("toast-container");
+      if (!container) return;
+      const toast = document.createElement("div");
+      const borderColor = type === 'success' ? 'border-emerald-500/60 bg-emerald-950/90 text-emerald-200' :
+                          type === 'warning' ? 'border-amber-500/60 bg-amber-950/90 text-amber-200' :
+                          type === 'error'   ? 'border-rose-500/60 bg-rose-950/90 text-rose-200' :
+                                               'border-cyan-500/60 bg-slate-950/95 text-cyan-200';
+      toast.className = `toast-anim flex items-center gap-2 px-3.5 py-2 rounded-xl border ${borderColor} shadow-2xl backdrop-blur-md text-xs font-mono font-bold max-w-sm pointer-events-auto`;
+      toast.innerHTML = `<span>${msg}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+      }, 4000);
+    }
+
+    // --- Option C: Professional Trading Floor Hotkeys ---
+    window.addEventListener("keydown", (e) => {
+      // Ignore shortcut triggers when user is editing an input or textarea
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+      if (key === 'b') {
+        e.preventDefault();
+        quickExecute('BUY');
+      } else if (key === 's') {
+        e.preventDefault();
+        quickExecute('SELL');
+      } else if (key === 'x') {
+        e.preventDefault();
+        triggerCloseAll();
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        triggerBreakEven();
+      } else if (e.key === '1') {
+        e.preventDefault();
+        switchSymbol('XAUUSD');
+      } else if (e.key === '2') {
+        e.preventDefault();
+        switchSymbol('EURUSD');
+      } else if (e.key === '3') {
+        e.preventDefault();
+        switchSymbol('GBPUSD');
+      } else if (e.key === '4') {
+        e.preventDefault();
+        switchSymbol('USOIL');
+      } else if (e.key === '5') {
+        e.preventDefault();
+        switchSymbol('USDJPY');
+      }
+    });
+
+    // Startup Initializations
+    switchSymbol("XAUUSD");
+    pollLiveEngine();
+    setInterval(pollLiveEngine, 1500);
+  </script>
+</body>
+</html>
