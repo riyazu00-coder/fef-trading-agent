@@ -1098,6 +1098,14 @@
       });
     }
 
+    function getAuthHeaders() {
+      const secret = window.FEF_BRIDGE_SECRET || localStorage.getItem("FEF_BRIDGE_SECRET") || "fef_institutional_secure_bridge_default_key_2026";
+      return {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${secret}`
+      };
+    }
+
     // --- Option A: Quick Instant BUY / SELL Execution ---
     async function quickExecute(action) {
       soundFX(action === 'BUY' ? 'buy' : 'sell');
@@ -1111,7 +1119,7 @@
       try {
         const res = await fetch("/api/quick_execute", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             symbol: currentActiveSymbol,
             action: action,
@@ -1119,14 +1127,14 @@
           })
         });
         const data = await res.json();
-        if (data.status === "EXECUTED") {
-          const ticket = data.ticket;
+        if (data.status === "EXECUTED" || data.status === "FILLED") {
+          const ticket = data.ticket || data.order || {};
           const spec = INSTRUMENT_SPECS[currentActiveSymbol] || { name: currentActiveSymbol };
           speakVoice(`${action} ${lotVal.toFixed(2)} Lot ${spec.name} executed. 100-pip Stop Loss active at ${ticket.stop_loss}.`);
           showExecutionToast(`⚡ ${action} ${lotVal.toFixed(2)}L ${currentActiveSymbol} FILLED! 100p SL: ${ticket.stop_loss}`, 'success');
           pollLiveEngine();
         } else {
-          showExecutionToast(`Execution Error: ${data.error || 'Failed'}`, 'error');
+          showExecutionToast(`Execution Error: ${data.error || data.message || 'Failed'}`, 'error');
         }
       } catch (err) {
         showExecutionToast(`Execution Failed: ${err.message}`, 'error');
@@ -1144,7 +1152,7 @@
       try {
         const res = await fetch("/api/break_even", {
           method: "POST",
-          headers: { "Content-Type": "application/json" }
+          headers: getAuthHeaders()
         });
         const data = await res.json();
         const count = data.updated_count || 0;
@@ -1161,7 +1169,7 @@
       try {
         const res = await fetch("/api/close_all", {
           method: "POST",
-          headers: { "Content-Type": "application/json" }
+          headers: getAuthHeaders()
         });
         const data = await res.json();
         const count = data.closed_count || 0;
@@ -1181,7 +1189,7 @@
         const lotVal = isAutoLot ? null : (parseFloat(document.getElementById("manual-lot-input").value) || userSelectedLot);
         const res = await fetch("/api/execute", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ symbol: currentActiveSymbol, lot_size: lotVal })
         });
         const data = await res.json();

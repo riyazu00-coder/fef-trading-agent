@@ -9,7 +9,9 @@ import json
 import os
 import sys
 import time
+from typing import Optional, Tuple, Dict, Any
 import urllib.parse
+import urllib.request
 
 # Ensure project root is available in module search path
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,6 +24,7 @@ from backend.data.macro_feed import macro_feed
 from backend.data.public_apis import public_apis_hub
 from backend.data.economic_calendar import economic_calendar
 from backend.graph.trading_graph import trading_graph
+from backend.agents.trader_agent import OrderTicket
 from backend.execution.paper_simulator import paper_simulator
 from backend.execution.mt5_socket_bridge import mt5_bridge
 
@@ -101,6 +104,42 @@ class handler(BaseHTTPRequestHandler):
 
         return self._send_json({"error": f"Endpoint not found: {path}"}, 404)
 
+    def _forward_to_tunnel(self, endpoint_path: str, payload: dict) -> Optional[Tuple[Dict[str, Any], int]]:
+        tunnel_url = os.getenv("MT5_TUNNEL_URL", "").strip().rstrip("/")
+        if not tunnel_url:
+            return None
+
+        secret = os.getenv("FEF_BRIDGE_SECRET", "fef_institutional_secure_bridge_default_key_2026").strip()
+        target_url = f"{tunnel_url}{endpoint_path}"
+        try:
+            req_data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                target_url,
+                data=req_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {secret}",
+                    "User-Agent": "FEF-Vercel-Gateway/1.0"
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                bridge_res = json.loads(resp.read().decode("utf-8"))
+                return bridge_res, resp.status
+        except urllib.error.HTTPError as e:
+            try:
+                err_res = json.loads(e.read().decode("utf-8"))
+            except Exception:
+                err_res = {"error": f"Bridge HTTP {e.code}: {e.reason}", "status": "BRIDGE_ERROR"}
+            return err_res, e.code
+        except Exception as e:
+            return {
+                "error": "Failed to forward order to local MT5 Bridge",
+                "tunnel_url": target_url,
+                "details": str(e),
+                "status": "TUNNEL_FAILED"
+            }, 502
+
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -112,6 +151,11 @@ class handler(BaseHTTPRequestHandler):
             payload = {}
 
         if path in ("/api/execute", "/api/execute/"):
+            tunnel_res = self._forward_to_tunnel("/api/execute", payload)
+            if tunnel_res is not None:
+                body, code = tunnel_res
+                return self._send_json(body, status=code)
+
             symbol = payload.get("symbol", "XAUUSD").upper()
             if symbol not in INSTRUMENTS:
                 return self._send_json({"error": f"Invalid symbol {symbol}"}, 400)
@@ -123,6 +167,13 @@ class handler(BaseHTTPRequestHandler):
             return self._send_json(result)
 
         elif path in ("/api/quick_execute", "/api/quick_execute/"):
+            # Check if environment variable MT5_TUNNEL_URL is configured
+            tunnel_res = self._forward_to_tunnel("/api/quick_execute", payload)
+            if tunnel_res is not None:
+                body, code = tunnel_res
+                return self._send_json(body, status=code)
+
+            # Fallback cleanly to paper simulation and return a 200 response indicating execution was handled in-memory
             symbol = payload.get("symbol", "XAUUSD").upper()
             action = payload.get("action", "BUY").upper()
             if symbol not in INSTRUMENTS:
@@ -141,21 +192,34 @@ class handler(BaseHTTPRequestHandler):
             fill_price = quote.ask if action == "BUY" else quote.bid
 
             if action == "BUY":
-                sl = round(fill_price - (25.0 * spec.pip_size), spec.digits)
-                tp = round(fill_price + (50.0 * spec.pip_size), spec.digits)
+                sl = round(fill_price - (100.0 * spec.pip_size), spec.digits)
+                tp = round(fill_price + (200.0 * spec.pip_size), spec.digits)
             else:
-                sl = round(fill_price + (25.0 * spec.pip_size), spec.digits)
-                tp = round(fill_price - (50.0 * spec.pip_size), spec.digits)
+                sl = round(fill_price + (100.0 * spec.pip_size), spec.digits)
+                tp = round(fill_price - (200.0 * spec.pip_size), spec.digits)
 
-            order = paper_simulator.execute_order(
+            ticket = OrderTicket(
                 symbol=symbol,
                 action=action,
-                lots=manual_lot,
+                lot_size=manual_lot,
+                entry_price=fill_price,
                 stop_loss=sl,
                 take_profit=tp,
-                rationale="Instant Quick Execute from Command Deck."
+                stop_pips=100.0,
+                tp_pips=200.0,
+                risk_reward_ratio=2.0,
+                execution_status="EXECUTED",
+                rationale="Instant Quick Execute from Command Deck (In-Memory Paper Simulation)."
             )
-            return self._send_json({"status": "FILLED", "order": asdict(order)})
+            sim_res = paper_simulator.execute_order(ticket)
+            return self._send_json({
+                "status": "FILLED",
+                "execution_mode": "IN_MEMORY_SIMULATION",
+                "tunnel_active": False,
+                "order": asdict(ticket),
+                "simulation_result": sim_res,
+                "message": f"Successfully executed {action} {manual_lot} Lots on {symbol} (Handled in-memory via Paper Simulator)."
+            }, status=200)
 
         elif path in ("/api/close_position", "/api/close_position/"):
             ticket = payload.get("ticket")
@@ -167,6 +231,11 @@ class handler(BaseHTTPRequestHandler):
             return self._send_json({"error": "Position not found or already closed"}, 404)
 
         elif path in ("/api/close_all", "/api/close_all/"):
+            tunnel_res = self._forward_to_tunnel("/api/close_all", payload)
+            if tunnel_res is not None:
+                body, code = tunnel_res
+                return self._send_json(body, status=code)
+
             closed_count = paper_simulator.close_all_positions()
             return self._send_json({
                 "status": "SUCCESS",
@@ -175,6 +244,11 @@ class handler(BaseHTTPRequestHandler):
             })
 
         elif path in ("/api/break_even", "/api/break_even/"):
+            tunnel_res = self._forward_to_tunnel("/api/break_even", payload)
+            if tunnel_res is not None:
+                body, code = tunnel_res
+                return self._send_json(body, status=code)
+
             updated_count = paper_simulator.apply_break_even()
             return self._send_json({
                 "status": "SUCCESS",

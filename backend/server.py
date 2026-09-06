@@ -6,12 +6,16 @@ and delivers the 3D Cinematic Command Center.
 
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import functools
+import hashlib
+import hmac
 import json
 import os
 import sys
 import time
 import urllib.parse
 from dataclasses import asdict
+
+FEF_BRIDGE_SECRET_DEFAULT = "fef_institutional_secure_bridge_default_key_2026"
 
 from backend.config import config, INSTRUMENTS
 from backend.data.market_feed import market_feed
@@ -106,15 +110,58 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
         # Fallback to serving frontend static files
         super().do_GET()
 
+    def _verify_bearer_token(self, body_raw: str = "") -> bool:
+        auth_header = self.headers.get("Authorization", "").strip()
+        if not auth_header:
+            return False
+
+        parts = auth_header.split(maxsplit=1)
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            return False
+
+        token = parts[1].strip()
+        secret = os.getenv("FEF_BRIDGE_SECRET", FEF_BRIDGE_SECRET_DEFAULT).strip()
+
+        # 1. Constant-time token comparison against secret
+        if hmac.compare_digest(token.encode("utf-8"), secret.encode("utf-8")):
+            return True
+
+        # 2. HMAC-SHA256 signature verification over request body
+        if body_raw:
+            expected_sig = hmac.new(
+                secret.encode("utf-8"),
+                body_raw.encode("utf-8"),
+                hashlib.sha256
+            ).hexdigest()
+            if hmac.compare_digest(token.encode("utf-8"), expected_sig.encode("utf-8")):
+                return True
+
+        return False
+
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        path = parsed.path.rstrip("/")
         length = int(self.headers.get("Content-Length", 0))
         body_raw = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
         try:
             payload = json.loads(body_raw)
         except Exception:
             payload = {}
+
+        # Sensitive execution endpoints requiring Bearer HMAC auth
+        sensitive_endpoints = (
+            "/api/quick_execute",
+            "/api/execute",
+            "/api/close_all",
+            "/api/break_even"
+        )
+        if path in sensitive_endpoints:
+            if not self._verify_bearer_token(body_raw):
+                return self._send_json({
+                    "error": "Unauthorized",
+                    "status": "UNAUTHORIZED",
+                    "message": "Missing or invalid Bearer authorization token."
+                }, 401)
 
         if path == "/api/execute":
             symbol = payload.get("symbol", "XAUUSD").upper()
