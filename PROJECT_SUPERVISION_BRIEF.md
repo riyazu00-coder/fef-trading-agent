@@ -5,7 +5,7 @@
 > **Project Name:** `FEF TRADING AGENT`  
 > **Version:** 2.4.0 (Autonomous Institutional Multi-Agent Framework)  
 > **Target Asset Universe:** Strictly **Forex & Commodities** (`XAU/USD`, `US Oil WTI`, `EUR/USD`, `GBP/USD`, `USD/JPY`)  
-> **Workspace Root:** `/Users/mac/Documents/antigravity/nifty-salk`  
+> **Workspace Root:** `/Users/mac/Documents/antigravity/fef-trading-agent`  
 > **Runtime Environment:** Python 3.14+, MetaTrader 5 (macOS Wine / Exness Demo), Modern Web Standards (HTML5 / Tailwind CSS / TradingView Canvas / Web Audio API)
 
 ---
@@ -43,7 +43,7 @@ The system is strictly hardcoded to 5 global macro instruments defined in `backe
 ## 3. Directory & File Structure
 
 ```text
-nifty-salk/
+fef-trading-agent/
 ├── backend/
 │   ├── __init__.py
 │   ├── config.py                 # System parameters, instruments specs, 100p default SL
@@ -150,7 +150,7 @@ Because MetaTrader 5 runs inside Wine on macOS, direct Python C-extension bindin
    - Telemetry Out: `fef_pending_orders.json` (Python writes execution commands for instant pickup).
 
 ### Supported Remote MQL5 Commands
-The MQL5 Expert Advisor ([`FEF_TradingAgentsBridge.mq5`](file:///Users/mac/Documents/antigravity/nifty-salk/mql5/FEF_TradingAgentsBridge.mq5)) interprets 3 real-time commands:
+The MQL5 Expert Advisor ([`FEF_TradingAgentsBridge.mq5`](file:///Users/mac/Documents/antigravity/fef-trading-agent/mql5/FEF_TradingAgentsBridge.mq5)) interprets 3 real-time commands:
 1. **`ORDER_SEND`**: Executes `trade.Buy()` or `trade.Sell()` with specified volume, entry, 100-pip SL, and TP.
 2. **`ORDER_BREAK_EVEN`**: Scans all active positions on the terminal and adjusts `sl` to open price (`POSITION_PRICE_OPEN`).
 3. **`ORDER_CLOSE_ALL`**: Iterates through `PositionsTotal()` backwards and executes `trade.PositionClose(ticket)` on all open orders.
@@ -208,11 +208,11 @@ The test suite covers full coverage of math, sizing, agents, risk, and execution
 python3 -m unittest discover tests
 ```
 
-- [`tests/test_pip_calculations.py`](file:///Users/mac/Documents/antigravity/nifty-salk/tests/test_pip_calculations.py): Validates contract sizes, pip conversions, tick values across all 5 symbols.
-- [`tests/test_risk_guardian.py`](file:///Users/mac/Documents/antigravity/nifty-salk/tests/test_risk_guardian.py): Validates spread filters, VaR calculation, and news blackout guards.
-- [`tests/test_debate_graph.py`](file:///Users/mac/Documents/antigravity/nifty-salk/tests/test_debate_graph.py): Verifies end-to-end execution of the multi-agent debate workflow.
-- [`tests/test_public_apis.py`](file:///Users/mac/Documents/antigravity/nifty-salk/tests/test_public_apis.py): Tests Frankfurter, FRED, EIA, and Sentiment feeds.
-- [`tests/test_quick_execution.py`](file:///Users/mac/Documents/antigravity/nifty-salk/tests/test_quick_execution.py): Tests 100-pip SL attachment, Break-Even logic, and Close-All liquidation.
+- [`tests/test_pip_calculations.py`](file:///Users/mac/Documents/antigravity/fef-trading-agent/tests/test_pip_calculations.py): Validates contract sizes, pip conversions, tick values across all 5 symbols.
+- [`tests/test_risk_guardian.py`](file:///Users/mac/Documents/antigravity/fef-trading-agent/tests/test_risk_guardian.py): Validates spread filters, VaR calculation, and news blackout guards.
+- [`tests/test_debate_graph.py`](file:///Users/mac/Documents/antigravity/fef-trading-agent/tests/test_debate_graph.py): Verifies end-to-end execution of the multi-agent debate workflow.
+- [`tests/test_public_apis.py`](file:///Users/mac/Documents/antigravity/fef-trading-agent/tests/test_public_apis.py): Tests Frankfurter, FRED, EIA, and Sentiment feeds.
+- [`tests/test_quick_execution.py`](file:///Users/mac/Documents/antigravity/fef-trading-agent/tests/test_quick_execution.py): Tests 100-pip SL attachment, Break-Even logic, and Close-All liquidation.
 
 **Result: 18 / 18 Tests Passing.**
 
