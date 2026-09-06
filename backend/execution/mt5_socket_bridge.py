@@ -39,34 +39,46 @@ class MT5ServerBridge:
         self._server_thread.start()
 
     def _run_server(self):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if hasattr(socket, "SO_REUSEPORT"):
+                try:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                except OSError:
+                    pass
             s.bind((self.host, self.port))
             s.listen(5)
             s.settimeout(1.0)
             logger.info(f"MT5 Bridge Server listening on {self.host}:{self.port}")
         except Exception as e:
             logger.warning(f"Could not bind MT5 port {self.port}: {e}")
+            self._running = False
             return
 
-        while self._running:
+        try:
+            while self._running:
+                try:
+                    client, addr = s.accept()
+                    client.settimeout(1.0)
+                    data = client.recv(2048)
+                    if data:
+                        try:
+                            req = json.loads(data.decode("utf-8").strip())
+                            res = self._handle_client_request(req)
+                            client.sendall(json.dumps(res).encode("utf-8") + b"\n")
+                        except Exception:
+                            client.sendall(b"{\"status\":\"ERR\"}\n")
+                    client.close()
+                except socket.timeout:
+                    continue
+                except Exception:
+                    time.sleep(0.05)
+        finally:
             try:
-                client, addr = s.accept()
-                client.settimeout(1.0)
-                data = client.recv(2048)
-                if data:
-                    try:
-                        req = json.loads(data.decode("utf-8").strip())
-                        res = self._handle_client_request(req)
-                        client.sendall(json.dumps(res).encode("utf-8") + b"\n")
-                    except Exception:
-                        client.sendall(b"{\"status\":\"ERR\"}\n")
-                client.close()
-            except socket.timeout:
-                continue
+                s.close()
             except Exception:
-                time.sleep(0.05)
+                pass
 
     def _handle_client_request(self, req: Dict) -> Dict:
         with self._lock:

@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import os
+import socket
 import sys
 import time
 import urllib.parse
@@ -31,6 +32,15 @@ from backend.execution.mt5_socket_bridge import mt5_bridge
 
 class ReusableHTTPServer(HTTPServer):
     allow_reuse_address = True
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            try:
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except OSError:
+                pass
+        super().server_bind()
 
 
 class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
@@ -268,7 +278,21 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
 def start_server(host: str = "0.0.0.0", port: int = 8000):
     frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
     handler = functools.partial(TradingAgentsApiHandler, directory=frontend_dir)
-    server = ReusableHTTPServer((host, port), handler)
+    server = None
+    for attempt in range(5):
+        try:
+            server = ReusableHTTPServer((host, port), handler)
+            break
+        except OSError as e:
+            if attempt < 4:
+                time.sleep(0.5)
+            else:
+                print(f"⚠️ Port {port} binding failed: {e}")
+                raise
+    try:
+        mt5_bridge.start_server()
+    except Exception as e:
+        print(f"⚠️ MT5 bridge listener initialization: {e}")
     print(f"🚀 FEF TRADING AGENT Server running at http://localhost:{port}")
     print(f"📡 MetaTrader 5 Bridge listener configured for port {config.server.mt5_socket_port}")
     try:
