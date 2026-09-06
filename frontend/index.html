@@ -16,11 +16,18 @@
       --amber-glow: #f59e0b;
     }
 
+    html, body {
+      height: 100%;
+      height: 100dvh;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
     body {
       font-family: 'Rajdhani', sans-serif;
       background-color: #030712;
       color: #f8fafc;
-      overflow-x: hidden;
       user-select: none;
     }
 
@@ -39,6 +46,7 @@
       left: 0;
       width: 100vw;
       height: 100vh;
+      height: 100dvh;
       overflow: hidden;
       perspective: 1000px;
       z-index: 0;
@@ -166,9 +174,19 @@
     @keyframes fadeOutToast {
       to { opacity: 0; transform: translateY(-8px); pointer-events: none; }
     }
+
+    /* Responsive heights & compact scaling for short desktop viewports */
+    @media (max-height: 860px) {
+      .compact-hero-price { font-size: 1.45rem !important; }
+      .compact-pip-price { font-size: 1.1rem !important; }
+    }
+    @media (max-height: 760px) {
+      .compact-hero-price { font-size: 1.3rem !important; }
+      .compact-pip-price { font-size: 1.0rem !important; }
+    }
   </style>
 </head>
-<body class="min-h-screen text-slate-100 flex flex-col justify-between">
+<body class="h-screen h-[100dvh] text-slate-100 flex flex-col overflow-hidden">
 
   <!-- HUD Toast Notifications Container -->
   <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
@@ -182,187 +200,187 @@
   <div class="scanlines"></div>
 
   <!-- Interactive HUD Layer -->
-  <div class="relative z-10 p-3 lg:p-5 flex flex-col justify-between min-h-screen max-w-[1920px] mx-auto w-full">
+  <div class="relative z-10 p-2 sm:p-2.5 lg:px-4 lg:py-2 flex flex-col justify-between h-screen h-[100dvh] max-h-[100dvh] max-w-[1920px] mx-auto w-full overflow-hidden">
     
     <!-- TOP SECTION: Branding, Session Clocks, and Upper Overhead Monitors -->
-    <header class="flex flex-col gap-3">
+    <header class="flex-shrink-0 flex flex-col gap-1.5 lg:gap-2">
       
       <!-- Main Brand & Global Session Bar -->
-      <div class="holo-card p-3 lg:px-5 lg:py-2.5 flex flex-wrap items-center justify-between gap-4">
+      <div class="holo-card px-3 py-1.5 lg:px-4 lg:py-1.5 flex flex-wrap items-center justify-between gap-2 lg:gap-4">
         
         <!-- Project Title: FEF TRADING AGENT -->
         <div class="flex items-center space-x-3">
-          <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 via-cyan-500 to-emerald-500 p-0.5 shadow-lg shadow-cyan-500/20">
-            <div class="w-full h-full bg-slate-950 rounded-[7px] flex items-center justify-center font-orbitron font-black text-amber-400 text-lg">
+          <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500 via-cyan-500 to-emerald-500 p-0.5 shadow-lg shadow-cyan-500/20">
+            <div class="w-full h-full bg-slate-950 rounded-[7px] flex items-center justify-center font-orbitron font-black text-amber-400 text-base">
               FEF
             </div>
           </div>
           <div>
             <div class="flex items-center gap-2">
-              <h1 class="text-xl lg:text-2xl font-orbitron font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-cyan-300 to-emerald-400">
+              <h1 class="text-lg lg:text-xl font-orbitron font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-cyan-300 to-emerald-400">
                 FEF TRADING AGENT
               </h1>
               <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/50 text-cyan-300 tracking-wider font-bold">
                 COMMODITIES & FX
               </span>
             </div>
-            <p class="text-[11px] font-mono text-slate-400 tracking-wide">Autonomous Multi-Agent Institutional Trading Framework</p>
+            <p class="text-[10px] font-mono text-slate-400 tracking-wide">Autonomous Multi-Agent Institutional Trading Framework</p>
           </div>
         </div>
 
         <!-- Upper Floating Session Clock Monitor (Exact Match to Picture) -->
-        <div class="hidden md:flex flex-col items-center bg-slate-950/80 border border-amber-500/40 px-6 py-1.5 rounded-xl shadow-lg shadow-amber-500/10">
-          <div class="text-[10px] font-mono font-bold text-amber-400 tracking-widest uppercase">
+        <div class="hidden md:flex flex-col items-center bg-slate-950/80 border border-amber-500/40 px-5 py-1 rounded-xl shadow-lg shadow-amber-500/10">
+          <div class="text-[9px] font-mono font-bold text-amber-400 tracking-widest uppercase">
             SESSION CLOCK: LONDON OPEN / NY OVERLAP
           </div>
-          <div class="text-xs font-mono text-slate-300 font-bold" id="session-clock-time">
+          <div class="text-[11px] font-mono text-slate-300 font-bold" id="session-clock-time">
             (14:32:15 GMT / 09:32:15 EST)
           </div>
         </div>
 
         <!-- Ticker Selector Buttons -->
-        <div class="flex items-center gap-1.5 bg-slate-950/90 p-1.5 rounded-xl border border-slate-800">
-          <button onclick="switchSymbol('XAUUSD')" id="tab-XAUUSD" class="px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all bg-amber-500/20 text-amber-300 border border-amber-500/60 shadow-md shadow-amber-500/20">
+        <div class="flex items-center gap-1 bg-slate-950/90 p-1 rounded-xl border border-slate-800">
+          <button onclick="switchSymbol('XAUUSD')" id="tab-XAUUSD" class="px-2.5 py-0.5 text-xs font-mono font-bold rounded-lg transition-all bg-amber-500/20 text-amber-300 border border-amber-500/60 shadow-md shadow-amber-500/20">
             XAU/USD
           </button>
-          <button onclick="switchSymbol('USOIL')" id="tab-USOIL" class="px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
+          <button onclick="switchSymbol('USOIL')" id="tab-USOIL" class="px-2.5 py-0.5 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
             US OIL
           </button>
-          <button onclick="switchSymbol('EURUSD')" id="tab-EURUSD" class="px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
+          <button onclick="switchSymbol('EURUSD')" id="tab-EURUSD" class="px-2.5 py-0.5 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
             EUR/USD
           </button>
-          <button onclick="switchSymbol('GBPUSD')" id="tab-GBPUSD" class="px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
+          <button onclick="switchSymbol('GBPUSD')" id="tab-GBPUSD" class="px-2.5 py-0.5 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
             GBP/USD
           </button>
-          <button onclick="switchSymbol('USDJPY')" id="tab-USDJPY" class="px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
+          <button onclick="switchSymbol('USDJPY')" id="tab-USDJPY" class="px-2.5 py-0.5 text-xs font-mono font-bold rounded-lg transition-all text-slate-400 hover:text-slate-200">
             USD/JPY
           </button>
         </div>
 
         <!-- Audio, Voice & Hotkeys Controls -->
-        <div class="flex items-center gap-2">
-          <button type="button" onclick="toggleAudio()" id="btn-audio-toggle" title="Toggle Sound FX [Shortcut: Mute]" class="px-2.5 py-1 rounded-xl bg-slate-950/90 border border-cyan-500/40 text-cyan-300 font-mono text-[10px] font-bold flex items-center gap-1.5 hover:border-cyan-400 transition-all">
+        <div class="flex items-center gap-1.5">
+          <button type="button" onclick="toggleAudio()" id="btn-audio-toggle" title="Toggle Sound FX [Shortcut: Mute]" class="px-2 py-0.5 rounded-xl bg-slate-950/90 border border-cyan-500/40 text-cyan-300 font-mono text-[9px] font-bold flex items-center gap-1 hover:border-cyan-400 transition-all">
             <span id="audio-icon">🔊</span>
             <span id="audio-status-text">AUDIO ON</span>
           </button>
-          <button type="button" onclick="toggleVoice()" id="btn-voice-toggle" title="Toggle AI Speech Announcements" class="px-2.5 py-1 rounded-xl bg-slate-950/90 border border-purple-500/40 text-purple-300 font-mono text-[10px] font-bold flex items-center gap-1.5 hover:border-purple-400 transition-all">
+          <button type="button" onclick="toggleVoice()" id="btn-voice-toggle" title="Toggle AI Speech Announcements" class="px-2 py-0.5 rounded-xl bg-slate-950/90 border border-purple-500/40 text-purple-300 font-mono text-[9px] font-bold flex items-center gap-1 hover:border-purple-400 transition-all">
             <span id="voice-icon">🗣️</span>
             <span id="voice-status-text">VOICE ON</span>
           </button>
         </div>
 
         <!-- MT5 Broker Status & Account Value -->
-        <div class="flex items-center gap-4 text-xs font-mono">
-          <div class="flex items-center gap-2 bg-emerald-950/70 border border-emerald-500/50 px-3 py-1 rounded-xl text-emerald-400 shadow-md shadow-emerald-500/10">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-            <span id="mt5-status-badge" class="font-bold">MetaTrader 5 Connected</span>
+        <div class="flex items-center gap-3 text-xs font-mono">
+          <div class="flex items-center gap-1.5 bg-emerald-950/70 border border-emerald-500/50 px-2.5 py-0.5 rounded-xl text-emerald-400 shadow-md shadow-emerald-500/10">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+            <span id="mt5-status-badge" class="font-bold text-[11px]">MetaTrader 5 Connected</span>
           </div>
           <div class="text-right">
-            <div class="text-slate-400 text-[10px]">ACCOUNT EQUITY</div>
-            <div class="text-emerald-400 font-orbitron font-bold text-sm" id="top-equity">$50,000.00</div>
+            <div class="text-slate-400 text-[9px]">ACCOUNT EQUITY</div>
+            <div class="text-emerald-400 font-orbitron font-bold text-xs lg:text-sm" id="top-equity">$50,000.00</div>
           </div>
         </div>
 
       </div>
 
       <!-- Overhead Floating Agent Monitors (Like in the 3D Picture) -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-1.5 lg:gap-2">
         
         <!-- Monitor 1: Central Bank & Macro Analyst -->
-        <div class="holo-card p-3 text-xs font-mono flex items-center justify-between border border-cyan-500/30">
+        <div class="holo-card px-3 py-1.5 text-xs font-mono flex items-center justify-between border border-cyan-500/30">
           <div class="flex items-center gap-2">
             <div class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>
             <div>
-              <span class="text-[11px] font-bold text-cyan-300 tracking-wider uppercase">CENTRAL BANK & MACRO ANALYST</span>
-              <div class="text-[10px] text-slate-400">Fed 5.25-5.50% | ECB 3.75% | BOE 5.00% | BOJ 0.25%</div>
+              <span class="text-[10px] font-bold text-cyan-300 tracking-wider uppercase">CENTRAL BANK & MACRO ANALYST</span>
+              <div class="text-[9px] text-slate-400">Fed 5.25-5.50% | ECB 3.75% | BOE 5.00% | BOJ 0.25%</div>
             </div>
           </div>
           <div class="text-right">
-            <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 text-[10px] font-bold" id="overhead-macro-bias">
+            <span class="px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 text-[9px] font-bold" id="overhead-macro-bias">
               BULLISH
             </span>
-            <div class="text-[10px] text-slate-400 mt-0.5">DXY: <span class="text-slate-200" id="overhead-dxy">101.45</span></div>
+            <div class="text-[9px] text-slate-400 mt-0.5">DXY: <span class="text-slate-200" id="overhead-dxy">101.45</span></div>
           </div>
         </div>
 
         <!-- Monitor 2: Geopolitics & Energy Analyst -->
-        <div class="holo-card p-3 text-xs font-mono flex items-center justify-between border border-amber-500/30">
+        <div class="holo-card px-3 py-1.5 text-xs font-mono flex items-center justify-between border border-amber-500/30">
           <div class="flex items-center gap-2">
             <div class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></div>
             <div>
-              <span class="text-[11px] font-bold text-amber-300 tracking-wider uppercase">GEOPOLITICAL & OPEC ANALYST</span>
-              <div class="text-[10px] text-slate-400">EIA Crude Stocks | Middle East Risk Premium | Safe-Haven Flows</div>
+              <span class="text-[10px] font-bold text-amber-300 tracking-wider uppercase">GEOPOLITICAL & OPEC ANALYST</span>
+              <div class="text-[9px] text-slate-400">EIA Crude Stocks | Middle East Risk Premium | Safe-Haven Flows</div>
             </div>
           </div>
           <div class="text-right">
-            <span class="px-2 py-0.5 rounded bg-amber-950 text-amber-400 border border-amber-800 text-[10px] font-bold" id="overhead-geo-bias">
+            <span class="px-1.5 py-0.2 rounded bg-amber-950 text-amber-400 border border-amber-800 text-[9px] font-bold" id="overhead-geo-bias">
               ELEVATED RISK
             </span>
-            <div class="text-[10px] text-slate-400 mt-0.5">Gold Reserve Accumulation: <span class="text-emerald-400 font-bold">Active</span></div>
+            <div class="text-[9px] text-slate-400 mt-0.5">Gold Reserve Accumulation: <span class="text-emerald-400 font-bold">Active</span></div>
           </div>
         </div>
 
       </div>
 
       <!-- Institutional Public API Radar (Curated from public-apis catalog) -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-1.5 lg:gap-2">
         <!-- Feed 1: Frankfurter / ECB Reference Rates -->
-        <div class="holo-card p-2.5 text-xs font-mono border border-blue-500/30 flex flex-col justify-between">
+        <div class="holo-card px-2.5 py-1.5 text-xs font-mono border border-blue-500/30 flex flex-col justify-between">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-1.5">
-              <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
-              <span class="text-[10px] font-bold text-blue-300 uppercase tracking-wider">ECB Benchmark</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+              <span class="text-[9px] font-bold text-blue-300 uppercase tracking-wider">ECB Benchmark</span>
             </div>
-            <span class="text-[9px] px-1.5 py-0.2 rounded bg-blue-950 text-blue-300 border border-blue-800" id="api-ecb-status">LIVE</span>
+            <span class="text-[8px] px-1 py-0.2 rounded bg-blue-950 text-blue-300 border border-blue-800" id="api-ecb-status">LIVE</span>
           </div>
-          <div class="mt-1 flex items-baseline justify-between">
-            <span class="text-[11px] text-slate-300">EUR/USD: <span class="font-bold text-amber-300" id="api-ecb-eurusd">1.0845</span></span>
-            <span class="text-[10px] text-slate-400" id="api-ecb-date">ECB Today</span>
+          <div class="mt-0.5 flex items-baseline justify-between">
+            <span class="text-[10px] text-slate-300">EUR/USD: <span class="font-bold text-amber-300" id="api-ecb-eurusd">1.0845</span></span>
+            <span class="text-[9px] text-slate-400" id="api-ecb-date">ECB Today</span>
           </div>
         </div>
 
         <!-- Feed 2: FRED US 10Y Yield & DXY -->
-        <div class="holo-card p-2.5 text-xs font-mono border border-emerald-500/30 flex flex-col justify-between">
+        <div class="holo-card px-2.5 py-1.5 text-xs font-mono border border-emerald-500/30 flex flex-col justify-between">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-1.5">
-              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span class="text-[10px] font-bold text-emerald-300 uppercase tracking-wider">FRED US 10Y & DXY</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span class="text-[9px] font-bold text-emerald-300 uppercase tracking-wider">FRED US 10Y & DXY</span>
             </div>
-            <span class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800" id="api-fred-status">SYNCED</span>
+            <span class="text-[8px] px-1 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800" id="api-fred-status">SYNCED</span>
           </div>
-          <div class="mt-1 flex items-baseline justify-between">
-            <span class="text-[11px] text-slate-300">Yield: <span class="font-bold text-emerald-400" id="api-fred-yield">4.12%</span> (<span id="api-fred-bps">-3.8 bps</span>)</span>
-            <span class="text-[10px] text-slate-400">DXY: <span class="text-slate-200 font-bold" id="api-fred-dxy">101.35</span></span>
+          <div class="mt-0.5 flex items-baseline justify-between">
+            <span class="text-[10px] text-slate-300">Yield: <span class="font-bold text-emerald-400" id="api-fred-yield">4.12%</span> (<span id="api-fred-bps">-3.8 bps</span>)</span>
+            <span class="text-[9px] text-slate-400">DXY: <span class="text-slate-200 font-bold" id="api-fred-dxy">101.35</span></span>
           </div>
         </div>
 
         <!-- Feed 3: U.S. EIA Crude Stocks -->
-        <div class="holo-card p-2.5 text-xs font-mono border border-amber-500/30 flex flex-col justify-between">
+        <div class="holo-card px-2.5 py-1.5 text-xs font-mono border border-amber-500/30 flex flex-col justify-between">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-1.5">
-              <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-              <span class="text-[10px] font-bold text-amber-300 uppercase tracking-wider">U.S. EIA Crude Stocks</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+              <span class="text-[9px] font-bold text-amber-300 uppercase tracking-wider">U.S. EIA Crude Stocks</span>
             </div>
-            <span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800" id="api-eia-status">ONLINE</span>
+            <span class="text-[8px] px-1 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800" id="api-eia-status">ONLINE</span>
           </div>
-          <div class="mt-1 flex items-baseline justify-between">
-            <span class="text-[11px] text-slate-300">Delta: <span class="font-bold text-emerald-400" id="api-eia-delta">-1.85M bbl</span></span>
-            <span class="text-[10px] text-slate-400">Cushing: <span class="text-slate-200 font-bold" id="api-eia-cushing">48.5%</span></span>
+          <div class="mt-0.5 flex items-baseline justify-between">
+            <span class="text-[10px] text-slate-300">Delta: <span class="font-bold text-emerald-400" id="api-eia-delta">-1.85M bbl</span></span>
+            <span class="text-[9px] text-slate-400">Cushing: <span class="text-slate-200 font-bold" id="api-eia-cushing">48.5%</span></span>
           </div>
         </div>
 
         <!-- Feed 4: Retail Crowd Sentiment -->
-        <div class="holo-card p-2.5 text-xs font-mono border border-purple-500/30 flex flex-col justify-between">
+        <div class="holo-card px-2.5 py-1.5 text-xs font-mono border border-purple-500/30 flex flex-col justify-between">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-1.5">
-              <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
-              <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Retail Crowd Radar</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span>
+              <span class="text-[9px] font-bold text-purple-300 uppercase tracking-wider">Retail Crowd Radar</span>
             </div>
-            <span class="text-[9px] px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800">CONTRARIAN</span>
+            <span class="text-[8px] px-1 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800">CONTRARIAN</span>
           </div>
-          <div class="mt-1 flex items-baseline justify-between">
-            <span class="text-[11px] text-slate-300">Gold: <span class="font-bold text-red-400" id="api-sentiment-gold">74.5% Long</span></span>
-            <span class="text-[10px] text-amber-400 font-bold" id="api-sentiment-alert">Trap Alert</span>
+          <div class="mt-0.5 flex items-baseline justify-between">
+            <span class="text-[10px] text-slate-300">Gold: <span class="font-bold text-red-400" id="api-sentiment-gold">74.5% Long</span></span>
+            <span class="text-[9px] text-amber-400 font-bold" id="api-sentiment-alert">Trap Alert</span>
           </div>
         </div>
       </div>
@@ -370,32 +388,32 @@
     </header>
 
     <!-- CENTER SECTION: Floating Curved Holographic Displays & Candlestick Canvas -->
-    <main class="grid grid-cols-1 lg:grid-cols-12 gap-4 my-3 items-center">
+    <main class="flex-1 min-h-0 my-1 lg:my-1.5 grid grid-cols-1 lg:grid-cols-12 gap-2 lg:gap-3 items-stretch overflow-hidden">
       
       <!-- Left Floating Holographic Screen: Target Asset (e.g. Gold / XAUUSD) -->
-      <div class="lg:col-span-4 flex flex-col gap-3">
+      <div class="lg:col-span-4 flex flex-col min-h-0 h-full">
         
-        <div class="holo-card holo-gold p-4 transition-all duration-300" id="primary-hologram">
-          <div class="flex justify-between items-start mb-2">
+        <div class="holo-card holo-gold p-2.5 lg:p-3 flex flex-col h-full min-h-0 justify-between transition-all duration-300" id="primary-hologram">
+          <div class="flex justify-between items-start mb-1 flex-shrink-0">
             <div>
               <span class="text-[10px] font-mono text-amber-400 tracking-wider font-bold uppercase" id="card-symbol-badge">
                 COMMODITY SPOT
               </span>
-              <div class="text-2xl lg:text-3xl font-orbitron font-black text-amber-300 tracking-wide flex items-center gap-2" id="hero-price">
+              <div class="text-xl lg:text-2xl font-orbitron font-black text-amber-300 tracking-wide flex items-center gap-2 compact-hero-price" id="hero-price">
                 $2,514.80
               </div>
               <span class="text-xs font-mono text-slate-300" id="hero-name">Gold Spot / US Dollar</span>
             </div>
             <div class="text-right">
-              <div class="text-sm font-orbitron font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 inline-block" id="hero-change">
+              <div class="text-xs lg:text-sm font-orbitron font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 inline-block" id="hero-change">
                 +1.15%
               </div>
-              <div class="text-[11px] font-mono text-cyan-300 mt-1">Spread: <span id="hero-spread">1.2 pips</span></div>
+              <div class="text-[10px] font-mono text-cyan-300 mt-0.5">Spread: <span id="hero-spread">1.2 pips</span></div>
             </div>
           </div>
 
           <!-- Multi-Timeframe Toolbar & Chart Header -->
-          <div class="flex flex-wrap items-center justify-between gap-1 mt-2 mb-1 border-b border-slate-800/80 pb-1.5 text-[10px] font-mono">
+          <div class="flex flex-wrap items-center justify-between gap-1 my-0.5 border-b border-slate-800/80 pb-1 text-[10px] font-mono flex-shrink-0">
             <div class="flex items-center gap-1">
               <span class="text-cyan-400 font-bold uppercase tracking-wider">TF:</span>
               <div class="flex items-center gap-0.5 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800">
@@ -418,9 +436,9 @@
           </div>
 
           <!-- Real Interactive Candlestick Chart Viewport -->
-          <div class="relative bg-slate-950/95 rounded-xl border border-cyan-500/30 overflow-hidden shadow-inner my-2" style="min-height: 250px;">
+          <div class="relative bg-slate-950/95 rounded-xl border border-cyan-500/30 overflow-hidden shadow-inner my-1 flex-1 min-h-[120px] flex flex-col">
             <!-- Real TradingView Widget Container -->
-            <div id="tradingview-chart-box" class="w-full h-[250px] relative">
+            <div id="tradingview-chart-box" class="w-full h-full flex-1 min-h-0 relative">
               <iframe id="tv-widget-iframe" class="w-full h-full border-0 rounded-xl"
                       src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=OANDA%3AXAUUSD&interval=15&hidesidetoolbar=0&symboledit=0&saveimage=0&toolbarbg=030712&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&overrides=%7B%22paneProperties.background%22%3A%22%23030712%22%2C%22paneProperties.vertGridProperties.color%22%3A%22rgba(56%2C%20189%2C%20248%2C%200.05)%22%2C%22paneProperties.horzGridProperties.color%22%3A%22rgba(56%2C%20189%2C%20248%2C%200.05)%22%7D&locale=en"
                       allowtransparency="true" scrolling="no" allowfullscreen>
@@ -428,33 +446,35 @@
             </div>
 
             <!-- Alternative AI SMC Structure Canvas (Toggled via AI SMC button) -->
-            <div id="ai-smc-chart-box" class="hidden w-full h-[250px] p-2 flex flex-col justify-between">
-              <div class="flex justify-between text-[10px] font-mono text-slate-400 mb-1 border-b border-slate-800 pb-1">
+            <div id="ai-smc-chart-box" class="hidden w-full h-full flex-1 min-h-0 p-1.5 flex flex-col justify-between">
+              <div class="flex justify-between text-[10px] font-mono text-slate-400 mb-1 border-b border-slate-800 pb-1 flex-shrink-0">
                 <span class="text-cyan-400 font-bold">SMC ORDER BLOCKS & LIQUIDITY SWEEPS</span>
                 <span class="text-amber-400 font-bold">FAIR VALUE GAPS (FVG)</span>
               </div>
-              <canvas id="candleCanvas" width="400" height="180" class="w-full h-[180px]"></canvas>
+              <div class="flex-1 min-h-0 flex items-center justify-center">
+                <canvas id="candleCanvas" width="400" height="180" class="w-full h-full object-contain max-h-[180px]"></canvas>
+              </div>
             </div>
           </div>
 
-          <div class="flex justify-between text-[10px] font-mono text-slate-400 mb-2 px-1">
+          <div class="flex justify-between text-[10px] font-mono text-slate-400 my-0.5 px-1 flex-shrink-0">
             <span>Support: <span class="text-emerald-400 font-bold" id="chart-support">$4,410.00</span></span>
             <span class="text-amber-300 font-bold" id="chart-active-tf-label">TF: 15M (Structure)</span>
             <span>Resistance: <span class="text-red-400 font-bold" id="chart-res">$4,450.00</span></span>
           </div>
 
           <!-- SMC Technical Metrics -->
-          <div class="grid grid-cols-3 gap-2 text-center text-xs font-mono bg-slate-950/70 p-2 rounded-lg border border-slate-800">
+          <div class="grid grid-cols-3 gap-1.5 text-center text-xs font-mono bg-slate-950/70 py-1.5 px-2 rounded-lg border border-slate-800 flex-shrink-0">
             <div>
-              <div class="text-[10px] text-slate-400">RSI (14)</div>
+              <div class="text-[9px] text-slate-400">RSI (14)</div>
               <div class="font-bold text-emerald-400" id="tech-rsi-val">58.4</div>
             </div>
             <div>
-              <div class="text-[10px] text-slate-400">ATR VOLATILITY</div>
+              <div class="text-[9px] text-slate-400">ATR VOLATILITY</div>
               <div class="font-bold text-cyan-300" id="tech-atr-val">185 pips</div>
             </div>
             <div>
-              <div class="text-[10px] text-slate-400">STRUCTURE</div>
+              <div class="text-[9px] text-slate-400">STRUCTURE</div>
               <div class="font-bold text-emerald-400" id="tech-bias-val">BULLISH BOS</div>
             </div>
           </div>
@@ -464,10 +484,10 @@
       </div>
 
       <!-- Center Stage: The 3D Clashing Debate Stream (Overlaid on Holographic Bull vs Bear) -->
-      <div class="lg:col-span-4 flex flex-col justify-center">
+      <div class="lg:col-span-4 flex flex-col min-h-0 h-full">
         
-        <div class="holo-card p-4 border border-cyan-500/40 bg-slate-950/85">
-          <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+        <div class="holo-card p-2.5 lg:p-3 border border-cyan-500/40 bg-slate-950/85 flex flex-col h-full min-h-0 justify-between">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-1.5 mb-1.5 flex-shrink-0">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
               <span class="text-xs font-orbitron font-bold tracking-wider text-amber-300 uppercase">
@@ -481,17 +501,17 @@
           </div>
 
           <!-- Consensus Ratio Bar -->
-          <div class="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800 mb-3 flex">
+          <div class="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800 mb-2 flex flex-shrink-0">
             <div id="meter-bear-bar" class="bg-gradient-to-r from-red-600 to-red-500 h-full transition-all duration-500" style="width: 20%;"></div>
             <div id="meter-bull-bar" class="bg-gradient-to-r from-amber-400 via-emerald-400 to-emerald-500 h-full transition-all duration-500" style="width: 80%;"></div>
           </div>
 
           <!-- Live Debate Dialogue Box -->
-          <div class="space-y-2 max-h-[220px] overflow-y-auto pr-1 text-xs font-mono" id="debate-chat-stream">
+          <div class="space-y-1.5 flex-1 min-h-[80px] overflow-y-auto pr-1 text-xs font-mono" id="debate-chat-stream">
             <!-- Dynamic turns will populate here -->
           </div>
 
-          <div class="mt-2 pt-2 border-t border-slate-800 text-[11px] font-mono text-slate-400 text-center italic" id="debate-summary-caption">
+          <div class="mt-1 pt-1.5 border-t border-slate-800 text-[11px] font-mono text-slate-400 text-center italic flex-shrink-0" id="debate-summary-caption">
             "Bulls hold distinct macro and technical dominance. Target $2,528.30."
           </div>
         </div>
@@ -499,54 +519,56 @@
       </div>
 
       <!-- Right Floating Holographic Screen: Other Major Instruments & Pips -->
-      <div class="lg:col-span-4 flex flex-col gap-2.5">
+      <div class="lg:col-span-4 flex flex-col min-h-0 h-full gap-1.5 lg:gap-2">
         
         <!-- Multi-Instrument Pip Monitors (US OIL, EUR/USD, GBP/USD, USD/JPY) -->
-        <div class="grid grid-cols-2 gap-2.5">
+        <div class="grid grid-cols-2 gap-1.5 lg:gap-2 flex-shrink-0">
           
           <!-- EUR/USD Card -->
-          <div onclick="switchSymbol('EURUSD')" class="holo-card p-3 cursor-pointer hover:border-cyan-400 transition-all">
-            <div class="flex justify-between text-[11px] font-mono font-bold text-cyan-300">
+          <div onclick="switchSymbol('EURUSD')" class="holo-card p-2 cursor-pointer hover:border-cyan-400 transition-all">
+            <div class="flex justify-between text-[10px] font-mono font-bold text-cyan-300">
               <span>EUR/USD</span>
-              <span class="text-emerald-400">+25.3 pips</span>
+              <span class="text-emerald-400">+25.3 p</span>
             </div>
-            <div class="text-xl font-orbitron font-bold text-slate-100 mt-1" id="pip-eurusd">1.1095</div>
-            <div class="text-[10px] font-mono text-slate-400 mt-0.5">Spread: 0.8 pips</div>
+            <div class="text-base lg:text-lg font-orbitron font-bold text-slate-100 mt-0.5 compact-pip-price" id="pip-eurusd">1.1095</div>
+            <div class="text-[9px] font-mono text-slate-400 mt-0.5">Spread: 0.8 pips</div>
           </div>
 
           <!-- GBP/USD Card -->
-          <div onclick="switchSymbol('GBPUSD')" class="holo-card p-3 cursor-pointer hover:border-emerald-400 transition-all">
-            <div class="flex justify-between text-[11px] font-mono font-bold text-emerald-300">
+          <div onclick="switchSymbol('GBPUSD')" class="holo-card p-2 cursor-pointer hover:border-emerald-400 transition-all">
+            <div class="flex justify-between text-[10px] font-mono font-bold text-emerald-300">
               <span>GBP/USD</span>
-              <span class="text-emerald-400">+18.7 pips</span>
+              <span class="text-emerald-400">+18.7 p</span>
             </div>
-            <div class="text-xl font-orbitron font-bold text-slate-100 mt-1" id="pip-gbpusd">1.3040</div>
-            <div class="text-[10px] font-mono text-slate-400 mt-0.5">Spread: 1.1 pips</div>
+            <div class="text-base lg:text-lg font-orbitron font-bold text-slate-100 mt-0.5 compact-pip-price" id="pip-gbpusd">1.3040</div>
+            <div class="text-[9px] font-mono text-slate-400 mt-0.5">Spread: 1.1 pips</div>
           </div>
 
           <!-- US OIL Card -->
-          <div onclick="switchSymbol('USOIL')" class="holo-card holo-amber p-3 cursor-pointer hover:border-amber-400 transition-all">
-            <div class="flex justify-between text-[11px] font-mono font-bold text-amber-300">
+          <div onclick="switchSymbol('USOIL')" class="holo-card holo-amber p-2 cursor-pointer hover:border-amber-400 transition-all">
+            <div class="flex justify-between text-[10px] font-mono font-bold text-amber-300">
               <span>US OIL (WTI)</span>
               <span class="text-red-400">-0.85%</span>
             </div>
-            <div class="text-xl font-orbitron font-bold text-amber-200 mt-1" id="pip-usoil">$74.20</div>
-            <div class="text-[10px] font-mono text-slate-400 mt-0.5">EIA Build: +1.4M bbl</div>
+            <div class="text-base lg:text-lg font-orbitron font-bold text-amber-200 mt-0.5 compact-pip-price" id="pip-usoil">$74.20</div>
+            <div class="text-[9px] font-mono text-slate-400 mt-0.5">EIA: +1.4M bbl</div>
           </div>
 
           <!-- USD/JPY Card -->
-          <div onclick="switchSymbol('USDJPY')" class="holo-card holo-red p-3 cursor-pointer hover:border-red-400 transition-all">
-            <div class="flex justify-between text-[11px] font-mono font-bold text-red-300">
+          <div onclick="switchSymbol('USDJPY')" class="holo-card holo-red p-2 cursor-pointer hover:border-red-400 transition-all">
+            <div class="flex justify-between text-[10px] font-mono font-bold text-red-300">
               <span>USD/JPY</span>
-              <span class="text-red-400">-41.2 pips</span>
+              <span class="text-red-400">-41.2 p</span>
             </div>
-            <div class="text-xl font-orbitron font-bold text-slate-100 mt-1" id="pip-usdjpy">147.60</div>
-            <div class="text-[10px] font-mono text-slate-400 mt-0.5">BOJ Hike Bias</div>
+            <div class="text-base lg:text-lg font-orbitron font-bold text-slate-100 mt-0.5 compact-pip-price" id="pip-usdjpy">147.60</div>
+            <div class="text-[9px] font-mono text-slate-400 mt-0.5">BOJ Hike Bias</div>
           </div>
 
-        </div>        <!-- Open Positions HUD with One-Click Break-Even and Close-All -->
-        <div class="holo-card p-3 text-xs font-mono max-h-[160px] overflow-y-auto">
-          <div class="flex justify-between items-center mb-1.5 border-b border-slate-800 pb-1 text-[11px] font-bold text-slate-300">
+        </div>
+
+        <!-- Open Positions HUD with One-Click Break-Even and Close-All -->
+        <div class="holo-card p-2.5 text-xs font-mono flex-1 min-h-[80px] flex flex-col overflow-hidden">
+          <div class="flex justify-between items-center mb-1 border-b border-slate-800 pb-1 text-[11px] font-bold text-slate-300 flex-shrink-0">
             <div class="flex items-center gap-2">
               <span>ACTIVE BROKER POSITIONS</span>
               <span class="text-emerald-400 font-bold" id="positions-count-text">0 Open</span>
@@ -562,8 +584,8 @@
               </button>
             </div>
           </div>
-          <div class="space-y-1.5" id="open-positions-container">
-            <div class="text-center text-slate-500 py-3 text-[11px]">No active broker positions</div>
+          <div class="space-y-1.5 flex-1 min-h-0 overflow-y-auto pr-0.5" id="open-positions-container">
+            <div class="text-center text-slate-500 py-2 text-[11px]">No active broker positions</div>
           </div>
         </div>
 
@@ -572,18 +594,18 @@
     </main>
 
     <!-- BOTTOM SECTION: Illuminated Command Deck Trade Panel -->
-    <footer class="holo-card p-3 lg:px-5 lg:py-3 mt-2 border-t-2 border-cyan-400/50 shadow-2xl shadow-cyan-500/20">
+    <footer class="holo-card px-3 py-1.5 lg:px-4 lg:py-2 mt-1 border-t-2 border-cyan-400/50 shadow-2xl shadow-cyan-500/20 flex-shrink-0">
       
-      <div class="flex flex-col lg:flex-row items-center justify-between gap-4 font-mono">
+      <div class="flex flex-col lg:flex-row items-center justify-between gap-2 lg:gap-3 font-mono">
         
         <!-- Live Order Parameters & Option B Risk Sizing -->
-        <div class="flex flex-wrap items-center gap-3 text-xs md:text-sm">
+        <div class="flex flex-wrap items-center gap-2 lg:gap-3 text-xs md:text-sm">
           <div class="px-2.5 py-1 rounded bg-amber-500/20 border border-amber-500/50 text-amber-300 font-bold" id="deck-symbol-pill">
             TRADE PANEL: XAU/USD
           </div>
           
           <!-- Manual Lot Selector & Dollar-Risk Chips -->
-          <div class="flex flex-col gap-1 bg-slate-950/90 px-2.5 py-1 rounded-xl border border-cyan-500/50 shadow-inner">
+          <div class="flex flex-col gap-0.5 bg-slate-950/90 px-2.5 py-0.5 rounded-xl border border-cyan-500/50 shadow-inner">
             <div class="flex items-center gap-1.5">
               <span class="text-[10px] text-cyan-300 font-mono font-bold tracking-wider uppercase">LOT:</span>
               <input type="number" id="manual-lot-input" value="1.00" step="0.01" min="0.01" max="50.0" 
@@ -599,7 +621,7 @@
             </div>
 
             <!-- Option B: Dollar-Risk Sizing Chips (Calculates Lot for Guaranteed 100-Pip Stop) -->
-            <div class="flex items-center gap-1 pt-1 border-t border-slate-800/80">
+            <div class="flex items-center gap-1 pt-0.5 border-t border-slate-800/80">
               <span class="text-[9px] text-amber-400/90 font-mono font-bold tracking-wider">RISK:</span>
               <button type="button" onclick="setRiskLot(100)" id="chip-risk-100" class="risk-chip text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/40 font-bold transition-all">$100</button>
               <button type="button" onclick="setRiskLot(250)" id="chip-risk-250" class="risk-chip text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/40 font-bold transition-all">$250</button>
@@ -610,29 +632,29 @@
             </div>
           </div>
 
-          <div class="text-slate-300">
+          <div class="text-slate-300 text-xs">
             Action: <span class="font-bold text-emerald-400" id="deck-action">BUY</span>
           </div>
-          <div class="text-slate-300">
+          <div class="text-slate-300 text-xs">
             Entry: <span class="font-bold text-slate-100" id="deck-entry">4,430.26</span>
           </div>
           
           <!-- Auto 100 Pips Stop Loss Guaranteed Badge -->
-          <div class="text-red-400 flex items-center gap-1.5">
+          <div class="text-red-400 flex items-center gap-1 text-xs">
             <span class="text-[9px] px-1.5 py-0.5 rounded bg-red-950/90 border border-red-500/60 text-red-300 font-bold uppercase tracking-wider">AUTO 100p SL</span>
             <span class="font-bold" id="deck-sl">4,420.26 (-100 p)</span>
           </div>
-          <div class="text-emerald-400 flex items-center gap-1.5">
+          <div class="text-emerald-400 flex items-center gap-1 text-xs">
             <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/90 border border-emerald-500/60 text-emerald-300 font-bold uppercase tracking-wider">TP</span>
             <span class="font-bold" id="deck-tp">4,455.26 (+200 p)</span>
           </div>
         </div>
 
         <!-- Option A: Dual One-Click Instant BUY / SELL Buttons & Actions -->
-        <div class="flex items-center gap-2.5 w-full lg:w-auto">
+        <div class="flex items-center gap-2 w-full lg:w-auto">
           
           <!-- Instant 1-Click BUY Button -->
-          <button type="button" onclick="quickExecute('BUY')" id="btn-quick-buy" class="btn-glow-emerald px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-orbitron font-black text-xs tracking-wider transition-all transform active:scale-95 flex flex-col items-center justify-center min-w-[125px]">
+          <button type="button" onclick="quickExecute('BUY')" id="btn-quick-buy" class="btn-glow-emerald px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-orbitron font-black text-xs tracking-wider transition-all transform active:scale-95 flex flex-col items-center justify-center min-w-[115px]">
             <div class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-slate-950 animate-ping"></span>
               <span>BUY (100p SL)</span>
@@ -642,7 +664,7 @@
           </button>
 
           <!-- Instant 1-Click SELL Button -->
-          <button type="button" onclick="quickExecute('SELL')" id="btn-quick-sell" class="btn-glow-rose px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-slate-100 font-orbitron font-black text-xs tracking-wider transition-all transform active:scale-95 flex flex-col items-center justify-center min-w-[125px]">
+          <button type="button" onclick="quickExecute('SELL')" id="btn-quick-sell" class="btn-glow-rose px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-slate-100 font-orbitron font-black text-xs tracking-wider transition-all transform active:scale-95 flex flex-col items-center justify-center min-w-[115px]">
             <div class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-rose-200 animate-ping"></span>
               <span>SELL (100p SL)</span>
@@ -651,12 +673,12 @@
             <span class="text-[10px] font-mono text-rose-200 font-bold mt-0.5" id="quick-sell-price">@ 4,430.26</span>
           </button>
 
-          <button type="button" onclick="runMultiAgentAnalysis(currentActiveSymbol)" class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-mono text-xs font-bold transition-all shadow-md flex items-center gap-1.5">
+          <button type="button" onclick="runMultiAgentAnalysis(currentActiveSymbol)" class="px-2.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-mono text-xs font-bold transition-all shadow-md flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             <span class="hidden sm:inline">ANALYZE</span>
           </button>
 
-          <button type="button" onclick="executeBrokerOrder()" id="btn-main-execute" class="flex-1 lg:flex-none px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-orbitron font-black text-xs tracking-wider transition-all shadow-lg shadow-cyan-500/20 transform active:scale-95 flex items-center justify-center gap-1.5">
+          <button type="button" onclick="executeBrokerOrder()" id="btn-main-execute" class="flex-1 lg:flex-none px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-orbitron font-black text-xs tracking-wider transition-all shadow-lg shadow-cyan-500/20 transform active:scale-95 flex items-center justify-center gap-1.5">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             <span class="hidden sm:inline">CONFIRM & EXECUTE</span>
           </button>
@@ -666,7 +688,7 @@
       </div>
 
       <!-- Hotkeys Legend Footer Bar -->
-      <div class="mt-2 pt-1.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-[10px] font-mono text-slate-400">
+      <div class="mt-1 pt-1 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-[10px] font-mono text-slate-400">
         <div class="flex items-center gap-2">
           <span class="text-cyan-400 font-bold uppercase tracking-wider">HOTKEYS:</span>
           <span><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-emerald-300 font-bold">B</kbd> BUY</span>
