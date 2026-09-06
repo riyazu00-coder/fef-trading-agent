@@ -28,7 +28,8 @@ class MT5ServerBridge:
         self._server_thread: Optional[threading.Thread] = None
         self._running = False
         self._lock = threading.Lock()
-        self.start_server()
+        if not os.environ.get("VERCEL"):
+            self.start_server()
 
     def start_server(self):
         if self._running:

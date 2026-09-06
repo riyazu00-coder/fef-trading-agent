@@ -7,7 +7,7 @@ Risk Guardian, and MT5 execution.
 from dataclasses import asdict
 from datetime import datetime, timezone
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from backend.graph.state import AgentStateDict
 from backend.agents.macro_analyst import macro_analyst
