@@ -15,6 +15,10 @@ import os
 import unittest
 from unittest.mock import patch, MagicMock
 
+# Prevent the production MT5 socket listener from starting as an import side
+# effect. This flag is scoped to the test process and does not alter runtime code.
+os.environ.setdefault("VERCEL", "1")
+
 from backend.server import TradingAgentsApiHandler, FEF_BRIDGE_SECRET_DEFAULT
 from api.index import handler as VercelHandler
 
