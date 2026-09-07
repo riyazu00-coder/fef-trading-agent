@@ -73,7 +73,7 @@ class TradingGraphWorkflow:
         exec_res = None
         if auto_execute and ticket.execution_status == "READY":
             exec_res = mt5_bridge.send_order(ticket)
-            ticket.execution_status = "EXECUTED"
+            ticket.execution_status = exec_res.get("status", "PENDING_ACKNOWLEDGEMENT")
             audit_trail.append(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] Dispatched to broker: {exec_res.get('message', 'Executed')}")
 
         return {

@@ -230,17 +230,19 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
                 stop_pips=100.0,
                 tp_pips=200.0,
                 risk_reward_ratio=2.0,
-                execution_status="EXECUTED",
+                execution_status="READY",
                 rationale=f"Instant One-Click {action} on {symbol} (100-pip SL: {stop_loss}, 200-pip TP: {take_profit})"
             )
 
             exec_res = mt5_bridge.send_order(ticket)
+            response_status = exec_res.get("status", "PENDING_ACKNOWLEDGEMENT")
+            ticket.execution_status = response_status
 
             return self._send_json({
-                "status": "EXECUTED",
+                "status": response_status,
                 "ticket": asdict(ticket),
                 "execution_result": exec_res,
-                "message": f"Successfully executed {action} {manual_lot} Lots on {symbol} with 100-pip SL at {stop_loss}."
+                "message": exec_res.get("message", "Order is awaiting MT5 acknowledgement.")
             })
 
         elif path == "/api/close_position":

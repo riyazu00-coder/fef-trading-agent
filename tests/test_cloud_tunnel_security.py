@@ -120,7 +120,7 @@ class TestCloudTunnelSecurity(unittest.TestCase):
             auth_header=f"Bearer {secret}"
         )
         self.assertEqual(status, 200)
-        self.assertEqual(res.get("status"), "EXECUTED")
+        self.assertEqual(res.get("status"), "PAPER_EXECUTED")
         self.assertIn("ticket", res)
         self.assertEqual(res["ticket"]["action"], "BUY")
 
