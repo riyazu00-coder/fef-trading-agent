@@ -23,7 +23,10 @@ os.environ.setdefault("VERCEL", "1")
 from api.index import handler as VercelHandler
 from backend.config import config
 from backend.execution.mt5_socket_bridge import MT5ServerBridge
-from backend.server import FEF_BRIDGE_SECRET_DEFAULT, TradingAgentsApiHandler
+from backend.server import TradingAgentsApiHandler
+
+
+TEST_BRIDGE_SECRET = "test-characterization-bridge-secret"
 
 
 class HandlerTestMixin:
@@ -252,28 +255,19 @@ class TestBridgeDeliveryCharacterization(unittest.TestCase):
 
 class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
     def test_local_mutating_endpoint_authentication_matrix(self):
-        """Four bulk/execution routes require auth; close_position currently does not."""
+        """Every local trading-state mutation now requires authentication."""
         protected = (
             "/api/execute",
             "/api/quick_execute",
             "/api/break_even",
             "/api/close_all",
+            "/api/close_position",
         )
         for endpoint in protected:
             with self.subTest(endpoint=endpoint):
                 status, response = self._run_local_post(endpoint, {})
                 self.assertEqual(status, 401)
                 self.assertEqual(response.get("status"), "UNAUTHORIZED")
-
-        status, response = self._run_local_post(
-            "/api/close_position", {"ticket": 999999}
-        )
-        self.assertEqual(
-            status,
-            404,
-            "A 404 proves the request reached position lookup without Bearer auth.",
-        )
-        self.assertIn("not found", response.get("error", ""))
 
     def test_management_commands_use_one_bridge_dispatch_method(self):
         """Close-all and break-even no longer write and queue independently."""
@@ -284,7 +278,7 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
 
         for endpoint, action, simulator_method in cases:
             with self.subTest(endpoint=endpoint), patch.dict(
-                os.environ, {"FEF_BRIDGE_SECRET": FEF_BRIDGE_SECRET_DEFAULT}
+                os.environ, {"FEF_BRIDGE_SECRET": TEST_BRIDGE_SECRET}
             ), patch(
                 f"backend.server.paper_simulator.{simulator_method}",
                 return_value=0,
@@ -292,7 +286,7 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
                 status, _ = self._run_local_post(
                     endpoint,
                     {},
-                    auth_header=f"Bearer {FEF_BRIDGE_SECRET_DEFAULT}",
+                    auth_header=f"Bearer {TEST_BRIDGE_SECRET}",
                 )
 
             self.assertEqual(status, 200)
@@ -303,7 +297,7 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
 
     def test_management_command_preserves_optional_symbol_and_ticket_scope(self):
         with patch.dict(
-            os.environ, {"FEF_BRIDGE_SECRET": FEF_BRIDGE_SECRET_DEFAULT}
+            os.environ, {"FEF_BRIDGE_SECRET": TEST_BRIDGE_SECRET}
         ), patch(
             "backend.server.paper_simulator.apply_break_even", return_value=1
         ) as paper_break_even, patch(
@@ -312,7 +306,7 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
             status, _ = self._run_local_post(
                 "/api/break_even",
                 {"symbol": "eurusd", "ticket": 1001},
-                auth_header=f"Bearer {FEF_BRIDGE_SECRET_DEFAULT}",
+                auth_header=f"Bearer {TEST_BRIDGE_SECRET}",
             )
 
         self.assertEqual(status, 200)
@@ -333,7 +327,7 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
         }
 
         with (
-            patch.dict(os.environ, {"FEF_BRIDGE_SECRET": FEF_BRIDGE_SECRET_DEFAULT}),
+            patch.dict(os.environ, {"FEF_BRIDGE_SECRET": TEST_BRIDGE_SECRET}),
             patch("backend.server.market_feed.get_live_quote", return_value=quote),
             patch("backend.server.trading_graph.run") as graph_run,
             patch("backend.graph.trading_graph.risk_guardian.evaluate") as risk_evaluate,
@@ -344,7 +338,7 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
             status, response = self._run_local_post(
                 "/api/quick_execute",
                 {"symbol": "XAUUSD", "action": "BUY", "lot_size": 0.10},
-                auth_header=f"Bearer {FEF_BRIDGE_SECRET_DEFAULT}",
+                auth_header=f"Bearer {TEST_BRIDGE_SECRET}",
             )
 
         self.assertEqual(status, 200)
@@ -364,9 +358,11 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
             VercelHandler,
             "/api/close_position",
             {"ticket": 999999},
+            auth_header=f"Bearer {TEST_BRIDGE_SECRET}",
         )
-        with self.assertRaisesRegex(AttributeError, "close_position"):
-            request_handler.do_POST()
+        with patch.dict(os.environ, {"FEF_BRIDGE_SECRET": TEST_BRIDGE_SECRET}):
+            with self.assertRaisesRegex(AttributeError, "close_position"):
+                request_handler.do_POST()
 
 
 if __name__ == "__main__":
