@@ -28,14 +28,17 @@ must display the backend-provided state without upgrading or inferring it.
 
 ## Exactly-once MT5 execution
 
-The Python characterization test proves that one logical order is currently
-written to the Common Files path and retained in the TCP queue. A Python-only
-test cannot prove whether a compiled EA processes both deliveries as two broker
-orders.
+The Phase 2A Python baseline assigns a unique command ID and selects exactly one
+delivery path: TCP after a recent EA poll, otherwise Common Files. Automated
+tests verify that the same logical command is not both queued for TCP and written
+to the pending-order file by the Python bridge.
 
-An isolated demo-terminal test must attach the production EA, submit a uniquely
-identified command, exercise both delivery paths in one polling interval, and
-verify from MT5 order/deal history that no more than one order is created.
+The current MQL5 EA does not parse command IDs or enforce expiry, so Python-only
+tests cannot provide broker-side deduplication against manually duplicated,
+externally replayed, or stale Common Files commands. An isolated demo-terminal
+test must attach the production EA, submit uniquely identified commands through
+each selected transport, and verify from MT5 order/deal history that each
+logical command creates no more than one order.
 
 ## Requested-symbol execution
 

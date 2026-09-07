@@ -9,6 +9,7 @@ import os
 import socket
 import threading
 import time
+import uuid
 from typing import Dict, Optional, Any, List
 
 from backend.config import config
@@ -16,6 +17,9 @@ from backend.data.quote_store import quote_store
 from backend.execution.paper_simulator import paper_simulator
 
 logger = logging.getLogger("MT5Bridge")
+
+COMMAND_TTL_SECONDS = 15.0
+TCP_ACTIVE_WINDOW_SECONDS = 4.0
 
 
 class MT5ServerBridge:
@@ -99,14 +103,47 @@ class MT5ServerBridge:
                 if eq > 0:
                     paper_simulator.initial_balance = eq
 
-            if self.order_queue:
+            # Expired TCP commands must not be delivered after a delayed poll.
+            now = time.time()
+            while self.order_queue:
                 order = self.order_queue.pop(0)
-                return order
+                expires_at = order.get("expires_at")
+                if expires_at is None or float(expires_at) > now:
+                    return order
 
             return {"status": "OK", "orders": 0}
 
+    def queue_command(
+        self,
+        command_payload: Dict[str, Any],
+        ttl_seconds: float = COMMAND_TTL_SECONDS,
+    ) -> Dict[str, Any]:
+        """Deliver one logical command through exactly one active transport.
+
+        TCP is preferred only when the EA has polled recently. Otherwise the
+        Common Files bridge is used. Both transports remain supported, but the
+        same command is never placed on both by this method.
+        """
+        now = time.time()
+        command = dict(command_payload)
+        command["command_id"] = uuid.uuid4().hex
+        command["created_at"] = now
+        command["expires_at"] = now + max(float(ttl_seconds), 0.0)
+
+        with self._lock:
+            tcp_active = (now - self.last_poll_time) < TCP_ACTIVE_WINDOW_SECONDS
+            if tcp_active:
+                command["delivery_transport"] = "TCP"
+                self.order_queue.append(command)
+
+        if not tcp_active:
+            command["delivery_transport"] = "COMMON_FILES"
+            quote_store.write_pending_order(command)
+
+        return command
+
     def queue_order(self, order_ticket) -> Dict[str, Any]:
-        """Queues an order to be delivered to MT5 on its next poll or via file bridge."""
+        """Queues an order for one-transport delivery and mirrors it in paper mode."""
         order_payload = {
             "action": "ORDER_SEND",
             "symbol": order_ticket.symbol,
@@ -116,17 +153,15 @@ class MT5ServerBridge:
             "tp": order_ticket.take_profit
         }
 
-        # Write to MT5 Common Files for instant pickup
-        quote_store.write_pending_order(order_payload)
-
-        # Also store in memory queue
-        with self._lock:
-            self.order_queue.append(order_payload)
+        command = self.queue_command(order_payload)
 
         # Check if MT5 has checked in recently
         alive = self.get_status()["connected"]
         # Always mirror in paper simulator so dashboard HUD tracks active positions & floating PnL
         sim_res = paper_simulator.execute_order(order_ticket)
+        sim_res["command_id"] = command["command_id"]
+        sim_res["delivery_transport"] = command["delivery_transport"]
+        sim_res["command_expires_at"] = command["expires_at"]
         if alive:
             sim_res["status"] = "DISPATCHED_TO_MT5"
             sim_res["broker"] = "MetaTrader 5 (Live Terminal)"
@@ -141,7 +176,7 @@ class MT5ServerBridge:
 
     def get_status(self) -> Dict[str, Any]:
         quote_store.check_file_bridge()
-        alive_socket = (time.time() - self.last_poll_time < 4.0)
+        alive_socket = (time.time() - self.last_poll_time < TCP_ACTIVE_WINDOW_SECONDS)
         alive_file = (time.time() - quote_store.last_update < 15.0)
         is_live = alive_socket or alive_file
         return {
