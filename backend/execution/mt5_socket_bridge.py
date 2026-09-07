@@ -20,6 +20,7 @@ logger = logging.getLogger("MT5Bridge")
 
 COMMAND_TTL_SECONDS = 15.0
 TCP_ACTIVE_WINDOW_SECONDS = 4.0
+SUCCESS_RETCODES = {10008, 10009, 10010}
 
 
 class MT5ServerBridge:
@@ -29,6 +30,8 @@ class MT5ServerBridge:
         self.is_connected = False
         self.last_poll_time = 0.0
         self.order_queue: List[Dict[str, Any]] = []
+        self.command_states: Dict[str, Dict[str, Any]] = {}
+        self.acknowledgements: Dict[str, Dict[str, Any]] = {}
         self._server_thread: Optional[threading.Thread] = None
         self._running = False
         self._lock = threading.Lock()
@@ -109,7 +112,12 @@ class MT5ServerBridge:
                 order = self.order_queue.pop(0)
                 expires_at = order.get("expires_at")
                 if expires_at is None or float(expires_at) > now:
+                    self._mark_dispatched(order["command_id"])
                     return order
+                state = self.command_states.get(order.get("command_id"))
+                if state:
+                    state["status"] = "EXPIRED"
+                    state["delivery_status"] = "EXPIRED"
 
             return {"status": "OK", "orders": 0}
 
@@ -130,7 +138,21 @@ class MT5ServerBridge:
         command["created_at"] = now
         command["expires_at"] = now + max(float(ttl_seconds), 0.0)
 
+        state = {
+            "command_id": command["command_id"],
+            "action": command.get("action"),
+            "order_action": command.get("type"),
+            "volume": command.get("volume"),
+            "requested_symbol": command.get("requested_symbol") or command.get("symbol"),
+            "status": "QUEUED",
+            "delivery_status": "QUEUED",
+            "broker_status": "PENDING",
+            "created_at": now,
+            "expires_at": command["expires_at"],
+        }
+
         with self._lock:
+            self.command_states[command["command_id"]] = state
             tcp_active = (now - self.last_poll_time) < TCP_ACTIVE_WINDOW_SECONDS
             if tcp_active:
                 command["delivery_transport"] = "TCP"
@@ -139,8 +161,67 @@ class MT5ServerBridge:
         if not tcp_active:
             command["delivery_transport"] = "COMMON_FILES"
             quote_store.write_pending_order(command)
+            with self._lock:
+                self._mark_dispatched(command["command_id"])
 
         return command
+
+    def _mark_dispatched(self, command_id: str):
+        state = self.command_states.get(command_id)
+        if state:
+            state["status"] = "PENDING_ACKNOWLEDGEMENT"
+            state["delivery_status"] = "DISPATCHED"
+
+    def record_acknowledgement(self, acknowledgement: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and record an MT5 broker acknowledgement by command ID."""
+        command_id = str(acknowledgement.get("command_id", ""))
+        with self._lock:
+            state = self.command_states.get(command_id)
+            if not state:
+                return {"status": "IGNORED_UNKNOWN_COMMAND", "command_id": command_id}
+
+            requested = acknowledgement.get("requested_symbol")
+            action = acknowledgement.get("action")
+            if requested != state.get("requested_symbol") or action != state.get("order_action"):
+                state["status"] = "INVALID_ACKNOWLEDGEMENT"
+                state["broker_status"] = "FAILED"
+                state["error"] = "Acknowledgement command fields do not match"
+                return dict(state)
+
+            success = acknowledgement.get("success") is True
+            try:
+                retcode = int(acknowledgement.get("retcode", 0) or 0)
+                ids = {
+                    key: int(acknowledgement.get(key, 0) or 0)
+                    for key in ("ticket", "order_id", "deal_id")
+                }
+            except (TypeError, ValueError):
+                retcode = 0
+                ids = {"ticket": 0, "order_id": 0, "deal_id": 0}
+            broker_id = any(value > 0 for value in ids.values())
+            execution_symbol = str(acknowledgement.get("execution_symbol", ""))
+
+            if success and retcode in SUCCESS_RETCODES and broker_id and execution_symbol:
+                broker_status = "EXECUTED" if ids["deal_id"] > 0 else "ACCEPTED"
+                state["status"] = broker_status
+                state["broker_status"] = broker_status
+            else:
+                state["status"] = "FAILED"
+                state["broker_status"] = "FAILED"
+
+            state["acknowledgement"] = dict(acknowledgement)
+            self.acknowledgements[command_id] = dict(acknowledgement)
+            return dict(state)
+
+    def refresh_acknowledgements(self):
+        for acknowledgement in quote_store.read_execution_acknowledgements():
+            self.record_acknowledgement(acknowledgement)
+
+    def get_command_status(self, command_id: str) -> Optional[Dict[str, Any]]:
+        self.refresh_acknowledgements()
+        with self._lock:
+            state = self.command_states.get(command_id)
+            return dict(state) if state else None
 
     def queue_order(self, order_ticket) -> Dict[str, Any]:
         """Queues an order for one-transport delivery and mirrors it in paper mode."""
@@ -156,7 +237,7 @@ class MT5ServerBridge:
 
         command = self.queue_command(order_payload)
 
-        # Check if MT5 has checked in recently
+        # Check if MT5 has checked in recently and consume any immediate ack.
         alive = self.get_status()["connected"]
         # Always mirror in paper simulator so dashboard HUD tracks active positions & floating PnL
         sim_res = paper_simulator.execute_order(order_ticket)
@@ -167,12 +248,25 @@ class MT5ServerBridge:
         # Populated only by a future broker acknowledgement; dispatch alone
         # cannot truthfully claim which symbol MT5 executed.
         sim_res["mt5_execution_symbol"] = None
+        command_state = self.get_command_status(command["command_id"])
+        sim_res["paper_execution_status"] = sim_res.get("status")
+        sim_res["broker_acknowledgement_status"] = command_state["broker_status"]
+        if command_state.get("acknowledgement"):
+            sim_res["acknowledgement"] = command_state["acknowledgement"]
+            sim_res["mt5_execution_symbol"] = command_state["acknowledgement"].get("execution_symbol")
+
         if alive:
-            sim_res["status"] = "DISPATCHED_TO_MT5"
+            sim_res["status"] = command_state["status"]
             sim_res["broker"] = "MetaTrader 5 (Live Terminal)"
-            sim_res["message"] = f"Order dispatched to MT5 ({order_ticket.action} {order_ticket.lot_size}L) with guaranteed 100p SL."
+            sim_res["message"] = (
+                f"Order {command_state['status'].lower().replace('_', ' ')} "
+                f"for MT5 ({order_ticket.action} {order_ticket.lot_size}L)."
+            )
             return sim_res
         else:
+            sim_res["status"] = "PAPER_EXECUTED"
+            sim_res["execution_mode"] = "PAPER"
+            sim_res["broker_acknowledgement_status"] = "NOT_APPLICABLE"
             sim_res["mt5_connection_status"] = "MT5 Standby (Executed in Paper Simulator)"
             return sim_res
 
@@ -180,16 +274,25 @@ class MT5ServerBridge:
         return self.queue_order(order_ticket)
 
     def get_status(self) -> Dict[str, Any]:
+        self.refresh_acknowledgements()
         quote_store.check_file_bridge()
         alive_socket = (time.time() - self.last_poll_time < TCP_ACTIVE_WINDOW_SECONDS)
         alive_file = (time.time() - quote_store.last_update < 15.0)
         is_live = alive_socket or alive_file
+        with self._lock:
+            latest_ack = next(reversed(self.acknowledgements.values()), None) if self.acknowledgements else None
+            pending_count = sum(
+                1 for state in self.command_states.values()
+                if state["status"] in ("QUEUED", "PENDING_ACKNOWLEDGEMENT")
+            )
         return {
             "connected": is_live,
             "host": self.host,
             "port": self.port,
             "protocol": "Dual File + TCP Bridge",
-            "mode": "MetaTrader 5 Connected" if is_live else "Simulated Paper Engine Active"
+            "mode": "MetaTrader 5 Connected" if is_live else "Simulated Paper Engine Active",
+            "pending_acknowledgements": pending_count,
+            "latest_acknowledgement": latest_ack,
         }
 
 

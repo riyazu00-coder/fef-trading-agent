@@ -64,11 +64,18 @@ commands must demonstrate that unrelated positions remain untouched.
 
 ## Broker acknowledgements
 
-Python currently characterizes dispatch and paper-mirror responses, but there is
-no end-to-end acknowledgement contract carrying an MT5 return code, order/deal
-identifier, executed symbol, volume, and fill price back to the API and UI.
-Timeout, rejection, partial-fill, disconnect, retry, and late-acknowledgement
-tests require that contract to be designed and approved first.
+The active EA now writes a command-specific structured acknowledgement carrying
+the command ID, requested and execution symbols, action, volume, result price,
+order/deal identifiers, MT5 return code, status, and error description. Python
+validates the acknowledgement against pending command state and does not convert
+dispatch into broker success. Paper execution remains explicitly separate.
+
+Demo-terminal verification is still required for the exact files and encodings
+produced by MetaTrader, market fills versus accepted orders, broker-specific
+return codes, partial fills, rejection messages, simultaneous acknowledgement
+files, terminal restarts, late acknowledgements, and permission failures. The
+current frontend does not yet render asynchronous acknowledgement changes, and
+that UI work remains outside Phase 2C.
 
 ## Safety boundary
 

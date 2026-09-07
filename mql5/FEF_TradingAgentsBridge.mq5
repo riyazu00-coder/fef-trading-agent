@@ -323,13 +323,72 @@ bool ResolveRequestedSymbol(string requested_symbol, string &execution_symbol, s
 }
 
 //+------------------------------------------------------------------+
-//| Emit a structured terminal result for symbol-routing audits      |
+//| Validate command ID before using it in an acknowledgement path  |
 //+------------------------------------------------------------------+
-void LogExecutionResult(string status, string requested_symbol, string execution_symbol,
-                        ulong order_id, uint retcode, string description)
+bool IsSafeCommandId(string command_id)
 {
-   PrintFormat("FEF_EXECUTION_RESULT status=%s requested_symbol=%s execution_symbol=%s order_id=%I64u retcode=%u message=%s",
-               status, requested_symbol, execution_symbol, order_id, retcode, description);
+   int length = StringLen(command_id);
+   if(length < 1 || length > 64)
+      return false;
+   for(int i = 0; i < length; i++)
+   {
+      ushort ch = StringGetCharacter(command_id, i);
+      bool allowed = ((ch >= '0' && ch <= '9') ||
+                      (ch >= 'a' && ch <= 'z') ||
+                      (ch >= 'A' && ch <= 'Z') || ch == '-' || ch == '_');
+      if(!allowed)
+         return false;
+   }
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Escape terminal text before embedding it in JSON                 |
+//+------------------------------------------------------------------+
+string EscapeJsonString(string value)
+{
+   StringReplace(value, "\\", "\\\\");
+   StringReplace(value, "\"", "\\\"");
+   StringReplace(value, "\r", " ");
+   StringReplace(value, "\n", " ");
+   return value;
+}
+
+//+------------------------------------------------------------------+
+//| Persist a structured broker acknowledgement for Python          |
+//+------------------------------------------------------------------+
+void PublishExecutionAcknowledgement(string command_id, string status, bool success,
+                                    string requested_symbol, string execution_symbol,
+                                    string action, double volume, double price,
+                                    ulong order_id, ulong deal_id, uint retcode,
+                                    string description)
+{
+   string safe_description = EscapeJsonString(description);
+   string json_ack = StringFormat(
+      "{\"command_id\":\"%s\",\"requested_symbol\":\"%s\",\"execution_symbol\":\"%s\","
+      "\"action\":\"%s\",\"volume\":%.2f,\"price\":%.10f,\"ticket\":%I64u,"
+      "\"order_id\":%I64u,\"deal_id\":%I64u,\"retcode\":%u,\"success\":%s,"
+      "\"status\":\"%s\",\"error_message\":\"%s\",\"timestamp\":%I64d}",
+      command_id, requested_symbol, execution_symbol, action, volume, price,
+      order_id, order_id, deal_id, retcode, (success ? "true" : "false"),
+      status, safe_description, (long)TimeCurrent());
+
+   string ack_file = "fef_execution_ack_" + command_id + ".json";
+   int handle = FileOpen(ack_file, FILE_WRITE|FILE_TXT|FILE_COMMON);
+   if(handle != INVALID_HANDLE)
+   {
+      FileWriteString(handle, json_ack);
+      FileClose(handle);
+   }
+   else
+   {
+      Print("FEF acknowledgement write failed for command_id=", command_id,
+            " error=", GetLastError());
+   }
+
+   PrintFormat("FEF_EXECUTION_RESULT command_id=%s status=%s requested_symbol=%s execution_symbol=%s order_id=%I64u deal_id=%I64u retcode=%u message=%s",
+               command_id, status, requested_symbol, execution_symbol,
+               order_id, deal_id, retcode, description);
 }
 
 //+------------------------------------------------------------------+
@@ -376,16 +435,29 @@ void HandleIncomingCommand(string json)
    if(StringFind(json, "ORDER_SEND") < 0)
       return;
 
+   string command_id = ExtractJsonString(json, "command_id", "");
+   if(!IsSafeCommandId(command_id))
+   {
+      Print("FEF: ORDER_SEND rejected because command_id is missing or invalid.");
+      return;
+   }
+
    string requested_sym = ExtractJsonString(json, "requested_symbol", "");
    if(StringLen(requested_sym) == 0)
       requested_sym = ExtractJsonString(json, "symbol", "");
    StringToUpper(requested_sym);
 
+   bool is_buy = (StringFind(json, "\"type\":\"BUY\"") >= 0 || StringFind(json, "\"type\": \"BUY\"") >= 0);
+   string order_action = (is_buy ? "BUY" : "SELL");
+   double volume = ExtractJsonDouble(json, "volume", 0.01);
+
    string execution_sym = "";
    string symbol_error = "";
    if(!ResolveRequestedSymbol(requested_sym, execution_sym, symbol_error))
    {
-      LogExecutionResult("REJECTED_SYMBOL", requested_sym, "", 0, 0, symbol_error);
+      PublishExecutionAcknowledgement(command_id, "FAILED", false, requested_sym,
+                                      "", order_action, volume, 0.0, 0, 0, 0,
+                                      symbol_error);
       return;
    }
 
@@ -393,14 +465,13 @@ void HandleIncomingCommand(string json)
    // chart that happens to host this EA.
    if(!trade.SetTypeFillingBySymbol(execution_sym))
    {
-      LogExecutionResult("REJECTED_SYMBOL", requested_sym, execution_sym, 0, 0,
-                         "Unable to configure filling mode for execution symbol");
+      PublishExecutionAcknowledgement(command_id, "FAILED", false, requested_sym,
+                                      execution_sym, order_action, volume, 0.0,
+                                      0, 0, 0,
+                                      "Unable to configure filling mode for execution symbol");
       return;
    }
 
-   bool is_buy = (StringFind(json, "\"type\":\"BUY\"") >= 0 || StringFind(json, "\"type\": \"BUY\"") >= 0);
-   
-   double volume = ExtractJsonDouble(json, "volume", 0.01);
    double sl     = ExtractJsonDouble(json, "sl", 0.0);
    double tp     = ExtractJsonDouble(json, "tp", 0.0);
 
@@ -426,16 +497,22 @@ void HandleIncomingCommand(string json)
    else
       res = trade.Sell(volume, execution_sym, 0.0, sl, tp, "FEF TRADING AGENT");
 
-   if(res)
-   {
-      ulong ticket = trade.ResultOrder();
-      LogExecutionResult("SUCCESS", requested_sym, execution_sym, ticket,
-                         trade.ResultRetcode(), trade.ResultRetcodeDescription());
-   }
-   else
-   {
-      LogExecutionResult("FAILED", requested_sym, execution_sym, 0,
-                         trade.ResultRetcode(), trade.ResultRetcodeDescription());
-   }
+   uint retcode = trade.ResultRetcode();
+   ulong order_id = trade.ResultOrder();
+   ulong deal_id = trade.ResultDeal();
+   double result_price = trade.ResultPrice();
+   bool accepted_retcode = (retcode == TRADE_RETCODE_PLACED ||
+                            retcode == TRADE_RETCODE_DONE ||
+                            retcode == TRADE_RETCODE_DONE_PARTIAL);
+   bool acknowledged_success = (res && accepted_retcode &&
+                                (order_id > 0 || deal_id > 0));
+   string result_status = acknowledged_success ?
+                          (deal_id > 0 ? "EXECUTED" : "ACCEPTED") : "FAILED";
+
+   PublishExecutionAcknowledgement(command_id, result_status,
+                                   acknowledged_success, requested_sym,
+                                   execution_sym, order_action, volume,
+                                   result_price, order_id, deal_id, retcode,
+                                   trade.ResultRetcodeDescription());
 }
 //+------------------------------------------------------------------+

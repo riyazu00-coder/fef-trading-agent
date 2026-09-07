@@ -65,6 +65,8 @@ class TestBridgeDeliveryCharacterization(unittest.TestCase):
         bridge.is_connected = False
         bridge.last_poll_time = 0.0
         bridge.order_queue = []
+        bridge.command_states = {}
+        bridge.acknowledgements = {}
         bridge._lock = threading.Lock()
         return bridge
 
@@ -218,20 +220,33 @@ class TestBridgeDeliveryCharacterization(unittest.TestCase):
         self.assertIn("SymbolSelect(symbol, true)", source)
         self.assertIn("IsSupportedRequestedSymbol(requested_symbol)", source)
         self.assertIn("if(matches > 1)", source)
-        self.assertIn('LogExecutionResult("REJECTED_SYMBOL"', source)
+        self.assertIn('PublishExecutionAcknowledgement(command_id, "FAILED"', source)
         self.assertIn("trade.SetTypeFillingBySymbol(execution_sym)", source)
         self.assertIn("trade.Buy(volume, execution_sym", source)
         self.assertIn("trade.Sell(volume, execution_sym", source)
         self.assertNotIn("string target_sym = _Symbol;", source)
 
-    def test_mql5_result_log_includes_requested_and_execution_symbols(self):
+    def test_mql5_writes_structured_broker_acknowledgement(self):
         repo_root = Path(__file__).resolve().parents[1]
         source = (repo_root / "mql5" / "FEF_TradingAgentsBridge.mq5").read_text(
             encoding="utf-8"
         )
-        self.assertIn("requested_symbol=%s execution_symbol=%s", source)
-        self.assertIn('LogExecutionResult("SUCCESS", requested_sym, execution_sym', source)
-        self.assertIn('LogExecutionResult("FAILED", requested_sym, execution_sym', source)
+        self.assertIn("fef_execution_ack_", source)
+        self.assertIn('ExtractJsonString(json, "command_id", "")', source)
+        for field in (
+            '"command_id"',
+            '"requested_symbol"',
+            '"execution_symbol"',
+            '"action"',
+            '"volume"',
+            '"price"',
+            '"order_id"',
+            '"deal_id"',
+            '"retcode"',
+            '"success"',
+            '"error_message"',
+        ):
+            self.assertIn(field.replace('"', '\\"'), source)
 
 
 class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
@@ -285,7 +300,10 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
     def test_quick_execute_bypasses_graph_and_risk_guardian(self):
         """Characterize direct ticket dispatch without debate/risk evaluation."""
         quote = SimpleNamespace(bid=2500.00, ask=2500.20)
-        execution_result = {"status": "EXECUTED", "broker": "mock only"}
+        execution_result = {
+            "status": "PENDING_ACKNOWLEDGEMENT",
+            "broker": "mock only",
+        }
 
         with (
             patch.dict(os.environ, {"FEF_BRIDGE_SECRET": FEF_BRIDGE_SECRET_DEFAULT}),
@@ -303,7 +321,7 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
             )
 
         self.assertEqual(status, 200)
-        self.assertEqual(response["status"], "EXECUTED")
+        self.assertEqual(response["status"], "PENDING_ACKNOWLEDGEMENT")
         graph_run.assert_not_called()
         risk_evaluate.assert_not_called()
         send_order.assert_called_once()

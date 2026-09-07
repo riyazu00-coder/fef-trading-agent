@@ -5,12 +5,14 @@ Monitors both live socket connections and MT5 Common Files directory.
 
 from typing import Dict, Any, Optional
 import json
+import glob
 import os
 import time
 
 MT5_COMMON_DIR = "/Users/mac/Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/users/user/AppData/Roaming/MetaQuotes/Terminal/Common/Files"
 LIVE_QUOTES_FILE = os.path.join(MT5_COMMON_DIR, "fef_live_quotes.json")
 PENDING_ORDER_FILE = os.path.join(MT5_COMMON_DIR, "fef_pending_order.json")
+EXECUTION_ACK_PATTERN = os.path.join(MT5_COMMON_DIR, "fef_execution_ack_*.json")
 
 
 class QuoteStore:
@@ -94,6 +96,25 @@ class QuoteStore:
                 json.dump(order_dict, f)
         except Exception:
             pass
+
+    def read_execution_acknowledgements(self) -> list:
+        """Consume structured acknowledgements written by the active MT5 EA."""
+        acknowledgements = []
+        for path in glob.glob(EXECUTION_ACK_PATTERN):
+            try:
+                with open(path, "rb") as f:
+                    raw_bytes = f.read()
+                if raw_bytes.startswith(b"\xff\xfe") or raw_bytes.startswith(b"\xfe\xff"):
+                    content = raw_bytes.decode("utf-16")
+                else:
+                    content = raw_bytes.decode("utf-8")
+                acknowledgement = json.loads(content)
+                if isinstance(acknowledgement, dict):
+                    acknowledgements.append(acknowledgement)
+                os.unlink(path)
+            except Exception:
+                continue
+        return acknowledgements
 
 
 quote_store = QuoteStore()
