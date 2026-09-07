@@ -24,7 +24,6 @@ from backend.data.macro_feed import macro_feed
 from backend.data.public_apis import public_apis_hub
 from backend.data.economic_calendar import economic_calendar
 from backend.graph.trading_graph import trading_graph
-from backend.data.quote_store import quote_store
 from backend.agents.trader_agent import OrderTicket
 from backend.execution.paper_simulator import paper_simulator
 from backend.execution.mt5_socket_bridge import mt5_bridge
@@ -257,9 +256,7 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
         elif path == "/api/close_all":
             closed_count = paper_simulator.close_all_positions()
             close_payload = {"action": "ORDER_CLOSE_ALL"}
-            quote_store.write_pending_order(close_payload)
-            with mt5_bridge._lock:
-                mt5_bridge.order_queue.append(close_payload)
+            mt5_bridge.queue_command(close_payload)
             return self._send_json({
                 "status": "SUCCESS",
                 "closed_count": closed_count,
@@ -269,9 +266,7 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
         elif path == "/api/break_even":
             updated_count = paper_simulator.apply_break_even()
             be_payload = {"action": "ORDER_BREAK_EVEN"}
-            quote_store.write_pending_order(be_payload)
-            with mt5_bridge._lock:
-                mt5_bridge.order_queue.append(be_payload)
+            mt5_bridge.queue_command(be_payload)
             return self._send_json({
                 "status": "SUCCESS",
                 "updated_count": updated_count,

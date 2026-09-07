@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import threading
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -77,8 +78,8 @@ class TestBridgeDeliveryCharacterization(unittest.TestCase):
             take_profit=1.12000,
         )
 
-    def test_one_dispatch_currently_populates_file_and_tcp_delivery_paths(self):
-        """Characterize the duplicate-delivery risk in the dual bridge."""
+    def test_one_logical_command_uses_common_files_only_without_tcp_poll(self):
+        """An inactive TCP path must not receive a file-delivered command."""
         bridge = self._isolated_bridge()
         simulated_result = {"status": "EXECUTED", "message": "paper mirror only"}
 
@@ -97,16 +98,73 @@ class TestBridgeDeliveryCharacterization(unittest.TestCase):
         write_pending_order.assert_called_once()
         file_payload = write_pending_order.call_args.args[0]
         self.assertEqual(file_payload["action"], "ORDER_SEND")
-        self.assertEqual(
-            bridge.order_queue,
-            [file_payload],
-            "The same logical command is also retained for TCP polling.",
-        )
+        self.assertTrue(file_payload["command_id"])
+        self.assertEqual(file_payload["delivery_transport"], "COMMON_FILES")
+        self.assertGreater(file_payload["expires_at"], file_payload["created_at"])
+        self.assertEqual(bridge.order_queue, [])
 
         tcp_payload = bridge._handle_client_request(
             {"action": "POLL", "symbol": "XAUUSD", "bid": 0, "ask": 0}
         )
-        self.assertEqual(tcp_payload, file_payload)
+        self.assertEqual(tcp_payload, {"status": "OK", "orders": 0})
+
+    def test_one_logical_command_uses_tcp_only_after_recent_poll(self):
+        """A TCP-delivered command must not also be written to Common Files."""
+        bridge = self._isolated_bridge()
+        bridge.last_poll_time = time.time()
+
+        with (
+            patch(
+                "backend.execution.mt5_socket_bridge.quote_store.write_pending_order"
+            ) as write_pending_order,
+            patch(
+                "backend.execution.mt5_socket_bridge.paper_simulator.execute_order",
+                return_value={"status": "EXECUTED"},
+            ),
+            patch.object(bridge, "get_status", return_value={"connected": True}),
+        ):
+            response = bridge.queue_order(self._order())
+
+        write_pending_order.assert_not_called()
+        self.assertEqual(len(bridge.order_queue), 1)
+        queued_payload = bridge.order_queue[0]
+        self.assertEqual(queued_payload["delivery_transport"], "TCP")
+        self.assertEqual(response["command_id"], queued_payload["command_id"])
+
+        delivered_payload = bridge._handle_client_request(
+            {"action": "POLL", "symbol": "XAUUSD", "bid": 0, "ask": 0}
+        )
+        self.assertEqual(delivered_payload["command_id"], queued_payload["command_id"])
+        self.assertEqual(bridge.order_queue, [])
+
+    def test_separate_logical_commands_receive_unique_command_ids(self):
+        bridge = self._isolated_bridge()
+
+        with patch(
+            "backend.execution.mt5_socket_bridge.quote_store.write_pending_order"
+        ) as write_pending_order:
+            first = bridge.queue_command({"action": "ORDER_CLOSE_ALL"})
+            second = bridge.queue_command({"action": "ORDER_CLOSE_ALL"})
+
+        self.assertNotEqual(first["command_id"], second["command_id"])
+        self.assertEqual(write_pending_order.call_count, 2)
+        self.assertEqual(bridge.order_queue, [])
+
+    def test_expired_tcp_command_is_not_dispatched(self):
+        bridge = self._isolated_bridge()
+        bridge.order_queue.append(
+            {
+                "action": "ORDER_SEND",
+                "command_id": "expired-command",
+                "expires_at": 1.0,
+            }
+        )
+
+        response = bridge._handle_client_request(
+            {"action": "POLL", "symbol": "XAUUSD", "bid": 0, "ask": 0}
+        )
+
+        self.assertEqual(response, {"status": "OK", "orders": 0})
         self.assertEqual(bridge.order_queue, [])
 
     def test_requested_symbol_is_preserved_in_python_bridge_payload(self):
@@ -127,7 +185,8 @@ class TestBridgeDeliveryCharacterization(unittest.TestCase):
 
         payload = write_pending_order.call_args.args[0]
         self.assertEqual(payload["symbol"], "USDJPY")
-        self.assertEqual(bridge.order_queue[0]["symbol"], "USDJPY")
+        self.assertEqual(payload["delivery_transport"], "COMMON_FILES")
+        self.assertEqual(bridge.order_queue, [])
 
     def test_mql5_source_currently_selects_chart_symbol_for_execution(self):
         """Static characterization; demo-terminal confirmation remains required."""
@@ -164,6 +223,29 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
             "A 404 proves the request reached position lookup without Bearer auth.",
         )
         self.assertIn("not found", response.get("error", ""))
+
+    def test_management_commands_use_one_bridge_dispatch_method(self):
+        """Close-all and break-even no longer write and queue independently."""
+        cases = (
+            ("/api/close_all", "ORDER_CLOSE_ALL", "close_all_positions"),
+            ("/api/break_even", "ORDER_BREAK_EVEN", "apply_break_even"),
+        )
+
+        for endpoint, action, simulator_method in cases:
+            with self.subTest(endpoint=endpoint), patch.dict(
+                os.environ, {"FEF_BRIDGE_SECRET": FEF_BRIDGE_SECRET_DEFAULT}
+            ), patch(
+                f"backend.server.paper_simulator.{simulator_method}",
+                return_value=0,
+            ), patch("backend.server.mt5_bridge.queue_command") as queue_command:
+                status, _ = self._run_local_post(
+                    endpoint,
+                    {},
+                    auth_header=f"Bearer {FEF_BRIDGE_SECRET_DEFAULT}",
+                )
+
+            self.assertEqual(status, 200)
+            queue_command.assert_called_once_with({"action": action})
 
     def test_quick_execute_bypasses_graph_and_risk_guardian(self):
         """Characterize direct ticket dispatch without debate/risk evaluation."""
