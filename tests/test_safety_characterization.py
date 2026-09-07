@@ -21,6 +21,7 @@ from unittest.mock import patch
 os.environ.setdefault("VERCEL", "1")
 
 from api.index import handler as VercelHandler
+from backend.config import config
 from backend.execution.mt5_socket_bridge import MT5ServerBridge
 from backend.server import FEF_BRIDGE_SECRET_DEFAULT, TradingAgentsApiHandler
 
@@ -295,7 +296,33 @@ class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
                 )
 
             self.assertEqual(status, 200)
-            queue_command.assert_called_once_with({"action": action})
+            queue_command.assert_called_once_with({
+                "action": action,
+                "magic_number": config.server.mt5_magic_number,
+            })
+
+    def test_management_command_preserves_optional_symbol_and_ticket_scope(self):
+        with patch.dict(
+            os.environ, {"FEF_BRIDGE_SECRET": FEF_BRIDGE_SECRET_DEFAULT}
+        ), patch(
+            "backend.server.paper_simulator.apply_break_even", return_value=1
+        ) as paper_break_even, patch(
+            "backend.server.mt5_bridge.queue_command"
+        ) as queue_command:
+            status, _ = self._run_local_post(
+                "/api/break_even",
+                {"symbol": "eurusd", "ticket": 1001},
+                auth_header=f"Bearer {FEF_BRIDGE_SECRET_DEFAULT}",
+            )
+
+        self.assertEqual(status, 200)
+        paper_break_even.assert_called_once_with(symbol="EURUSD", ticket_id=1001)
+        queue_command.assert_called_once_with({
+            "action": "ORDER_BREAK_EVEN",
+            "magic_number": config.server.mt5_magic_number,
+            "requested_symbol": "EURUSD",
+            "position_ticket": 1001,
+        })
 
     def test_quick_execute_bypasses_graph_and_risk_guardian(self):
         """Characterize direct ticket dispatch without debate/risk evaluation."""

@@ -147,9 +147,13 @@ class PaperSimulator:
         }
         self.closed_trades.append(record)
 
-    def close_all_positions(self) -> int:
-        """Closes all open positions immediately at current market prices."""
-        tickets = list(self.positions.keys())
+    def close_all_positions(self, symbol: Optional[str] = None, ticket_id: Optional[int] = None) -> int:
+        """Closes matching paper positions; all paper positions are FEF-owned."""
+        tickets = [
+            tid for tid, pos in self.positions.items()
+            if (symbol is None or pos.symbol == symbol)
+            and (ticket_id is None or tid == ticket_id)
+        ]
         for tid in tickets:
             if tid in self.positions:
                 pos = self.positions[tid]
@@ -158,11 +162,15 @@ class PaperSimulator:
                 self._close_position(tid, "Close All Triggered", exit_price, pos.floating_pnl_usd)
         return len(tickets)
 
-    def apply_break_even(self) -> int:
-        """Moves Stop Loss to entry price (+1 pip buffer) on open positions."""
+    def apply_break_even(self, symbol: Optional[str] = None, ticket_id: Optional[int] = None) -> int:
+        """Moves matching FEF paper positions to break-even (+1 pip)."""
         from backend.config import INSTRUMENTS
         updated = 0
-        for pos in self.positions.values():
+        for tid, pos in self.positions.items():
+            if symbol is not None and pos.symbol != symbol:
+                continue
+            if ticket_id is not None and tid != ticket_id:
+                continue
             spec = INSTRUMENTS[pos.symbol]
             buffer_price = 1.0 * spec.pip_size
             if pos.action == "BUY":

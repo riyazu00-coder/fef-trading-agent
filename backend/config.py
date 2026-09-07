@@ -125,6 +125,7 @@ class ServerSettings:
     host: str = "0.0.0.0"
     port: int = 8000
     mt5_socket_port: int = 5555
+    mt5_magic_number: int = 888999
 
 
 class AppConfig:
