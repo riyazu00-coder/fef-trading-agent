@@ -1312,7 +1312,7 @@
       let sourceClass = "source-simulated";
       if (normalized.includes("PRICE UNAVAILABLE")) sourceClass = "source-unavailable";
       else if (normalized.includes("MT5 LIVE") || normalized === "LIVE") sourceClass = "source-live";
-      else if (normalized.includes("DELAYED")) sourceClass = "source-delayed";
+      else if (normalized.includes("EXTERNAL REFERENCE") || normalized.includes("DELAYED")) sourceClass = "source-delayed";
       else if (normalized.includes("FALLBACK")) sourceClass = "source-fallback";
       else if (normalized.includes("TRADINGVIEW EXTERNAL")) sourceClass = "source-external";
 

@@ -8,7 +8,6 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServe
 import functools
 import json
 import os
-import socket
 import sys
 import time
 import urllib.parse
@@ -29,15 +28,6 @@ from backend.execution.mt5_socket_bridge import mt5_bridge
 class ReusableHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
-
-    def server_bind(self):
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if hasattr(socket, "SO_REUSEPORT"):
-            try:
-                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            except OSError:
-                pass
-        super().server_bind()
 
 
 class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
