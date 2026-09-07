@@ -6,16 +6,13 @@ Fetches live OHLCV, ticks from MetaTrader 5 Bridge via QuoteStore, and computes 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
+import json
 import math
+import os
+import ssl
 import time
-
-try:
-    import yfinance as yf
-    import pandas as pd
-    import numpy as np
-    HAS_DATA_LIBS = True
-except ImportError:
-    HAS_DATA_LIBS = False
+import urllib.parse
+import urllib.request
 
 from backend.config import INSTRUMENTS, InstrumentSpec
 from backend.data.quote_store import quote_store
@@ -74,18 +71,121 @@ REFERENCE_PRICES = {
     "USDJPY": 147.600,
 }
 
+EXTERNAL_REFERENCE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+EXTERNAL_REFERENCE_TIMEOUT_SECONDS = 1.5
+EXTERNAL_REFERENCE_MAX_BYTES = 256 * 1024
+EXTERNAL_REFERENCE_CACHE_SECONDS = 30.0
+EXTERNAL_CA_FILE_CANDIDATES = (
+    "/etc/ssl/cert.pem",
+    "/etc/ssl/certs/ca-certificates.crt",
+)
+
 
 class MarketFeed:
     def __init__(self):
         self._price_cache: Dict[str, MarketQuote] = {}
         self._tick_history: Dict[str, List[Tuple[float, float]]] = {s: [] for s in INSTRUMENTS}
+        self._external_reference_cache: Dict[
+            str, Tuple[float, Optional[Tuple[float, float]]]
+        ] = {}
 
     def get_cached_quote(self, symbol: str) -> Optional[MarketQuote]:
         """Return the most recently produced quote without fetching again."""
         return self._price_cache.get(symbol)
 
+    def _fetch_external_reference(self, source_symbol: str) -> Optional[Tuple[float, float]]:
+        """Return a keyless Yahoo reference price and provider timestamp.
+
+        Yahoo symbols are display proxies only (including futures for gold and
+        oil). This method never returns broker bid/ask data and never changes a
+        quote's tradeability.
+        """
+        encoded_symbol = urllib.parse.quote(source_symbol, safe="")
+        url = EXTERNAL_REFERENCE_URL.format(symbol=encoded_symbol)
+        request = urllib.request.Request(
+            f"{url}?interval=1m&range=1d",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "FEF-Trading-Agent/3.0 reference-price-display",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=EXTERNAL_REFERENCE_TIMEOUT_SECONDS,
+                context=self._external_ssl_context(),
+            ) as response:
+                raw_payload = response.read(EXTERNAL_REFERENCE_MAX_BYTES + 1)
+            if len(raw_payload) > EXTERNAL_REFERENCE_MAX_BYTES:
+                return None
+
+            payload = json.loads(raw_payload.decode("utf-8"))
+            chart = payload.get("chart") or {}
+            if chart.get("error"):
+                return None
+            results = chart.get("result") or []
+            if not results:
+                return None
+
+            result = results[0]
+            meta = result.get("meta") or {}
+            timestamps = result.get("timestamp") or []
+            price = meta.get("regularMarketPrice")
+            provider_timestamp = meta.get("regularMarketTime")
+
+            if not self._is_valid_external_price(price):
+                indicators = result.get("indicators") or {}
+                quote_rows = indicators.get("quote") or []
+                closes = quote_rows[0].get("close", []) if quote_rows else []
+                for index in range(min(len(closes), len(timestamps)) - 1, -1, -1):
+                    if self._is_valid_external_price(closes[index]):
+                        price = closes[index]
+                        provider_timestamp = timestamps[index]
+                        break
+
+            if not self._is_valid_external_price(price):
+                return None
+
+            timestamp = float(provider_timestamp or time.time())
+            if not math.isfinite(timestamp) or timestamp <= 0:
+                timestamp = time.time()
+            return float(price), timestamp
+        except Exception:
+            # External display data must fail safely to the honest static fallback.
+            return None
+
+    @staticmethod
+    def _external_ssl_context():
+        """Create a verified TLS context across macOS/Homebrew and Linux/Vercel."""
+        configured_ca = os.getenv("SSL_CERT_FILE")
+        candidates = (configured_ca,) + EXTERNAL_CA_FILE_CANDIDATES
+        for ca_file in candidates:
+            if ca_file and os.path.isfile(ca_file):
+                return ssl.create_default_context(cafile=ca_file)
+        return ssl.create_default_context()
+
+    def _get_external_reference(
+        self, source_symbol: str, now: float
+    ) -> Optional[Tuple[float, float]]:
+        cached = self._external_reference_cache.get(source_symbol)
+        if cached and now - cached[0] < EXTERNAL_REFERENCE_CACHE_SECONDS:
+            return cached[1]
+
+        reference = self._fetch_external_reference(source_symbol)
+        self._external_reference_cache[source_symbol] = (now, reference)
+        return reference
+
+    @staticmethod
+    def _is_valid_external_price(value) -> bool:
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            return False
+        return math.isfinite(numeric_value) and numeric_value > 0
+
     def get_live_quote(self, symbol: str) -> MarketQuote:
-        """Fetch real-time bid/ask quote directly from MT5 if available, with yfinance/reference fallback."""
+        """Prefer fresh MT5 bid/ask, then external or static display references."""
         spec = INSTRUMENTS.get(symbol)
         if not spec:
             raise ValueError(f"Unknown symbol: {symbol}")
@@ -134,23 +234,19 @@ class MarketFeed:
             self._price_cache[symbol] = quote
             return quote
 
-        # 2. Fallback to yfinance if available
+        # 2. Fetch a keyless external display reference using the configured
+        # Yahoo symbol. This is never an executable quote.
         base_price = REFERENCE_PRICES.get(symbol, 100.0)
         source = "REFERENCE_PRICES"
         source_symbol = symbol
-        source_label = "FALLBACK"
-        if HAS_DATA_LIBS:
-            try:
-                ticker = yf.Ticker(spec.yahoo_symbol)
-                info = ticker.fast_info
-                last_price = getattr(info, "last_price", None)
-                if last_price and not math.isnan(last_price) and last_price > 0:
-                    base_price = float(last_price)
-                    source = "YFINANCE"
-                    source_symbol = spec.yahoo_symbol
-                    source_label = "DELAYED"
-            except Exception:
-                pass
+        source_label = "FALLBACK · NON-BROKER"
+        quote_timestamp = now
+        external_reference = self._get_external_reference(spec.yahoo_symbol, now)
+        if external_reference is not None:
+            base_price, quote_timestamp = external_reference
+            source = "YAHOO_FINANCE_CHART"
+            source_symbol = spec.yahoo_symbol
+            source_label = "EXTERNAL REFERENCE · DELAYED · NON-BROKER"
 
         # External and static fallback values must remain deterministic. They
         # are reference data, never broker-executable prices.
@@ -173,7 +269,7 @@ class MarketFeed:
             bid=bid,
             ask=ask,
             spread_pips=spread_pips,
-            timestamp=now,
+            timestamp=quote_timestamp,
             high_24h=high_24h,
             low_24h=low_24h,
             change_pct=change_pct,
@@ -182,7 +278,7 @@ class MarketFeed:
             source=source,
             source_symbol=source_symbol,
             source_label=source_label,
-            age_seconds=0.0,
+            age_seconds=round(max(0.0, now - quote_timestamp), 3),
             is_tradeable=False,
             is_broker_quote=False,
             spread_source="SIMULATED",

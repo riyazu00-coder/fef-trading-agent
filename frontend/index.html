@@ -983,6 +983,54 @@
     let activeAnalysisData = null;
     const previousDisplayedPrices = new Map();
 
+    function validDisplayNumber(value) {
+      if (value === null || value === undefined || value === "") return null;
+      const numericValue = Number(value);
+      return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
+    }
+
+    function getBestDisplayPrice(quote = {}) {
+      const bid = validDisplayNumber(quote.bid);
+      const ask = validDisplayNumber(quote.ask);
+      const mid = validDisplayNumber(quote.mid);
+
+      // Tradeability controls execution, not whether valid reference data can be shown.
+      if (quote.is_broker_quote === true && bid !== null) return bid;
+      if (mid !== null) return mid;
+      if (bid !== null && ask !== null) return (bid + ask) / 2;
+
+      for (const candidate of [
+        quote.display_price,
+        quote.fallback_price,
+        quote.current_price,
+        quote.price,
+      ]) {
+        const displayPrice = validDisplayNumber(candidate);
+        if (displayPrice !== null) return displayPrice;
+      }
+
+      // Compatibility with quote payloads that expose only one side.
+      if (bid !== null) return bid;
+      if (ask !== null) return ask;
+      return null;
+    }
+
+    function formatDisplayPrice(value, prefix = "$", marker = "") {
+      return value === null ? "—" : `${marker}${prefix}${value}`;
+    }
+
+    function getDisplaySourceLabel(quote, displayPrice, previewOnly = false) {
+      if (displayPrice === null) return "PRICE UNAVAILABLE";
+      if (quote && quote.is_broker_quote === true) return quote.source_label || "LIVE";
+      if (previewOnly) return "SIMULATED · NON-BROKER";
+
+      const reportedLabel = String((quote && quote.source_label) || "FALLBACK").toUpperCase();
+      const sourceLabel = reportedLabel.includes("PRICE UNAVAILABLE") ? "FALLBACK" : reportedLabel;
+      return sourceLabel.includes("NON-BROKER")
+        ? sourceLabel
+        : `${sourceLabel} · NON-BROKER`;
+    }
+
     function updatePriceElement(elementId, value, displayText, trackingKey = elementId) {
       const element = document.getElementById(elementId);
       if (!element) return;
@@ -1262,11 +1310,11 @@
 
       const normalized = String(label || "PRICE UNAVAILABLE").toUpperCase();
       let sourceClass = "source-simulated";
-      if (normalized === "LIVE" || normalized === "MT5 LIVE") sourceClass = "source-live";
-      else if (normalized === "DELAYED") sourceClass = "source-delayed";
-      else if (normalized === "FALLBACK") sourceClass = "source-fallback";
-      else if (normalized === "PRICE UNAVAILABLE") sourceClass = "source-unavailable";
-      else if (normalized === "TRADINGVIEW EXTERNAL") sourceClass = "source-external";
+      if (normalized.includes("PRICE UNAVAILABLE")) sourceClass = "source-unavailable";
+      else if (normalized.includes("MT5 LIVE") || normalized === "LIVE") sourceClass = "source-live";
+      else if (normalized.includes("EXTERNAL REFERENCE") || normalized.includes("DELAYED")) sourceClass = "source-delayed";
+      else if (normalized.includes("FALLBACK")) sourceClass = "source-fallback";
+      else if (normalized.includes("TRADINGVIEW EXTERNAL")) sourceClass = "source-external";
 
       element.classList.remove(
         "source-live", "source-delayed", "source-fallback",
@@ -1282,11 +1330,13 @@
       const macro = data.macro_report;
       const debate = data.debate_outcome;
       const ticket = data.order_ticket;
+      const analysisDisplayQuote = { ...quote, fallback_price: tech.current_price };
+      const analysisDisplayPrice = getBestDisplayPrice(analysisDisplayQuote);
 
       // Update Hero Hologram
       document.getElementById("card-symbol-badge").innerText = tech.setup_direction + " SETUP (" + data.symbol + ")";
-      updatePriceElement("hero-price", tech.current_price, `$${tech.current_price}`, `hero:${data.symbol}`);
-      setSourceLabel("hero-price-source", quote.source_label);
+      updatePriceElement("hero-price", analysisDisplayPrice, formatDisplayPrice(analysisDisplayPrice), `hero:${data.symbol}`);
+      setSourceLabel("hero-price-source", getDisplaySourceLabel(quote, analysisDisplayPrice));
       document.getElementById("hero-name").innerText = data.symbol === 'XAUUSD' ? 'Gold Spot / US Dollar' :
                                                        data.symbol === 'USOIL' ? 'WTI Crude Oil' :
                                                        data.symbol === 'EURUSD' ? 'Euro / US Dollar' :
@@ -1334,13 +1384,14 @@
       }
       document.getElementById("deck-action").innerText = ticket.action;
       document.getElementById("deck-action").className = `font-bold ${ticket.action === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`;
-      updatePriceElement("deck-entry", ticket.entry_price, `$${ticket.entry_price}`, `deck:${data.symbol}`);
-      setSourceLabel("deck-entry-source", quote.source_label);
+      const entryDisplayPrice = getBestDisplayPrice({ ...quote, fallback_price: ticket.entry_price });
+      updatePriceElement("deck-entry", entryDisplayPrice, formatDisplayPrice(entryDisplayPrice), `deck:${data.symbol}`);
+      setSourceLabel("deck-entry-source", getDisplaySourceLabel(quote, entryDisplayPrice));
       document.getElementById("deck-sl").innerText = `$${ticket.stop_loss} (-${ticket.stop_pips} p)`;
       document.getElementById("deck-tp").innerText = `$${ticket.take_profit} (+${ticket.tp_pips} p)`;
 
       // Render Candlesticks on canvas
-      renderCandles(data.symbol, tech.current_price);
+      renderCandles(data.symbol, analysisDisplayPrice);
     }
 
     // --- Polling Broker Status & Quotes ---
@@ -1390,20 +1441,22 @@
         // Live Active Instrument (Gold, Oil, FX)
         if (data.instruments[currentActiveSymbol]) {
           const q = data.instruments[currentActiveSymbol];
-          const displayedPrice = q.is_broker_quote ? q.bid : q.mid;
-          updatePriceElement("hero-price", displayedPrice, `$${displayedPrice}`, `hero:${currentActiveSymbol}`);
-          setSourceLabel("hero-price-source", q.source_label);
+          const displayedPrice = getBestDisplayPrice(q);
+          updatePriceElement("hero-price", displayedPrice, formatDisplayPrice(displayedPrice), `hero:${currentActiveSymbol}`);
+          setSourceLabel("hero-price-source", getDisplaySourceLabel(q, displayedPrice));
           document.getElementById("hero-spread").innerText = `${q.spread_pips} pips`;
           setSourceLabel("hero-market-fields-source", `CHANGE: ${q.change_source || 'SIMULATED'} · SPREAD: ${q.spread_source || 'SIMULATED'}`);
           document.getElementById("hero-change").innerText = `${q.change_pct >= 0 ? '+' : ''}${q.change_pct}%`;
-          updatePriceElement("deck-entry", displayedPrice, `$${displayedPrice}`, `deck:${currentActiveSymbol}`);
-          setSourceLabel("deck-entry-source", q.source_label);
+          updatePriceElement("deck-entry", displayedPrice, formatDisplayPrice(displayedPrice), `deck:${currentActiveSymbol}`);
+          setSourceLabel("deck-entry-source", getDisplaySourceLabel(q, displayedPrice));
+          const buyPreviewPrice = validDisplayNumber(q.ask) ?? displayedPrice;
           const qBuy = document.getElementById("quick-buy-price");
-          if (qBuy) updatePriceElement("quick-buy-price", q.ask, `@ ${q.ask}`, `quick-buy:${currentActiveSymbol}`);
-          setSourceLabel("quick-buy-source", q.is_broker_quote ? q.source_label : "SIMULATED");
+          if (qBuy) updatePriceElement("quick-buy-price", buyPreviewPrice, formatDisplayPrice(buyPreviewPrice, "", "@ "), `quick-buy:${currentActiveSymbol}`);
+          setSourceLabel("quick-buy-source", getDisplaySourceLabel(q, buyPreviewPrice, !q.is_broker_quote));
+          const sellPreviewPrice = validDisplayNumber(q.bid) ?? displayedPrice;
           const qSell = document.getElementById("quick-sell-price");
-          if (qSell) updatePriceElement("quick-sell-price", q.bid, `@ ${q.bid}`, `quick-sell:${currentActiveSymbol}`);
-          setSourceLabel("quick-sell-source", q.is_broker_quote ? q.source_label : "SIMULATED");
+          if (qSell) updatePriceElement("quick-sell-price", sellPreviewPrice, formatDisplayPrice(sellPreviewPrice, "", "@ "), `quick-sell:${currentActiveSymbol}`);
+          setSourceLabel("quick-sell-source", getDisplaySourceLabel(q, sellPreviewPrice, !q.is_broker_quote));
         }
 
         // Pip card prices
@@ -1416,9 +1469,9 @@
         Object.entries(cardDefinitions).forEach(([symbol, definition]) => {
           const quote = data.instruments[symbol];
           if (!quote) return;
-          const price = quote.is_broker_quote ? quote.bid : quote.mid;
-          updatePriceElement(definition.priceId, price, `${definition.prefix}${price}`, `card:${symbol}`);
-          setSourceLabel(definition.sourceId, quote.source_label);
+          const price = getBestDisplayPrice(quote);
+          updatePriceElement(definition.priceId, price, formatDisplayPrice(price, definition.prefix), `card:${symbol}`);
+          setSourceLabel(definition.sourceId, getDisplaySourceLabel(quote, price));
           const changeValue = definition.changeUnit === "%" ? quote.change_pct : quote.pip_change;
           document.getElementById(definition.changeId).innerText = `${changeValue}${definition.changeUnit} · ${quote.change_source}`;
           if (definition.spreadId) {

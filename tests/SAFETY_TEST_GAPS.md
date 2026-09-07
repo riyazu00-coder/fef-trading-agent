@@ -10,6 +10,7 @@ Every feed and derived value shown to a user must eventually expose exactly one
 of these provenance states:
 
 - `LIVE`
+- `EXTERNAL REFERENCE`
 - `DELAYED`
 - `FALLBACK`
 - `SIMULATED`
@@ -17,8 +18,9 @@ of these provenance states:
 - `PRICE UNAVAILABLE`
 
 Phase 3A adds deterministic provenance for market quotes and derived price
-fields. Only a fresh MT5 socket/Common Files quote is labeled `LIVE`; Yahoo data
-is `DELAYED`, static references are `FALLBACK`, and manufactured spreads,
+fields. Phase 3C queries Yahoo's keyless chart JSON endpoint with a bounded
+timeout and labels successful results `EXTERNAL REFERENCE · DELAYED · NON-BROKER`;
+static references are `FALLBACK · NON-BROKER`, and manufactured spreads,
 high/low, change figures, indicators, levels, and AI candles are `SIMULATED`.
 The TradingView iframe is explicitly separate and labeled `TRADINGVIEW EXTERNAL`.
 
@@ -27,6 +29,9 @@ deployment still needs either a licensed quote provider or a secured local quote
 relay. Yahoo `GC=F` and `CL=F` are futures proxies and do not equal broker
 XAUUSD/USOIL spot or CFD quotes. The iframe cannot supply prices to the backend,
 and broker execution prices must continue to come only from MT5 acknowledgement.
+Deployment verification must also confirm Yahoo endpoint availability, response
+shape, rate limits, and acceptable data age from each Vercel region. Provider
+failure must continue to expose the static value as `FALLBACK · NON-BROKER`.
 
 Future tests must still cover Frankfurter rates, macro values, EIA data,
 sentiment, calendar events, account statistics, and performance metrics. They
