@@ -198,6 +198,17 @@ class TestPriceProvenanceExposure(unittest.TestCase):
         self.assertIn('id="pip-eurusd-source"', source)
         self.assertIn("TRADINGVIEW EXTERNAL", source)
         self.assertIn("AI SMC · SIMULATED", source)
+        self.assertIn("function getBestDisplayPrice(quote = {})", source)
+        self.assertIn("Tradeability controls execution", source)
+        self.assertIn('`${sourceLabel} · NON-BROKER`', source)
+        self.assertNotIn("q.is_broker_quote ? q.bid : q.mid", source)
+        self.assertNotIn("quote.is_broker_quote ? quote.bid : quote.mid", source)
+        display_price_helper = source.split("function getBestDisplayPrice", 1)[1].split(
+            "function formatDisplayPrice", 1
+        )[0]
+        self.assertNotIn("is_tradeable", display_price_helper)
+        self.assertIn("if (mid !== null) return mid", display_price_helper)
+        self.assertIn("(bid + ask) / 2", display_price_helper)
         self.assertNotIn('id="hero-price-source">LIVE', source)
         self.assertNotIn('id="quick-buy-source">LIVE', source)
         market_source = (
