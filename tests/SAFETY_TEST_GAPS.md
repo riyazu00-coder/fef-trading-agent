@@ -57,10 +57,18 @@ result log.
 
 ## Position-management scope
 
-No automated MQL5 harness currently verifies close-all or break-even behavior by
-symbol and magic number. A demo account must contain controlled FEF positions,
-manual positions, and positions owned by another EA. Close and modification
-commands must demonstrate that unrelated positions remain untouched.
+Backend order and management payloads now carry the stable FEF magic number.
+Close-all and break-even optionally carry a requested symbol and position ticket,
+and the active EA checks position magic, resolved broker symbol, and ticket before
+calling `PositionClose` or `PositionModify`. A missing/mismatched magic number or
+malformed supplied ticket is rejected. Paper controls support matching symbol and
+ticket filters while retaining their existing all-FEF default.
+
+Static tests cannot prove terminal position ownership behavior. A demo account
+must contain controlled FEF positions, manual positions with magic zero, and
+positions owned by another EA. Tests must exercise magic-only, symbol, ticket,
+combined, empty-match, invalid-symbol, invalid-ticket, and partial-failure cases
+and confirm that unrelated positions remain untouched.
 
 ## Broker acknowledgements
 

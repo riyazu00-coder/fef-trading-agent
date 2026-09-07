@@ -256,8 +256,28 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
             return self._send_json({"error": f"Position {ticket} not found"}, 404)
 
         elif path == "/api/close_all":
-            closed_count = paper_simulator.close_all_positions()
-            close_payload = {"action": "ORDER_CLOSE_ALL"}
+            symbol = payload.get("symbol")
+            if symbol:
+                symbol = str(symbol).upper()
+                if symbol not in INSTRUMENTS:
+                    return self._send_json({"error": f"Invalid symbol {symbol}"}, 400)
+            ticket_raw = payload["ticket"] if "ticket" in payload else payload.get("position_ticket")
+            try:
+                position_ticket = int(ticket_raw) if ticket_raw is not None else None
+            except (TypeError, ValueError):
+                return self._send_json({"error": "Invalid position ticket"}, 400)
+            if position_ticket is not None and position_ticket <= 0:
+                return self._send_json({"error": "Invalid position ticket"}, 400)
+
+            closed_count = paper_simulator.close_all_positions(symbol=symbol, ticket_id=position_ticket)
+            close_payload = {
+                "action": "ORDER_CLOSE_ALL",
+                "magic_number": config.server.mt5_magic_number,
+            }
+            if symbol:
+                close_payload["requested_symbol"] = symbol
+            if position_ticket is not None:
+                close_payload["position_ticket"] = position_ticket
             mt5_bridge.queue_command(close_payload)
             return self._send_json({
                 "status": "SUCCESS",
@@ -266,8 +286,28 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
             })
 
         elif path == "/api/break_even":
-            updated_count = paper_simulator.apply_break_even()
-            be_payload = {"action": "ORDER_BREAK_EVEN"}
+            symbol = payload.get("symbol")
+            if symbol:
+                symbol = str(symbol).upper()
+                if symbol not in INSTRUMENTS:
+                    return self._send_json({"error": f"Invalid symbol {symbol}"}, 400)
+            ticket_raw = payload["ticket"] if "ticket" in payload else payload.get("position_ticket")
+            try:
+                position_ticket = int(ticket_raw) if ticket_raw is not None else None
+            except (TypeError, ValueError):
+                return self._send_json({"error": "Invalid position ticket"}, 400)
+            if position_ticket is not None and position_ticket <= 0:
+                return self._send_json({"error": "Invalid position ticket"}, 400)
+
+            updated_count = paper_simulator.apply_break_even(symbol=symbol, ticket_id=position_ticket)
+            be_payload = {
+                "action": "ORDER_BREAK_EVEN",
+                "magic_number": config.server.mt5_magic_number,
+            }
+            if symbol:
+                be_payload["requested_symbol"] = symbol
+            if position_ticket is not None:
+                be_payload["position_ticket"] = position_ticket
             mt5_bridge.queue_command(be_payload)
             return self._send_json({
                 "status": "SUCCESS",

@@ -141,9 +141,9 @@ class MT5ServerBridge:
         state = {
             "command_id": command["command_id"],
             "action": command.get("action"),
-            "order_action": command.get("type"),
+            "order_action": command.get("type") or command.get("action"),
             "volume": command.get("volume"),
-            "requested_symbol": command.get("requested_symbol") or command.get("symbol"),
+            "requested_symbol": command.get("requested_symbol") or command.get("symbol") or "",
             "status": "QUEUED",
             "delivery_status": "QUEUED",
             "broker_status": "PENDING",
@@ -201,6 +201,14 @@ class MT5ServerBridge:
             broker_id = any(value > 0 for value in ids.values())
             execution_symbol = str(acknowledgement.get("execution_symbol", ""))
 
+            if state.get("action") != "ORDER_SEND":
+                control_status = "COMPLETED" if success else "FAILED"
+                state["status"] = control_status
+                state["broker_status"] = control_status
+                state["acknowledgement"] = dict(acknowledgement)
+                self.acknowledgements[command_id] = dict(acknowledgement)
+                return dict(state)
+
             if success and retcode in SUCCESS_RETCODES and broker_id and execution_symbol:
                 broker_status = "EXECUTED" if ids["deal_id"] > 0 else "ACCEPTED"
                 state["status"] = broker_status
@@ -229,6 +237,7 @@ class MT5ServerBridge:
             "action": "ORDER_SEND",
             "symbol": order_ticket.symbol,
             "requested_symbol": order_ticket.symbol,
+            "magic_number": config.server.mt5_magic_number,
             "type": order_ticket.action,
             "volume": order_ticket.lot_size,
             "sl": order_ticket.stop_loss,

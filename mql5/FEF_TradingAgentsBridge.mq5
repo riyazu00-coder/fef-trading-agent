@@ -182,6 +182,43 @@ double ExtractJsonDouble(string json, string key, double default_val)
 }
 
 //+------------------------------------------------------------------+
+//| Helper to parse a non-negative integer value from JSON           |
+//+------------------------------------------------------------------+
+long ExtractJsonLong(string json, string key, long default_val)
+{
+   string search = "\"" + key + "\":";
+   int pos = StringFind(json, search);
+   if(pos < 0)
+   {
+      search = "\"" + key + "\" :";
+      pos = StringFind(json, search);
+      if(pos < 0) return default_val;
+   }
+
+   int start = pos + StringLen(search);
+   while(start < StringLen(json) && (StringGetCharacter(json, start) == ' ' ||
+                                     StringGetCharacter(json, start) == '\"'))
+      start++;
+
+   string value = "";
+   while(start < StringLen(json))
+   {
+      ushort ch = StringGetCharacter(json, start);
+      if(ch >= '0' && ch <= '9')
+      {
+         value += ShortToString(ch);
+         start++;
+      }
+      else
+         break;
+   }
+
+   if(StringLen(value) == 0)
+      return default_val;
+   return StringToInteger(value);
+}
+
+//+------------------------------------------------------------------+
 //| Helper to parse a quoted string value from JSON                  |
 //+------------------------------------------------------------------+
 string ExtractJsonString(string json, string key, string default_val)
@@ -392,57 +429,130 @@ void PublishExecutionAcknowledgement(string command_id, string status, bool succ
 }
 
 //+------------------------------------------------------------------+
+//| Confirm a position belongs to the requested FEF scope            |
+//+------------------------------------------------------------------+
+bool PositionMatchesFefScope(ulong ticket, ulong magic_number,
+                             string execution_symbol, ulong requested_ticket)
+{
+   if(ticket == 0 || (requested_ticket > 0 && ticket != requested_ticket))
+      return false;
+   if(!PositionSelectByTicket(ticket))
+      return false;
+   if((ulong)PositionGetInteger(POSITION_MAGIC) != magic_number)
+      return false;
+   if(StringLen(execution_symbol) > 0 &&
+      PositionGetString(POSITION_SYMBOL) != execution_symbol)
+      return false;
+   return true;
+}
+
+//+------------------------------------------------------------------+
 //| Execute orders received from Python AI Trader                    |
 //+------------------------------------------------------------------+
 void HandleIncomingCommand(string json)
 {
+   string command_action = "";
    if(StringFind(json, "ORDER_CLOSE_ALL") >= 0)
-   {
-      int total = PositionsTotal();
-      int closed = 0;
-      for(int i = total - 1; i >= 0; i--)
-      {
-         ulong ticket = PositionGetTicket(i);
-         if(ticket > 0)
-         {
-            if(trade.PositionClose(ticket))
-               closed++;
-         }
-      }
-      Print("FEF: ORDER_CLOSE_ALL executed. Closed ", closed, " positions.");
-      return;
-   }
-
-   if(StringFind(json, "ORDER_BREAK_EVEN") >= 0)
-   {
-      int total = PositionsTotal();
-      int updated = 0;
-      for(int i = total - 1; i >= 0; i--)
-      {
-         ulong ticket = PositionGetTicket(i);
-         if(ticket > 0 && PositionSelectByTicket(ticket))
-         {
-            double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
-            double current_tp = PositionGetDouble(POSITION_TP);
-            if(trade.PositionModify(ticket, open_price, current_tp))
-               updated++;
-         }
-      }
-      Print("FEF: ORDER_BREAK_EVEN executed. Modified ", updated, " positions.");
-      return;
-   }
-
-   if(StringFind(json, "ORDER_SEND") < 0)
+      command_action = "ORDER_CLOSE_ALL";
+   else if(StringFind(json, "ORDER_BREAK_EVEN") >= 0)
+      command_action = "ORDER_BREAK_EVEN";
+   else if(StringFind(json, "ORDER_SEND") >= 0)
+      command_action = "ORDER_SEND";
+   else
       return;
 
    string command_id = ExtractJsonString(json, "command_id", "");
    if(!IsSafeCommandId(command_id))
    {
-      Print("FEF: ORDER_SEND rejected because command_id is missing or invalid.");
+      Print("FEF command rejected because command_id is missing or invalid.");
       return;
    }
 
-   string requested_sym = ExtractJsonString(json, "requested_symbol", "");
+   string command_requested_symbol = ExtractJsonString(json, "requested_symbol", "");
+   StringToUpper(command_requested_symbol);
+
+   long magic_value = ExtractJsonLong(json, "magic_number", 0);
+   if(magic_value <= 0 || (ulong)magic_value != InpMagicNumber)
+   {
+      PublishExecutionAcknowledgement(command_id, "FAILED", false,
+                                      command_requested_symbol, "",
+                                      command_action, 0.0, 0.0, 0, 0, 0,
+                                      "Missing or mismatched FEF magic number");
+      return;
+   }
+
+   if(command_action == "ORDER_CLOSE_ALL" || command_action == "ORDER_BREAK_EVEN")
+   {
+      string requested_scope_symbol = command_requested_symbol;
+      string execution_scope_symbol = "";
+      string scope_error = "";
+      if(StringLen(requested_scope_symbol) > 0 &&
+         !ResolveRequestedSymbol(requested_scope_symbol, execution_scope_symbol, scope_error))
+      {
+         PublishExecutionAcknowledgement(command_id, "FAILED", false,
+                                         requested_scope_symbol, "",
+                                         command_action, 0.0, 0.0, 0, 0, 0,
+                                         scope_error);
+         return;
+      }
+
+      long ticket_value = ExtractJsonLong(json, "position_ticket", 0);
+      bool ticket_was_supplied = (StringFind(json, "\"position_ticket\"") >= 0);
+      if(ticket_was_supplied && ticket_value <= 0)
+      {
+         PublishExecutionAcknowledgement(command_id, "FAILED", false,
+                                         requested_scope_symbol,
+                                         execution_scope_symbol, command_action,
+                                         0.0, 0.0, 0, 0, 0,
+                                         "Invalid position_ticket scope");
+         return;
+      }
+      ulong requested_ticket = (ticket_value > 0 ? (ulong)ticket_value : 0);
+      int matched = 0;
+      int changed = 0;
+      int failed = 0;
+      int total = PositionsTotal();
+
+      for(int i = total - 1; i >= 0; i--)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if(!PositionMatchesFefScope(ticket, InpMagicNumber,
+                                     execution_scope_symbol, requested_ticket))
+            continue;
+
+         matched++;
+         bool operation_ok = false;
+         if(command_action == "ORDER_CLOSE_ALL")
+         {
+            operation_ok = trade.PositionClose(ticket);
+         }
+         else if(PositionSelectByTicket(ticket))
+         {
+            double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
+            double current_tp = PositionGetDouble(POSITION_TP);
+            operation_ok = trade.PositionModify(ticket, open_price, current_tp);
+         }
+
+         if(operation_ok)
+            changed++;
+         else
+            failed++;
+      }
+
+      string control_description = StringFormat(
+         "Scoped control completed: matched=%d changed=%d failed=%d magic=%I64u",
+         matched, changed, failed, InpMagicNumber);
+      PublishExecutionAcknowledgement(command_id,
+                                      (failed == 0 ? "COMPLETED" : "FAILED"),
+                                      (failed == 0), requested_scope_symbol,
+                                      execution_scope_symbol, command_action,
+                                      0.0, 0.0, requested_ticket, 0,
+                                      (failed == 0 ? 0 : trade.ResultRetcode()),
+                                      control_description);
+      return;
+   }
+
+   string requested_sym = command_requested_symbol;
    if(StringLen(requested_sym) == 0)
       requested_sym = ExtractJsonString(json, "symbol", "");
    StringToUpper(requested_sym);
