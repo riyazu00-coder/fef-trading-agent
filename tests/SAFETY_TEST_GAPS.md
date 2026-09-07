@@ -42,13 +42,18 @@ logical command creates no more than one order.
 
 ## Requested-symbol execution
 
-Automated tests verify that Python preserves the requested symbol in its file
-and TCP payloads. A static source characterization also records that the current
-EA selects `_Symbol` for `trade.Buy` and `trade.Sell`.
+Automated tests verify that Python includes the canonical `requested_symbol` in
+its file and TCP payloads. Static source tests verify that the active EA parses,
+validates, resolves, and passes the resolved execution symbol to `trade.Buy` or
+`trade.Sell` instead of silently using `_Symbol`. The terminal log result records
+both the requested and resolved execution symbols.
 
-Demo-terminal verification is still required with the EA attached to a chart
-whose symbol differs from the requested payload. Tests must cover broker suffix
-and prefix variants and must confirm the actual broker deal symbol.
+Demo-terminal verification is still required because Python does not yet receive
+the structured MQL5 result as a broker acknowledgement. Verification must attach
+the EA to a chart whose symbol differs from the request, cover exact symbols and
+unique broker suffix/prefix variants, confirm safe rejection of unavailable and
+ambiguous mappings, and compare the actual broker deal symbol with the terminal
+result log.
 
 ## Position-management scope
 

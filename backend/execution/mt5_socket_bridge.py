@@ -147,6 +147,7 @@ class MT5ServerBridge:
         order_payload = {
             "action": "ORDER_SEND",
             "symbol": order_ticket.symbol,
+            "requested_symbol": order_ticket.symbol,
             "type": order_ticket.action,
             "volume": order_ticket.lot_size,
             "sl": order_ticket.stop_loss,
@@ -162,6 +163,10 @@ class MT5ServerBridge:
         sim_res["command_id"] = command["command_id"]
         sim_res["delivery_transport"] = command["delivery_transport"]
         sim_res["command_expires_at"] = command["expires_at"]
+        sim_res["requested_symbol"] = order_ticket.symbol
+        # Populated only by a future broker acknowledgement; dispatch alone
+        # cannot truthfully claim which symbol MT5 executed.
+        sim_res["mt5_execution_symbol"] = None
         if alive:
             sim_res["status"] = "DISPATCHED_TO_MT5"
             sim_res["broker"] = "MetaTrader 5 (Live Terminal)"
