@@ -1,10 +1,6 @@
 """
 Unit tests for Cloud-to-Local Order Forwarding & Bearer Token HMAC Authentication.
-Verifies:
-1. Sensitive POST execution endpoints in backend/server.py return 401 on missing or invalid Bearer auth.
-2. Sensitive POST execution endpoints succeed with valid FEF_BRIDGE_SECRET Bearer token.
-3. api/index.py falls back to in-memory paper simulation when MT5_TUNNEL_URL is unset.
-4. api/index.py forwards authenticated request to MT5_TUNNEL_URL when set.
+Verifies all mutating local and Vercel endpoints share fail-closed Bearer auth.
 """
 
 from dataclasses import asdict
@@ -12,6 +8,7 @@ from http.server import HTTPServer
 import io
 import json
 import os
+from pathlib import Path
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -19,8 +16,12 @@ from unittest.mock import patch, MagicMock
 # effect. This flag is scoped to the test process and does not alter runtime code.
 os.environ.setdefault("VERCEL", "1")
 
-from backend.server import TradingAgentsApiHandler, FEF_BRIDGE_SECRET_DEFAULT
+from backend.auth import MUTATING_ENDPOINTS
+from backend.server import TradingAgentsApiHandler
 from api.index import handler as VercelHandler
+
+
+TEST_SECRET = "test_custom_secret_key_123"
 
 
 class DummyRequest:
@@ -33,11 +34,10 @@ class DummyRequest:
 
 class TestCloudTunnelSecurity(unittest.TestCase):
     def setUp(self):
-        # Clean environment before each test
-        if "FEF_BRIDGE_SECRET" in os.environ:
-            del os.environ["FEF_BRIDGE_SECRET"]
-        if "MT5_TUNNEL_URL" in os.environ:
-            del os.environ["MT5_TUNNEL_URL"]
+        environment = patch.dict(os.environ, {"FEF_BRIDGE_SECRET": TEST_SECRET})
+        environment.start()
+        self.addCleanup(environment.stop)
+        os.environ.pop("MT5_TUNNEL_URL", None)
 
     def _simulate_server_post(self, path: str, payload: dict, auth_header: str = None) -> tuple[int, dict]:
         """Helper to invoke TradingAgentsApiHandler do_POST in-memory."""
@@ -67,7 +67,7 @@ class TestCloudTunnelSecurity(unittest.TestCase):
         res_json = json.loads(res_bytes.decode("utf-8")) if res_bytes else {}
         return captured_status[0], res_json
 
-    def _simulate_vercel_post(self, path: str, payload: dict) -> tuple[int, dict]:
+    def _simulate_vercel_post(self, path: str, payload: dict, auth_header: str = None) -> tuple[int, dict]:
         """Helper to invoke Vercel handler do_POST in-memory."""
         raw_body = json.dumps(payload).encode("utf-8")
         handler = VercelHandler.__new__(VercelHandler)
@@ -78,6 +78,8 @@ class TestCloudTunnelSecurity(unittest.TestCase):
             "Content-Length": str(len(raw_body)),
             "Content-Type": "application/json"
         }
+        if auth_header is not None:
+            handler.headers["Authorization"] = auth_header
 
         captured_status = [200]
         def fake_send_response(code):
@@ -91,33 +93,71 @@ class TestCloudTunnelSecurity(unittest.TestCase):
         res_json = json.loads(res_bytes.decode("utf-8")) if res_bytes else {}
         return captured_status[0], res_json
 
-    def test_missing_bearer_token_returns_401(self):
-        """POST execution endpoints must return 401 when Authorization header is omitted."""
-        endpoints = ["/api/quick_execute", "/api/execute", "/api/close_all", "/api/break_even"]
-        for ep in endpoints:
-            status, res = self._simulate_server_post(ep, {"symbol": "XAUUSD", "action": "BUY"}, auth_header=None)
-            self.assertEqual(status, 401, f"Failed for {ep}: got {status}")
-            self.assertEqual(res.get("error"), "Unauthorized")
+    def _assert_auth_rejected(self, auth_header):
+        for endpoint in sorted(MUTATING_ENDPOINTS):
+            for name, simulate in (
+                ("local", self._simulate_server_post),
+                ("vercel", self._simulate_vercel_post),
+            ):
+                with self.subTest(handler=name, endpoint=endpoint, auth=auth_header):
+                    status, response = simulate(
+                        endpoint,
+                        {"symbol": "XAUUSD", "action": "BUY", "ticket": 999999},
+                        auth_header=auth_header,
+                    )
+                    self.assertEqual(status, 401)
+                    self.assertEqual(response.get("status"), "UNAUTHORIZED")
 
-    def test_invalid_bearer_token_returns_401(self):
-        """POST execution endpoints must return 401 when Authorization header token is wrong."""
-        status, res = self._simulate_server_post(
-            "/api/quick_execute",
-            {"symbol": "XAUUSD", "action": "BUY"},
-            auth_header="Bearer wrong_secret_token_xyz"
+    def test_all_mutating_endpoints_reject_missing_bearer_token(self):
+        self._assert_auth_rejected(None)
+
+    def test_all_mutating_endpoints_reject_malformed_authorization(self):
+        for malformed in ("", "Bearer", "Basic abc", "Token abc", "Bearer   "):
+            self._assert_auth_rejected(malformed)
+
+    def test_all_mutating_endpoints_reject_wrong_bearer_token(self):
+        self._assert_auth_rejected("Bearer wrong_secret_token_xyz")
+
+    def test_authentication_fails_closed_without_configured_secret(self):
+        del os.environ["FEF_BRIDGE_SECRET"]
+        self._assert_auth_rejected(f"Bearer {TEST_SECRET}")
+
+    def test_frontend_contains_no_default_or_persisted_execution_secret(self):
+        source = (Path(__file__).resolve().parents[1] / "frontend" / "index.html").read_text(
+            encoding="utf-8"
         )
-        self.assertEqual(status, 401)
-        self.assertEqual(res.get("error"), "Unauthorized")
+        self.assertNotIn("fef_institutional_secure_bridge_default_key_2026", source)
+        self.assertNotIn('localStorage.getItem("FEF_BRIDGE_SECRET")', source)
+        self.assertIn("window.FEF_BRIDGE_TOKEN", source)
+        self.assertIn("headers: getAuthHeaders()", source)
+
+    def test_all_mutating_endpoints_accept_valid_bearer_token(self):
+        payloads = {
+            "/api/execute": {"symbol": "INVALID"},
+            "/api/quick_execute": {"symbol": "INVALID", "action": "BUY"},
+            "/api/close_position": {},
+            "/api/close_all": {"symbol": "INVALID"},
+            "/api/break_even": {"symbol": "INVALID"},
+        }
+        for endpoint, payload in payloads.items():
+            for name, simulate in (
+                ("local", self._simulate_server_post),
+                ("vercel", self._simulate_vercel_post),
+            ):
+                with self.subTest(handler=name, endpoint=endpoint):
+                    status, response = simulate(
+                        endpoint,
+                        payload,
+                        auth_header=f"Bearer {TEST_SECRET}",
+                    )
+                    self.assertIn(status, (200, 400, 404), response)
 
     def test_valid_bearer_token_executes_successfully(self):
         """POST /api/quick_execute with valid Bearer token executes order."""
-        secret = "test_custom_secret_key_123"
-        os.environ["FEF_BRIDGE_SECRET"] = secret
-
         status, res = self._simulate_server_post(
             "/api/quick_execute",
             {"symbol": "XAUUSD", "action": "BUY", "lot_size": 0.50},
-            auth_header=f"Bearer {secret}"
+            auth_header=f"Bearer {TEST_SECRET}"
         )
         self.assertEqual(status, 200)
         self.assertEqual(res.get("status"), "PAPER_EXECUTED")
@@ -128,7 +168,8 @@ class TestCloudTunnelSecurity(unittest.TestCase):
         """When MT5_TUNNEL_URL is absent, Vercel gateway executes cleanly via in-memory Paper Simulator."""
         status, res = self._simulate_vercel_post(
             "/api/quick_execute",
-            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 0.10}
+            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 0.10},
+            auth_header=f"Bearer {TEST_SECRET}",
         )
         self.assertEqual(status, 200)
         self.assertEqual(res.get("status"), "FILLED")
@@ -155,7 +196,8 @@ class TestCloudTunnelSecurity(unittest.TestCase):
 
         status, res = self._simulate_vercel_post(
             "/api/quick_execute",
-            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 1.00}
+            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 1.00},
+            auth_header=f"Bearer {secret}",
         )
 
         self.assertEqual(status, 200)
@@ -184,7 +226,8 @@ class TestCloudTunnelSecurity(unittest.TestCase):
 
         status, res = self._simulate_vercel_post(
             "/api/quick_execute",
-            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 1.00}
+            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 1.00},
+            auth_header="Bearer secret_abc",
         )
         self.assertEqual(status, 200)
         req_arg = mock_urlopen.call_args[0][0]
@@ -209,7 +252,8 @@ class TestCloudTunnelSecurity(unittest.TestCase):
 
         status, res = self._simulate_vercel_post(
             "/api/quick_execute",
-            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 1.00}
+            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 1.00},
+            auth_header="Bearer secret_abc",
         )
         self.assertEqual(status, 503)
         self.assertEqual(res.get("status"), "TUNNEL_UNAVAILABLE_503")

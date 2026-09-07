@@ -85,6 +85,24 @@ files, terminal restarts, late acknowledgements, and permission failures. The
 current frontend does not yet render asynchronous acknowledgement changes, and
 that UI work remains outside Phase 2C.
 
+## Authentication and deployment
+
+The local backend and Vercel handler now use the same fail-closed Bearer-token
+verification for every trading-state mutation. Automated tests cover missing,
+malformed, incorrect, and valid credentials without connecting to MT5 or the
+internet. No built-in secret remains, and the frontend neither embeds nor reads
+an execution token from local storage.
+
+Deployment verification must confirm that a unique, high-entropy
+`FEF_BRIDGE_SECRET` is configured independently in each authorized environment,
+is absent from built frontend assets and logs, and is rotated after any suspected
+exposure. The browser currently requires a trusted wrapper to inject an
+ephemeral `window.FEF_BRIDGE_TOKEN`; without one, mutating actions fail closed.
+Before public deployment, replace that temporary delivery mechanism with a
+server-managed authenticated session and verify HTTPS, CORS policy, proxy/header
+forwarding, rate limits, audit logging, token rotation/revocation, and that Vercel
+and the local tunnel reject credentials from each other's unintended environments.
+
 ## Safety boundary
 
 All manual bridge verification must use a dedicated demo MT5 account with the

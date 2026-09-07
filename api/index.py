@@ -20,6 +20,7 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from backend.config import config, INSTRUMENTS
+from backend.auth import MUTATING_ENDPOINTS, get_bridge_secret, verify_bearer_token
 from backend.data.market_feed import market_feed
 from backend.data.macro_feed import macro_feed
 from backend.data.public_apis import public_apis_hub
@@ -131,7 +132,7 @@ class handler(BaseHTTPRequestHandler):
         if not tunnel_url:
             return None
 
-        secret = os.getenv("FEF_BRIDGE_SECRET", "fef_institutional_secure_bridge_default_key_2026").strip()
+        secret = get_bridge_secret()
         target_url = f"{tunnel_url}{endpoint_path}"
         try:
             req_data = json.dumps(payload).encode("utf-8")
@@ -184,7 +185,7 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        path = parsed.path.rstrip("/")
         length = int(self.headers.get("Content-Length", 0))
         body_raw = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
         try:
@@ -192,7 +193,16 @@ class handler(BaseHTTPRequestHandler):
         except Exception:
             payload = {}
 
-        if path in ("/api/execute", "/api/execute/"):
+        if path in MUTATING_ENDPOINTS and not verify_bearer_token(
+            self.headers.get("Authorization", ""), body_raw
+        ):
+            return self._send_json({
+                "error": "Unauthorized",
+                "status": "UNAUTHORIZED",
+                "message": "Missing or invalid Bearer authorization token."
+            }, 401)
+
+        if path == "/api/execute":
             tunnel_res = self._forward_to_tunnel("/api/execute", payload)
             if tunnel_res is not None:
                 body, code = tunnel_res
@@ -208,7 +218,7 @@ class handler(BaseHTTPRequestHandler):
             result = trading_graph.run(symbol=symbol, account_balance=paper_simulator.balance, auto_execute=True, manual_lot=manual_lot)
             return self._send_json(result)
 
-        elif path in ("/api/quick_execute", "/api/quick_execute/"):
+        elif path == "/api/quick_execute":
             # Check if environment variable MT5_TUNNEL_URL is configured
             tunnel_res = self._forward_to_tunnel("/api/quick_execute", payload)
             if tunnel_res is not None:
@@ -263,7 +273,7 @@ class handler(BaseHTTPRequestHandler):
                 "message": f"Successfully executed {action} {manual_lot} Lots on {symbol} (Handled in-memory via Paper Simulator)."
             }, status=200)
 
-        elif path in ("/api/close_position", "/api/close_position/"):
+        elif path == "/api/close_position":
             ticket = payload.get("ticket")
             if not ticket:
                 return self._send_json({"error": "Missing ticket"}, 400)
@@ -272,7 +282,7 @@ class handler(BaseHTTPRequestHandler):
                 return self._send_json({"status": "SUCCESS", "closed_order": asdict(closed_order)})
             return self._send_json({"error": "Position not found or already closed"}, 404)
 
-        elif path in ("/api/close_all", "/api/close_all/"):
+        elif path == "/api/close_all":
             tunnel_res = self._forward_to_tunnel("/api/close_all", payload)
             if tunnel_res is not None:
                 body, code = tunnel_res
@@ -285,7 +295,7 @@ class handler(BaseHTTPRequestHandler):
                 "message": f"Closed all open positions ({closed_count} positions closed)."
             })
 
-        elif path in ("/api/break_even", "/api/break_even/"):
+        elif path == "/api/break_even":
             tunnel_res = self._forward_to_tunnel("/api/break_even", payload)
             if tunnel_res is not None:
                 body, code = tunnel_res

@@ -1180,10 +1180,15 @@
     }
 
     function getAuthHeaders() {
-      const secret = window.FEF_BRIDGE_SECRET || localStorage.getItem("FEF_BRIDGE_SECRET") || "fef_institutional_secure_bridge_default_key_2026";
+      // A trusted deployment wrapper may inject an ephemeral token at runtime.
+      // No execution credential is embedded in or persisted by this frontend.
+      const secret = window.FEF_BRIDGE_TOKEN;
+      if (typeof secret !== "string" || !secret.trim()) {
+        throw new Error("Trading authorization is not configured for this session.");
+      }
       return {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${secret}`
+        "Authorization": `Bearer ${secret.trim()}`
       };
     }
 
@@ -1297,7 +1302,7 @@
       try {
         await fetch("/api/close_position", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ ticket: ticket })
         });
         speakVoice(`Position closed.`);
