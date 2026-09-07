@@ -47,6 +47,9 @@ class TechnicalAnalysisReport:
     institutional_score: float = 0.0
     unmitigated_ob_count: int = 0
     unmitigated_fvg_count: int = 0
+    indicator_source_label: str = "SIMULATED"
+    levels_source_label: str = "SIMULATED"
+    candles_source_label: str = "SIMULATED"
 
 
 class TechnicalAnalyst:

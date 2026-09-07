@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 import math
-import random
 import time
 
 try:
@@ -33,6 +32,16 @@ class MarketQuote:
     low_24h: float
     change_pct: float
     pip_change: float
+    mid: float
+    source: str
+    source_symbol: str
+    source_label: str
+    age_seconds: float
+    is_tradeable: bool
+    is_broker_quote: bool
+    spread_source: str
+    high_low_source: str
+    change_source: str
 
 
 @dataclass
@@ -71,6 +80,10 @@ class MarketFeed:
         self._price_cache: Dict[str, MarketQuote] = {}
         self._tick_history: Dict[str, List[Tuple[float, float]]] = {s: [] for s in INSTRUMENTS}
 
+    def get_cached_quote(self, symbol: str) -> Optional[MarketQuote]:
+        """Return the most recently produced quote without fetching again."""
+        return self._price_cache.get(symbol)
+
     def get_live_quote(self, symbol: str) -> MarketQuote:
         """Fetch real-time bid/ask quote directly from MT5 if available, with yfinance/reference fallback."""
         spec = INSTRUMENTS.get(symbol)
@@ -86,7 +99,12 @@ class MarketFeed:
             bid = round(float(mt5_quote["bid"]), spec.digits)
             ask = round(float(mt5_quote["ask"]), spec.digits) if mt5_quote.get("ask") else bid
             current_price = bid
-            spread_pips = round(abs(ask - bid) / spec.pip_size, 1) if ask > bid else 1.2
+            has_broker_bid_ask = bool(
+                mt5_quote.get("has_broker_bid_ask", bid > 0 and ask > 0)
+            )
+            valid_broker_spread = has_broker_bid_ask and ask > bid
+            spread_pips = round(abs(ask - bid) / spec.pip_size, 1) if valid_broker_spread else 1.2
+            quote_timestamp = float(mt5_quote.get("timestamp", now))
 
             ref_base = REFERENCE_PRICES.get(symbol, current_price)
             change_pct = round(((current_price - ref_base) / ref_base) * 100.0, 2)
@@ -97,17 +115,30 @@ class MarketFeed:
                 bid=bid,
                 ask=ask,
                 spread_pips=spread_pips,
-                timestamp=mt5_quote.get("timestamp", now),
+                timestamp=quote_timestamp,
                 high_24h=round(current_price * 1.008, spec.digits),
                 low_24h=round(current_price * 0.992, spec.digits),
                 change_pct=change_pct,
-                pip_change=pip_change
+                pip_change=pip_change,
+                mid=round((bid + ask) / 2.0, spec.digits),
+                source=str(mt5_quote.get("source", "MT5")),
+                source_symbol=str(mt5_quote.get("raw_symbol") or symbol),
+                source_label="LIVE",
+                age_seconds=round(max(0.0, now - quote_timestamp), 3),
+                is_tradeable=has_broker_bid_ask and ask >= bid,
+                is_broker_quote=True,
+                spread_source="LIVE" if valid_broker_spread else "SIMULATED",
+                high_low_source="SIMULATED",
+                change_source="SIMULATED",
             )
             self._price_cache[symbol] = quote
             return quote
 
         # 2. Fallback to yfinance if available
         base_price = REFERENCE_PRICES.get(symbol, 100.0)
+        source = "REFERENCE_PRICES"
+        source_symbol = symbol
+        source_label = "FALLBACK"
         if HAS_DATA_LIBS:
             try:
                 ticker = yf.Ticker(spec.yahoo_symbol)
@@ -115,12 +146,15 @@ class MarketFeed:
                 last_price = getattr(info, "last_price", None)
                 if last_price and not math.isnan(last_price) and last_price > 0:
                     base_price = float(last_price)
+                    source = "YFINANCE"
+                    source_symbol = spec.yahoo_symbol
+                    source_label = "DELAYED"
             except Exception:
                 pass
 
-        # Micro-drift for smooth live streaming
-        jitter_pct = (random.random() - 0.5) * 0.0004
-        current_price = round(base_price * (1.0 + jitter_pct), spec.digits)
+        # External and static fallback values must remain deterministic. They
+        # are reference data, never broker-executable prices.
+        current_price = round(base_price, spec.digits)
 
         half_spread = (spec.pip_size * 1.2) / 2.0
         bid = round(current_price - half_spread, spec.digits)
@@ -143,7 +177,17 @@ class MarketFeed:
             high_24h=high_24h,
             low_24h=low_24h,
             change_pct=change_pct,
-            pip_change=pip_change
+            pip_change=pip_change,
+            mid=current_price,
+            source=source,
+            source_symbol=source_symbol,
+            source_label=source_label,
+            age_seconds=0.0,
+            is_tradeable=False,
+            is_broker_quote=False,
+            spread_source="SIMULATED",
+            high_low_source="SIMULATED",
+            change_source="SIMULATED",
         )
         self._price_cache[symbol] = quote
         return quote
@@ -152,7 +196,9 @@ class MarketFeed:
         """Computes indicators and SMC levels dynamically aligned with current live price."""
         spec = INSTRUMENTS[symbol]
         quote = self.get_live_quote(symbol)
-        price = quote.bid
+        # Broker quotes use the executable bid. External/reference sources have
+        # no real bid/ask, so analysis uses their unmodified reference mid.
+        price = quote.bid if quote.is_broker_quote else quote.mid
 
         if symbol == "XAUUSD":
             rsi = 58.4
