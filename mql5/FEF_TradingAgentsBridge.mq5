@@ -182,6 +182,157 @@ double ExtractJsonDouble(string json, string key, double default_val)
 }
 
 //+------------------------------------------------------------------+
+//| Helper to parse a quoted string value from JSON                  |
+//+------------------------------------------------------------------+
+string ExtractJsonString(string json, string key, string default_val)
+{
+   string search = "\"" + key + "\":";
+   int pos = StringFind(json, search);
+   if(pos < 0)
+   {
+      search = "\"" + key + "\" :";
+      pos = StringFind(json, search);
+      if(pos < 0) return default_val;
+   }
+
+   int start = pos + StringLen(search);
+   while(start < StringLen(json) && StringGetCharacter(json, start) == ' ')
+      start++;
+
+   if(start >= StringLen(json) || StringGetCharacter(json, start) != '\"')
+      return default_val;
+
+   start++;
+   int finish = start;
+   while(finish < StringLen(json) && StringGetCharacter(json, finish) != '\"')
+      finish++;
+
+   if(finish <= start || finish >= StringLen(json))
+      return default_val;
+
+   return StringSubstr(json, start, finish - start);
+}
+
+//+------------------------------------------------------------------+
+//| Restrict commands to the configured FEF instrument universe      |
+//+------------------------------------------------------------------+
+bool IsSupportedRequestedSymbol(string symbol)
+{
+   return(symbol == "XAUUSD" || symbol == "USOIL" ||
+          symbol == "EURUSD" || symbol == "GBPUSD" ||
+          symbol == "USDJPY");
+}
+
+//+------------------------------------------------------------------+
+//| Select and validate an exact broker symbol                       |
+//+------------------------------------------------------------------+
+bool ValidateBrokerSymbol(string symbol, string &reason)
+{
+   ResetLastError();
+   if(!SymbolSelect(symbol, true))
+   {
+      reason = StringFormat("SymbolSelect failed for %s (error %d)", symbol, GetLastError());
+      return false;
+   }
+
+   long trade_mode = SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE);
+   if(trade_mode == SYMBOL_TRADE_MODE_DISABLED)
+   {
+      reason = StringFormat("Symbol %s is not enabled for trading", symbol);
+      return false;
+   }
+
+   MqlTick tick;
+   if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+   {
+      reason = StringFormat("Symbol %s has no usable Market Watch tick", symbol);
+      return false;
+   }
+
+   reason = "";
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Resolve canonical request to one unambiguous broker symbol       |
+//+------------------------------------------------------------------+
+bool ResolveRequestedSymbol(string requested_symbol, string &execution_symbol, string &reason)
+{
+   execution_symbol = "";
+   StringToUpper(requested_symbol);
+
+   if(StringLen(requested_symbol) == 0)
+   {
+      reason = "Missing requested_symbol";
+      return false;
+   }
+
+   if(!IsSupportedRequestedSymbol(requested_symbol))
+   {
+      reason = StringFormat("Unsupported requested_symbol %s", requested_symbol);
+      return false;
+   }
+
+   // Prefer an exact broker symbol and never substitute the chart symbol.
+   string exact_reason = "";
+   if(SymbolSelect(requested_symbol, true))
+   {
+      if(!ValidateBrokerSymbol(requested_symbol, exact_reason))
+      {
+         reason = exact_reason;
+         return false;
+      }
+      execution_symbol = requested_symbol;
+      return true;
+   }
+
+   // Support broker suffixes/prefixes only when normalization produces one
+   // unique, tradeable match. Ambiguity is rejected rather than guessed.
+   int matches = 0;
+   string resolved = "";
+   int symbol_count = SymbolsTotal(false);
+   for(int i = 0; i < symbol_count; i++)
+   {
+      string candidate = SymbolName(i, false);
+      if(NormalizeSymbolName(candidate) != requested_symbol)
+         continue;
+
+      string candidate_reason = "";
+      if(ValidateBrokerSymbol(candidate, candidate_reason))
+      {
+         matches++;
+         resolved = candidate;
+      }
+   }
+
+   if(matches == 0)
+   {
+      reason = StringFormat("No available Market Watch symbol for %s", requested_symbol);
+      return false;
+   }
+
+   if(matches > 1)
+   {
+      reason = StringFormat("Ambiguous broker symbol mapping for %s (%d matches)", requested_symbol, matches);
+      return false;
+   }
+
+   execution_symbol = resolved;
+   reason = "";
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Emit a structured terminal result for symbol-routing audits      |
+//+------------------------------------------------------------------+
+void LogExecutionResult(string status, string requested_symbol, string execution_symbol,
+                        ulong order_id, uint retcode, string description)
+{
+   PrintFormat("FEF_EXECUTION_RESULT status=%s requested_symbol=%s execution_symbol=%s order_id=%I64u retcode=%u message=%s",
+               status, requested_symbol, execution_symbol, order_id, retcode, description);
+}
+
+//+------------------------------------------------------------------+
 //| Execute orders received from Python AI Trader                    |
 //+------------------------------------------------------------------+
 void HandleIncomingCommand(string json)
@@ -225,7 +376,28 @@ void HandleIncomingCommand(string json)
    if(StringFind(json, "ORDER_SEND") < 0)
       return;
 
-   string target_sym = _Symbol;
+   string requested_sym = ExtractJsonString(json, "requested_symbol", "");
+   if(StringLen(requested_sym) == 0)
+      requested_sym = ExtractJsonString(json, "symbol", "");
+   StringToUpper(requested_sym);
+
+   string execution_sym = "";
+   string symbol_error = "";
+   if(!ResolveRequestedSymbol(requested_sym, execution_sym, symbol_error))
+   {
+      LogExecutionResult("REJECTED_SYMBOL", requested_sym, "", 0, 0, symbol_error);
+      return;
+   }
+
+   // Filling policy must come from the resolved execution symbol, not the
+   // chart that happens to host this EA.
+   if(!trade.SetTypeFillingBySymbol(execution_sym))
+   {
+      LogExecutionResult("REJECTED_SYMBOL", requested_sym, execution_sym, 0, 0,
+                         "Unable to configure filling mode for execution symbol");
+      return;
+   }
+
    bool is_buy = (StringFind(json, "\"type\":\"BUY\"") >= 0 || StringFind(json, "\"type\": \"BUY\"") >= 0);
    
    double volume = ExtractJsonDouble(json, "volume", 0.01);
@@ -235,31 +407,35 @@ void HandleIncomingCommand(string json)
    // Auto 100-pip Stop Loss safety guard if not specified
    if(sl <= 0.0)
    {
-      double pt = SymbolInfoDouble(target_sym, SYMBOL_POINT);
-      int dig   = (int)SymbolInfoInteger(target_sym, SYMBOL_DIGITS);
+      double pt = SymbolInfoDouble(execution_sym, SYMBOL_POINT);
+      int dig   = (int)SymbolInfoInteger(execution_sym, SYMBOL_DIGITS);
       double pip_val = (dig == 3 || dig == 5) ? (10.0 * pt) : (1.0 * pt);
       if(is_buy)
-         sl = NormalizeDouble(SymbolInfoDouble(target_sym, SYMBOL_BID) - (100.0 * pip_val), dig);
+         sl = NormalizeDouble(SymbolInfoDouble(execution_sym, SYMBOL_BID) - (100.0 * pip_val), dig);
       else
-         sl = NormalizeDouble(SymbolInfoDouble(target_sym, SYMBOL_ASK) + (100.0 * pip_val), dig);
+         sl = NormalizeDouble(SymbolInfoDouble(execution_sym, SYMBOL_ASK) + (100.0 * pip_val), dig);
    }
 
-   Print("FEF Signal: ", (is_buy ? "BUY " : "SELL "), volume, " Lots on ", target_sym, " SL:", sl, " TP:", tp);
+   Print("FEF Signal: ", (is_buy ? "BUY " : "SELL "), volume,
+         " Lots requested=", requested_sym, " execution=", execution_sym,
+         " SL:", sl, " TP:", tp);
 
    bool res = false;
    if(is_buy)
-      res = trade.Buy(volume, target_sym, 0.0, sl, tp, "FEF TRADING AGENT");
+      res = trade.Buy(volume, execution_sym, 0.0, sl, tp, "FEF TRADING AGENT");
    else
-      res = trade.Sell(volume, target_sym, 0.0, sl, tp, "FEF TRADING AGENT");
+      res = trade.Sell(volume, execution_sym, 0.0, sl, tp, "FEF TRADING AGENT");
 
    if(res)
    {
       ulong ticket = trade.ResultOrder();
-      Print("FEF Order Executed Successfully! Ticket #", ticket);
+      LogExecutionResult("SUCCESS", requested_sym, execution_sym, ticket,
+                         trade.ResultRetcode(), trade.ResultRetcodeDescription());
    }
    else
    {
-      Print("FEF Order Failed: Code ", trade.ResultRetcode(), " Description: ", trade.ResultRetcodeDescription());
+      LogExecutionResult("FAILED", requested_sym, execution_sym, 0,
+                         trade.ResultRetcode(), trade.ResultRetcodeDescription());
    }
 }
 //+------------------------------------------------------------------+

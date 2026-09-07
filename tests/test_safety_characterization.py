@@ -168,7 +168,7 @@ class TestBridgeDeliveryCharacterization(unittest.TestCase):
         self.assertEqual(bridge.order_queue, [])
 
     def test_requested_symbol_is_preserved_in_python_bridge_payload(self):
-        """Python preserves the request, but cannot prove what the EA executes."""
+        """Python sends an explicit requested symbol and does not claim an MT5 fill."""
         bridge = self._isolated_bridge()
 
         with (
@@ -185,18 +185,53 @@ class TestBridgeDeliveryCharacterization(unittest.TestCase):
 
         payload = write_pending_order.call_args.args[0]
         self.assertEqual(payload["symbol"], "USDJPY")
+        self.assertEqual(payload["requested_symbol"], "USDJPY")
         self.assertEqual(payload["delivery_transport"], "COMMON_FILES")
         self.assertEqual(bridge.order_queue, [])
 
-    def test_mql5_source_currently_selects_chart_symbol_for_execution(self):
-        """Static characterization; demo-terminal confirmation remains required."""
+    def test_python_dispatch_result_does_not_invent_mt5_execution_symbol(self):
+        bridge = self._isolated_bridge()
+
+        with (
+            patch(
+                "backend.execution.mt5_socket_bridge.quote_store.write_pending_order"
+            ),
+            patch(
+                "backend.execution.mt5_socket_bridge.paper_simulator.execute_order",
+                return_value={"status": "EXECUTED", "symbol": "EURUSD"},
+            ),
+            patch.object(bridge, "get_status", return_value={"connected": False}),
+        ):
+            response = bridge.queue_order(self._order(symbol="EURUSD"))
+
+        self.assertEqual(response["requested_symbol"], "EURUSD")
+        self.assertIsNone(response["mt5_execution_symbol"])
+
+    def test_mql5_source_validates_and_uses_requested_symbol(self):
+        """Static contract coverage; demo-terminal confirmation remains required."""
         repo_root = Path(__file__).resolve().parents[1]
         source = (repo_root / "mql5" / "FEF_TradingAgentsBridge.mq5").read_text(
             encoding="utf-8"
         )
-        self.assertIn("string target_sym = _Symbol;", source)
-        self.assertIn("trade.Buy(volume, target_sym", source)
-        self.assertIn("trade.Sell(volume, target_sym", source)
+        self.assertIn('ExtractJsonString(json, "requested_symbol", "")', source)
+        self.assertIn("ResolveRequestedSymbol(requested_sym, execution_sym", source)
+        self.assertIn("SymbolSelect(symbol, true)", source)
+        self.assertIn("IsSupportedRequestedSymbol(requested_symbol)", source)
+        self.assertIn("if(matches > 1)", source)
+        self.assertIn('LogExecutionResult("REJECTED_SYMBOL"', source)
+        self.assertIn("trade.SetTypeFillingBySymbol(execution_sym)", source)
+        self.assertIn("trade.Buy(volume, execution_sym", source)
+        self.assertIn("trade.Sell(volume, execution_sym", source)
+        self.assertNotIn("string target_sym = _Symbol;", source)
+
+    def test_mql5_result_log_includes_requested_and_execution_symbols(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        source = (repo_root / "mql5" / "FEF_TradingAgentsBridge.mq5").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("requested_symbol=%s execution_symbol=%s", source)
+        self.assertIn('LogExecutionResult("SUCCESS", requested_sym, execution_sym', source)
+        self.assertIn('LogExecutionResult("FAILED", requested_sym, execution_sym', source)
 
 
 class TestApiSafetyCharacterization(HandlerTestMixin, unittest.TestCase):
