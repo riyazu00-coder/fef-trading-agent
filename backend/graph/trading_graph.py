@@ -18,6 +18,7 @@ from backend.agents.risk_guardian import risk_guardian
 from backend.agents.trader_agent import trader_agent
 from backend.execution.mt5_socket_bridge import mt5_bridge
 from backend.execution.paper_simulator import paper_simulator
+from backend.data.market_feed import market_feed
 
 
 class TradingGraphWorkflow:
@@ -38,6 +39,7 @@ class TradingGraphWorkflow:
         audit_trail.append(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] Commodity/Geopolitics: {commodity_rep.bias} (Risk {commodity_rep.geopolitical_risk_premium})")
 
         tech_rep = technical_analyst.analyze(symbol)
+        analysis_quote = market_feed.get_cached_quote(symbol)
         audit_trail.append(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] Technical Analyst: {tech_rep.bias} setup ({tech_rep.setup_direction} @ {tech_rep.proposed_entry})")
 
         # 2. Bull vs. Bear Debate Arena
@@ -84,6 +86,7 @@ class TradingGraphWorkflow:
             "macro_report": asdict(macro_rep),
             "commodity_report": asdict(commodity_rep),
             "technical_report": asdict(tech_rep),
+            "quote": asdict(analysis_quote) if analysis_quote is not None else None,
             "debate_outcome": {
                 "symbol": debate_rep.symbol,
                 "consensus_bias": debate_rep.consensus_bias,

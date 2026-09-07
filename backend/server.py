@@ -72,17 +72,8 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
             quotes = {}
             for sym in INSTRUMENTS:
                 q = market_feed.get_live_quote(sym)
-                quotes[sym] = {
-                    "symbol": sym,
-                    "name": INSTRUMENTS[sym].display_name,
-                    "bid": q.bid,
-                    "ask": q.ask,
-                    "spread_pips": q.spread_pips,
-                    "change_pct": q.change_pct,
-                    "pip_change": q.pip_change,
-                    "high_24h": q.high_24h,
-                    "low_24h": q.low_24h
-                }
+                quotes[sym] = asdict(q)
+                quotes[sym]["name"] = INSTRUMENTS[sym].display_name
 
             next_event = economic_calendar.get_next_high_impact_event()
             news_blackout = next_event.get("news_blackout", False) if next_event else False

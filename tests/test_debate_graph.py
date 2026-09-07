@@ -9,6 +9,9 @@ class TestTradingGraph(unittest.TestCase):
         self.assertIn("macro_report", result)
         self.assertIn("commodity_report", result)
         self.assertIn("technical_report", result)
+        self.assertIn("quote", result)
+        self.assertIn(result["quote"]["source_label"], {"LIVE", "DELAYED", "FALLBACK"})
+        self.assertIn("is_broker_quote", result["quote"])
         self.assertIn("debate_outcome", result)
         self.assertIn("order_ticket", result)
 

@@ -184,6 +184,254 @@
       .compact-hero-price { font-size: 1.3rem !important; }
       .compact-pip-price { font-size: 1.0rem !important; }
     }
+
+    /* FEF Trading Solutions brand layer: deep navy, cyan and teal. */
+    :root {
+      --fef-black: #02050b;
+      --fef-navy: #07101d;
+      --fef-panel: rgba(9, 18, 32, 0.94);
+      --fef-cyan: #4adfee;
+      --fef-teal: #23c8b5;
+      --fef-blue: #4f8fdc;
+      --fef-border: rgba(85, 153, 218, 0.28);
+      --fef-muted: #8896a9;
+      --fef-text: #f5f8fc;
+      --fef-up: #35c58b;
+      --fef-down: #ef6b6b;
+    }
+
+    body {
+      background: var(--fef-black);
+      color: var(--fef-text);
+    }
+
+    .deck-bg {
+      background-image:
+        linear-gradient(rgba(43, 122, 169, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(43, 122, 169, 0.035) 1px, transparent 1px),
+        radial-gradient(circle at 48% 12%, rgba(16, 126, 157, 0.16), transparent 42%),
+        linear-gradient(180deg, rgba(2, 5, 11, 0.91), rgba(2, 5, 11, 0.98)),
+        url('assets/command_deck_bg.jpg');
+      background-size: 40px 40px, 40px 40px, auto, auto, cover;
+      filter: grayscale(0.55) hue-rotate(155deg) contrast(1.04) brightness(0.60);
+      transition: transform 0.35s ease-out;
+    }
+
+    .scanlines {
+      opacity: 0.08;
+      background-size: 100% 6px;
+    }
+
+    .holo-card,
+    .holo-gold,
+    .holo-amber,
+    .holo-green,
+    .holo-red {
+      background: linear-gradient(145deg, rgba(12, 23, 40, 0.95), rgba(5, 11, 21, 0.97)) !important;
+      border-color: var(--fef-border) !important;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.35), inset 0 1px rgba(184, 224, 255, 0.035) !important;
+      backdrop-filter: blur(12px);
+    }
+
+    .holo-card::before,
+    .holo-gold::before,
+    .holo-amber::before,
+    .holo-green::before,
+    .holo-red::before {
+      background: linear-gradient(90deg, transparent, rgba(74, 223, 238, 0.48), transparent) !important;
+    }
+
+    .holo-card:hover {
+      border-color: rgba(74, 223, 238, 0.46) !important;
+    }
+
+    [class*="text-cyan"],
+    [class*="text-purple"],
+    [class*="text-fuchsia"],
+    [class*="text-blue"] {
+      color: var(--fef-cyan) !important;
+    }
+
+    [class*="text-amber"],
+    [class*="text-yellow"] {
+      color: #76dbe8 !important;
+    }
+
+    [class*="border-cyan"],
+    [class*="border-purple"],
+    [class*="border-fuchsia"],
+    [class*="border-blue"] {
+      border-color: var(--fef-border) !important;
+    }
+
+    [class*="border-amber"],
+    [class*="border-yellow"] {
+      border-color: rgba(74, 223, 238, 0.30) !important;
+    }
+
+    [class*="bg-cyan"],
+    [class*="bg-purple"],
+    [class*="bg-fuchsia"],
+    [class*="bg-blue"] {
+      background-color: rgba(10, 56, 73, 0.46) !important;
+    }
+
+    [class*="bg-amber"],
+    [class*="bg-yellow"] {
+      background-color: rgba(12, 72, 82, 0.40) !important;
+    }
+
+    [class*="shadow-cyan"],
+    [class*="shadow-purple"],
+    [class*="shadow-blue"],
+    [class*="shadow-amber"] {
+      --tw-shadow-color: rgba(44, 169, 196, 0.16) !important;
+    }
+
+    .animate-ping,
+    .animate-pulse,
+    .glow-active {
+      animation: none !important;
+    }
+
+    button {
+      letter-spacing: 0.035em;
+    }
+
+    button:not(#btn-quick-buy):not(#btn-quick-sell):not(#btn-main-execute) {
+      box-shadow: none !important;
+    }
+
+    #btn-main-execute {
+      background: linear-gradient(135deg, #53e3ef, #18b6a7) !important;
+      border: 1px solid rgba(137, 244, 248, 0.72) !important;
+      color: #031014 !important;
+      box-shadow: 0 8px 24px rgba(21, 181, 184, 0.20) !important;
+    }
+
+    #btn-quick-buy,
+    #btn-quick-sell {
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28), inset 0 1px rgba(255, 255, 255, 0.10) !important;
+    }
+
+    #primary-hologram {
+      border-color: rgba(74, 223, 238, 0.48) !important;
+    }
+
+    #hero-change {
+      color: #8da7c1 !important;
+      border-color: rgba(79, 143, 220, 0.28) !important;
+      background: rgba(17, 42, 68, 0.42) !important;
+    }
+
+    #meter-bull-bar {
+      background-image: linear-gradient(90deg, #24b7b0, #3ad2c0) !important;
+    }
+
+    #tradingview-chart-box,
+    #ai-smc-chart-box {
+      background: #040a13;
+    }
+
+    #btn-mode-pro {
+      color: #9eb6d1 !important;
+      border-color: rgba(79, 143, 220, 0.34) !important;
+      background: rgba(9, 25, 43, 0.76) !important;
+    }
+
+    #btn-mode-smc {
+      color: #8498ad !important;
+      border-color: rgba(92, 121, 153, 0.28) !important;
+      background: rgba(10, 20, 34, 0.76) !important;
+    }
+
+    #hero-price,
+    #deck-entry,
+    #pip-eurusd,
+    #pip-gbpusd,
+    #pip-usoil,
+    #pip-usdjpy,
+    #quick-buy-price,
+    #quick-sell-price {
+      color: #edf8ff;
+      transition: color 0.18s ease;
+    }
+
+    .price-neutral { color: #edf8ff !important; }
+    .price-up { color: var(--fef-up) !important; }
+    .price-down { color: var(--fef-down) !important; }
+    .price-unavailable { color: #a9b5c3 !important; }
+
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      padding: 1px 6px;
+      border: 1px solid rgba(102, 132, 164, 0.28);
+      border-radius: 999px;
+      background: rgba(4, 11, 21, 0.78);
+      color: var(--fef-muted) !important;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      line-height: 1.4;
+    }
+
+    .source-live {
+      color: #71efd1 !important;
+      border-color: rgba(53, 197, 139, 0.52);
+      background: rgba(13, 88, 72, 0.38);
+      box-shadow: 0 0 12px rgba(35, 200, 181, 0.10);
+    }
+    .source-delayed { color: #75bbed !important; border-color: rgba(79, 143, 220, 0.40); background: rgba(20, 55, 91, 0.30); }
+    .source-fallback { color: #d9ad68 !important; border-color: rgba(197, 145, 70, 0.34); background: rgba(84, 58, 21, 0.26); }
+    .source-simulated { color: #91a0b2 !important; border-color: rgba(102, 132, 164, 0.28); background: rgba(22, 37, 55, 0.34); }
+    .source-unavailable { color: #df8585 !important; border-color: rgba(223, 99, 99, 0.36); background: rgba(77, 25, 29, 0.28); }
+    .source-external { color: #83add8 !important; border-color: rgba(79, 143, 220, 0.32); background: rgba(18, 43, 73, 0.30); }
+
+    #pip-eurusd-change,
+    #pip-gbpusd-change,
+    #pip-usoil-change,
+    #pip-usdjpy-change {
+      color: #8495a9 !important;
+    }
+
+    header h1 {
+      background-image: linear-gradient(90deg, #f6fbff, #55dbe9, #27c7b3) !important;
+    }
+
+    header .bg-gradient-to-br {
+      background-image: linear-gradient(145deg, #58e6ef, #1aaea3) !important;
+      box-shadow: 0 6px 18px rgba(29, 175, 183, 0.16) !important;
+    }
+
+    [class*="text-slate-400"],
+    [class*="text-slate-500"] {
+      color: var(--fef-muted) !important;
+    }
+
+    footer {
+      border-top-color: rgba(74, 223, 238, 0.34) !important;
+    }
+
+    .risk-chip.active-chip {
+      background: rgba(21, 163, 161, 0.34) !important;
+      border-color: rgba(74, 223, 238, 0.62) !important;
+      color: #d8fbff !important;
+      box-shadow: 0 0 10px rgba(29, 175, 183, 0.16);
+    }
+
+    ::-webkit-scrollbar-track { background: #040914; }
+    ::-webkit-scrollbar-thumb { background: rgba(74, 179, 202, 0.28); }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(74, 179, 202, 0.48); }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
   </style>
 </head>
 <body class="h-screen h-[100dvh] text-slate-100 flex flex-col overflow-hidden">
@@ -412,6 +660,7 @@
               <div class="text-xl lg:text-2xl font-orbitron font-black text-amber-300 tracking-wide flex items-center gap-2 compact-hero-price" id="hero-price">
                 $2,514.80
               </div>
+              <span class="source-badge source-fallback font-mono" id="hero-price-source">FALLBACK</span>
               <span class="text-xs font-mono text-slate-300" id="hero-name">Gold Spot / US Dollar</span>
             </div>
             <div class="text-right">
@@ -419,6 +668,7 @@
                 +1.15%
               </div>
               <div class="text-[10px] font-mono text-cyan-300 mt-0.5">Spread: <span id="hero-spread">1.2 pips</span></div>
+              <div class="source-badge source-simulated font-mono mt-0.5 ml-auto" id="hero-market-fields-source">CHANGE: SIMULATED · SPREAD: SIMULATED</div>
             </div>
           </div>
 
@@ -440,8 +690,8 @@
 
             <!-- View Mode Toggle: Real Candlesticks vs AI SMC Radar -->
             <div class="flex items-center gap-1">
-              <button type="button" onclick="setChartMode('PRO')" id="btn-mode-pro" class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-600 font-bold text-[9px] shadow-sm">REAL CANDLES</button>
-              <button type="button" onclick="setChartMode('SMC')" id="btn-mode-smc" class="px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 text-[9px] hover:text-slate-200">AI SMC</button>
+              <button type="button" onclick="setChartMode('PRO')" id="btn-mode-pro" class="source-external px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700 font-bold text-[9px] shadow-sm">TRADINGVIEW EXTERNAL</button>
+              <button type="button" onclick="setChartMode('SMC')" id="btn-mode-smc" class="source-simulated px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 text-[9px] hover:text-slate-200">AI SMC · SIMULATED</button>
             </div>
           </div>
 
@@ -468,23 +718,23 @@
           </div>
 
           <div class="flex justify-between text-[10px] font-mono text-slate-400 my-0.5 px-1 flex-shrink-0">
-            <span>Support: <span class="text-emerald-400 font-bold" id="chart-support">$4,410.00</span></span>
+            <span>Support: <span class="text-emerald-400 font-bold" id="chart-support">$4,410.00</span> <span class="source-badge source-simulated">SIMULATED</span></span>
             <span class="text-amber-300 font-bold" id="chart-active-tf-label">TF: 15M (Structure)</span>
-            <span>Resistance: <span class="text-red-400 font-bold" id="chart-res">$4,450.00</span></span>
+            <span>Resistance: <span class="text-red-400 font-bold" id="chart-res">$4,450.00</span> <span class="source-badge source-simulated">SIMULATED</span></span>
           </div>
 
           <!-- SMC Technical Metrics -->
           <div class="grid grid-cols-3 gap-1.5 text-center text-xs font-mono bg-slate-950/70 py-1.5 px-2 rounded-lg border border-slate-800 flex-shrink-0">
             <div>
-              <div class="text-[9px] text-slate-400">RSI (14)</div>
+              <div class="text-[9px] text-slate-400">RSI (14) · SIMULATED</div>
               <div class="font-bold text-emerald-400" id="tech-rsi-val">58.4</div>
             </div>
             <div>
-              <div class="text-[9px] text-slate-400">ATR VOLATILITY</div>
+              <div class="text-[9px] text-slate-400">ATR · SIMULATED</div>
               <div class="font-bold text-cyan-300" id="tech-atr-val">185 pips</div>
             </div>
             <div>
-              <div class="text-[9px] text-slate-400">STRUCTURE</div>
+              <div class="text-[9px] text-slate-400">STRUCTURE · SIMULATED</div>
               <div class="font-bold text-emerald-400" id="tech-bias-val">BULLISH BOS</div>
             </div>
           </div>
@@ -538,29 +788,32 @@
           <div onclick="switchSymbol('EURUSD')" class="holo-card p-2 cursor-pointer hover:border-cyan-400 transition-all">
             <div class="flex justify-between text-[10px] font-mono font-bold text-cyan-300">
               <span>EUR/USD</span>
-              <span class="text-emerald-400">+25.3 p</span>
+              <span class="text-emerald-400" id="pip-eurusd-change">+25.3 p · SIMULATED</span>
             </div>
             <div class="text-base lg:text-lg font-orbitron font-bold text-slate-100 mt-0.5 compact-pip-price" id="pip-eurusd">1.1095</div>
-            <div class="text-[9px] font-mono text-slate-400 mt-0.5">Spread: 0.8 pips</div>
+            <div class="source-badge source-fallback font-mono" id="pip-eurusd-source">FALLBACK</div>
+            <div class="text-[9px] font-mono text-slate-400 mt-0.5" id="pip-eurusd-spread">Spread: 0.8 pips · SIMULATED</div>
           </div>
 
           <!-- GBP/USD Card -->
           <div onclick="switchSymbol('GBPUSD')" class="holo-card p-2 cursor-pointer hover:border-emerald-400 transition-all">
             <div class="flex justify-between text-[10px] font-mono font-bold text-emerald-300">
               <span>GBP/USD</span>
-              <span class="text-emerald-400">+18.7 p</span>
+              <span class="text-emerald-400" id="pip-gbpusd-change">+18.7 p · SIMULATED</span>
             </div>
             <div class="text-base lg:text-lg font-orbitron font-bold text-slate-100 mt-0.5 compact-pip-price" id="pip-gbpusd">1.3040</div>
-            <div class="text-[9px] font-mono text-slate-400 mt-0.5">Spread: 1.1 pips</div>
+            <div class="source-badge source-fallback font-mono" id="pip-gbpusd-source">FALLBACK</div>
+            <div class="text-[9px] font-mono text-slate-400 mt-0.5" id="pip-gbpusd-spread">Spread: 1.1 pips · SIMULATED</div>
           </div>
 
           <!-- US OIL Card -->
           <div onclick="switchSymbol('USOIL')" class="holo-card holo-amber p-2 cursor-pointer hover:border-amber-400 transition-all">
             <div class="flex justify-between text-[10px] font-mono font-bold text-amber-300">
               <span>US OIL (WTI)</span>
-              <span class="text-red-400">-0.85%</span>
+              <span class="text-red-400" id="pip-usoil-change">-0.85% · SIMULATED</span>
             </div>
             <div class="text-base lg:text-lg font-orbitron font-bold text-amber-200 mt-0.5 compact-pip-price" id="pip-usoil">$74.20</div>
+            <div class="source-badge source-fallback font-mono" id="pip-usoil-source">FALLBACK</div>
             <div class="text-[9px] font-mono text-slate-400 mt-0.5">EIA: +1.4M bbl</div>
           </div>
 
@@ -568,9 +821,10 @@
           <div onclick="switchSymbol('USDJPY')" class="holo-card holo-red p-2 cursor-pointer hover:border-red-400 transition-all">
             <div class="flex justify-between text-[10px] font-mono font-bold text-red-300">
               <span>USD/JPY</span>
-              <span class="text-red-400">-41.2 p</span>
+              <span class="text-red-400" id="pip-usdjpy-change">-41.2 p · SIMULATED</span>
             </div>
             <div class="text-base lg:text-lg font-orbitron font-bold text-slate-100 mt-0.5 compact-pip-price" id="pip-usdjpy">147.60</div>
+            <div class="source-badge source-fallback font-mono" id="pip-usdjpy-source">FALLBACK</div>
             <div class="text-[9px] font-mono text-slate-400 mt-0.5">BOJ Hike Bias</div>
           </div>
 
@@ -647,6 +901,7 @@
           </div>
           <div class="text-slate-300 text-xs">
             Entry: <span class="font-bold text-slate-100" id="deck-entry">4,430.26</span>
+            <span class="source-badge source-fallback ml-1" id="deck-entry-source">FALLBACK</span>
           </div>
           
           <!-- Auto 100 Pips Stop Loss Guaranteed Badge -->
@@ -671,6 +926,7 @@
               <kbd class="text-[8px] bg-slate-950/80 text-emerald-300 px-1 rounded font-mono">B</kbd>
             </div>
             <span class="text-[10px] font-mono text-emerald-950 font-bold mt-0.5" id="quick-buy-price">@ 4,430.31</span>
+            <span class="source-badge source-simulated font-mono" id="quick-buy-source">SIMULATED</span>
           </button>
 
           <!-- Instant 1-Click SELL Button -->
@@ -681,6 +937,7 @@
               <kbd class="text-[8px] bg-slate-950/80 text-rose-300 px-1 rounded font-mono">S</kbd>
             </div>
             <span class="text-[10px] font-mono text-rose-200 font-bold mt-0.5" id="quick-sell-price">@ 4,430.26</span>
+            <span class="source-badge source-simulated font-mono" id="quick-sell-source">SIMULATED</span>
           </button>
 
           <button type="button" onclick="runMultiAgentAnalysis(currentActiveSymbol)" class="px-2.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-mono text-xs font-bold transition-all shadow-md flex items-center gap-1.5">
@@ -724,14 +981,40 @@
   <script>
     let currentActiveSymbol = "XAUUSD";
     let activeAnalysisData = null;
+    const previousDisplayedPrices = new Map();
+
+    function updatePriceElement(elementId, value, displayText, trackingKey = elementId) {
+      const element = document.getElementById(elementId);
+      if (!element) return;
+
+      const numericValue = Number(value);
+      element.classList.remove("price-up", "price-down", "price-neutral", "price-unavailable");
+      element.innerText = displayText;
+
+      if (value === null || value === undefined || value === "" || !Number.isFinite(numericValue)) {
+        element.innerText = "—";
+        element.classList.add("price-unavailable");
+        return;
+      }
+
+      const previous = previousDisplayedPrices.get(trackingKey);
+      if (previous === undefined || numericValue === previous) {
+        element.classList.add("price-neutral");
+      } else if (numericValue > previous) {
+        element.classList.add("price-up");
+      } else {
+        element.classList.add("price-down");
+      }
+      previousDisplayedPrices.set(trackingKey, numericValue);
+    }
 
     // --- Interactive 3D Parallax Tracking ---
     const viewport = document.getElementById("viewport");
     const bgDeck = document.getElementById("bg-deck");
     window.addEventListener("mousemove", (e) => {
-      const x = (e.clientX / window.innerWidth - 0.5) * 20;
-      const y = (e.clientY / window.innerHeight - 0.5) * 15;
-      bgDeck.style.transform = `translate3d(${x}px, ${y}px, 0px) scale(1.04)`;
+      const x = (e.clientX / window.innerWidth - 0.5) * 4;
+      const y = (e.clientY / window.innerHeight - 0.5) * 3;
+      bgDeck.style.transform = `translate3d(${x}px, ${y}px, 0px) scale(1.01)`;
     });
 
     // --- Live Canvas Candlestick Chart Renderer ---
@@ -757,8 +1040,8 @@
       let curr = basePrice - 10;
 
       // Draw FVG Zone box in the center
-      ctx.fillStyle = "rgba(234, 179, 8, 0.12)";
-      ctx.strokeStyle = "rgba(234, 179, 8, 0.4)";
+      ctx.fillStyle = "rgba(14, 165, 233, 0.10)";
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.34)";
       ctx.fillRect(step * 9, 35, step * 4, 60);
       ctx.strokeRect(step * 9, 35, step * 4, 60);
 
@@ -973,20 +1256,43 @@
       }
     }
 
+    function setSourceLabel(elementId, label) {
+      const element = document.getElementById(elementId);
+      if (!element) return;
+
+      const normalized = String(label || "PRICE UNAVAILABLE").toUpperCase();
+      let sourceClass = "source-simulated";
+      if (normalized === "LIVE" || normalized === "MT5 LIVE") sourceClass = "source-live";
+      else if (normalized === "DELAYED") sourceClass = "source-delayed";
+      else if (normalized === "FALLBACK") sourceClass = "source-fallback";
+      else if (normalized === "PRICE UNAVAILABLE") sourceClass = "source-unavailable";
+      else if (normalized === "TRADINGVIEW EXTERNAL") sourceClass = "source-external";
+
+      element.classList.remove(
+        "source-live", "source-delayed", "source-fallback",
+        "source-simulated", "source-unavailable", "source-external"
+      );
+      element.classList.add("source-badge", sourceClass);
+      element.innerText = normalized;
+    }
+
     function updateUIWithData(data) {
       const tech = data.technical_report;
+      const quote = data.quote || {};
       const macro = data.macro_report;
       const debate = data.debate_outcome;
       const ticket = data.order_ticket;
 
       // Update Hero Hologram
       document.getElementById("card-symbol-badge").innerText = tech.setup_direction + " SETUP (" + data.symbol + ")";
-      document.getElementById("hero-price").innerText = `$${tech.current_price}`;
+      updatePriceElement("hero-price", tech.current_price, `$${tech.current_price}`, `hero:${data.symbol}`);
+      setSourceLabel("hero-price-source", quote.source_label);
       document.getElementById("hero-name").innerText = data.symbol === 'XAUUSD' ? 'Gold Spot / US Dollar' :
                                                        data.symbol === 'USOIL' ? 'WTI Crude Oil' :
                                                        data.symbol === 'EURUSD' ? 'Euro / US Dollar' :
                                                        data.symbol === 'GBPUSD' ? 'British Pound / US Dollar' : 'US Dollar / Japanese Yen';
       document.getElementById("hero-spread").innerText = `${tech.atr_pips > 50 ? '1.2' : '0.8'} pips`;
+      setSourceLabel("hero-market-fields-source", `CHANGE: ${quote.change_source || 'SIMULATED'} · SPREAD: SIMULATED`);
       document.getElementById("chart-support").innerText = `$${tech.key_support}`;
       document.getElementById("chart-res").innerText = `$${tech.key_resistance}`;
       document.getElementById("tech-rsi-val").innerText = tech.rsi_14;
@@ -1028,7 +1334,8 @@
       }
       document.getElementById("deck-action").innerText = ticket.action;
       document.getElementById("deck-action").className = `font-bold ${ticket.action === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`;
-      document.getElementById("deck-entry").innerText = `$${ticket.entry_price}`;
+      updatePriceElement("deck-entry", ticket.entry_price, `$${ticket.entry_price}`, `deck:${data.symbol}`);
+      setSourceLabel("deck-entry-source", quote.source_label);
       document.getElementById("deck-sl").innerText = `$${ticket.stop_loss} (-${ticket.stop_pips} p)`;
       document.getElementById("deck-tp").innerText = `$${ticket.take_profit} (+${ticket.tp_pips} p)`;
 
@@ -1083,21 +1390,41 @@
         // Live Active Instrument (Gold, Oil, FX)
         if (data.instruments[currentActiveSymbol]) {
           const q = data.instruments[currentActiveSymbol];
-          document.getElementById("hero-price").innerText = `$${q.bid}`;
+          const displayedPrice = q.is_broker_quote ? q.bid : q.mid;
+          updatePriceElement("hero-price", displayedPrice, `$${displayedPrice}`, `hero:${currentActiveSymbol}`);
+          setSourceLabel("hero-price-source", q.source_label);
           document.getElementById("hero-spread").innerText = `${q.spread_pips} pips`;
+          setSourceLabel("hero-market-fields-source", `CHANGE: ${q.change_source || 'SIMULATED'} · SPREAD: ${q.spread_source || 'SIMULATED'}`);
           document.getElementById("hero-change").innerText = `${q.change_pct >= 0 ? '+' : ''}${q.change_pct}%`;
-          document.getElementById("deck-entry").innerText = `$${q.bid}`;
+          updatePriceElement("deck-entry", displayedPrice, `$${displayedPrice}`, `deck:${currentActiveSymbol}`);
+          setSourceLabel("deck-entry-source", q.source_label);
           const qBuy = document.getElementById("quick-buy-price");
-          if (qBuy) qBuy.innerText = `@ ${q.ask}`;
+          if (qBuy) updatePriceElement("quick-buy-price", q.ask, `@ ${q.ask}`, `quick-buy:${currentActiveSymbol}`);
+          setSourceLabel("quick-buy-source", q.is_broker_quote ? q.source_label : "SIMULATED");
           const qSell = document.getElementById("quick-sell-price");
-          if (qSell) qSell.innerText = `@ ${q.bid}`;
+          if (qSell) updatePriceElement("quick-sell-price", q.bid, `@ ${q.bid}`, `quick-sell:${currentActiveSymbol}`);
+          setSourceLabel("quick-sell-source", q.is_broker_quote ? q.source_label : "SIMULATED");
         }
 
         // Pip card prices
-        if (data.instruments["EURUSD"]) document.getElementById("pip-eurusd").innerText = data.instruments["EURUSD"].bid;
-        if (data.instruments["GBPUSD"]) document.getElementById("pip-gbpusd").innerText = data.instruments["GBPUSD"].bid;
-        if (data.instruments["USOIL"]) document.getElementById("pip-usoil").innerText = `$${data.instruments["USOIL"].bid}`;
-        if (data.instruments["USDJPY"]) document.getElementById("pip-usdjpy").innerText = data.instruments["USDJPY"].bid;
+        const cardDefinitions = {
+          EURUSD: { priceId: "pip-eurusd", sourceId: "pip-eurusd-source", changeId: "pip-eurusd-change", spreadId: "pip-eurusd-spread", prefix: "", changeUnit: " p" },
+          GBPUSD: { priceId: "pip-gbpusd", sourceId: "pip-gbpusd-source", changeId: "pip-gbpusd-change", spreadId: "pip-gbpusd-spread", prefix: "", changeUnit: " p" },
+          USOIL: { priceId: "pip-usoil", sourceId: "pip-usoil-source", changeId: "pip-usoil-change", prefix: "$", changeUnit: "%" },
+          USDJPY: { priceId: "pip-usdjpy", sourceId: "pip-usdjpy-source", changeId: "pip-usdjpy-change", prefix: "", changeUnit: " p" }
+        };
+        Object.entries(cardDefinitions).forEach(([symbol, definition]) => {
+          const quote = data.instruments[symbol];
+          if (!quote) return;
+          const price = quote.is_broker_quote ? quote.bid : quote.mid;
+          updatePriceElement(definition.priceId, price, `${definition.prefix}${price}`, `card:${symbol}`);
+          setSourceLabel(definition.sourceId, quote.source_label);
+          const changeValue = definition.changeUnit === "%" ? quote.change_pct : quote.pip_change;
+          document.getElementById(definition.changeId).innerText = `${changeValue}${definition.changeUnit} · ${quote.change_source}`;
+          if (definition.spreadId) {
+            document.getElementById(definition.spreadId).innerText = `Spread: ${quote.spread_pips} pips · ${quote.spread_source}`;
+          }
+        });
 
         // Populate Public API Radar Feeds
         if (data.public_feeds) {

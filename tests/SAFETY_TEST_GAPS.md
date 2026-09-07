@@ -13,18 +13,24 @@ of these provenance states:
 - `DELAYED`
 - `FALLBACK`
 - `SIMULATED`
+- `TRADINGVIEW EXTERNAL`
+- `PRICE UNAVAILABLE`
 
-Automated enforcement is currently blocked because the backend uses values such
-as `LIVE_CONNECTED`, `INITIALIZED_FALLBACK`, and `CACHED_OFFLINE`, while several
-derived values have no provenance field at all. Some fixed FRED, EIA, crowd
-sentiment, technical-analysis, calendar, and performance values can also be
-reported with live-sounding labels.
+Phase 3A adds deterministic provenance for market quotes and derived price
+fields. Only a fresh MT5 socket/Common Files quote is labeled `LIVE`; Yahoo data
+is `DELAYED`, static references are `FALLBACK`, and manufactured spreads,
+high/low, change figures, indicators, levels, and AI candles are `SIMULATED`.
+The TradingView iframe is explicitly separate and labeled `TRADINGVIEW EXTERNAL`.
 
-Future tests must cover MT5 quotes, yfinance prices, Frankfurter rates, macro
-values, EIA data, sentiment, calendar events, indicators, SMC candles, account
-statistics, and performance metrics. They must verify both provenance and
-freshness, including transitions after timeout or fetch failure. The frontend
-must display the backend-provided state without upgrading or inferring it.
+Vercel cannot access a user's local MT5 terminal directly. A public hosted
+deployment still needs either a licensed quote provider or a secured local quote
+relay. Yahoo `GC=F` and `CL=F` are futures proxies and do not equal broker
+XAUUSD/USOIL spot or CFD quotes. The iframe cannot supply prices to the backend,
+and broker execution prices must continue to come only from MT5 acknowledgement.
+
+Future tests must still cover Frankfurter rates, macro values, EIA data,
+sentiment, calendar events, account statistics, and performance metrics. They
+must verify provenance and freshness transitions after timeout or fetch failure.
 
 ## Exactly-once MT5 execution
 

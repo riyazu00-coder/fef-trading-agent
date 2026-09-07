@@ -21,6 +21,7 @@ class QuoteStore:
         self.last_update: float = 0.0
 
     def update(self, symbol: str, bid: float, ask: float, balance: float = 0.0, equity: float = 0.0, raw_symbol: str = ""):
+        has_broker_bid_ask = bid > 0 and ask > 0
         self.quotes[symbol] = {
             "bid": float(bid),
             "ask": float(ask) if ask > 0 else float(bid),
@@ -28,7 +29,8 @@ class QuoteStore:
             "equity": float(equity) if equity > 0 else None,
             "raw_symbol": raw_symbol,
             "timestamp": time.time(),
-            "source": "SOCKET"
+            "source": "SOCKET",
+            "has_broker_bid_ask": has_broker_bid_ask,
         }
         self.last_update = time.time()
 
@@ -57,6 +59,7 @@ class QuoteStore:
                     bal = float(data.get("balance", 0.0))
                     eq  = float(data.get("equity", 0.0))
                     if bid > 0:
+                        has_broker_bid_ask = ask > 0
                         self.quotes[sym] = {
                             "bid": bid,
                             "ask": ask if ask > 0 else bid,
@@ -64,7 +67,8 @@ class QuoteStore:
                             "equity": eq if eq > 0 else None,
                             "raw_symbol": data.get("raw_symbol", sym),
                             "timestamp": time.time(),
-                            "source": "FILE_COMMON"
+                            "source": "FILE_COMMON",
+                            "has_broker_bid_ask": has_broker_bid_ask,
                         }
                         self.last_update = time.time()
 
