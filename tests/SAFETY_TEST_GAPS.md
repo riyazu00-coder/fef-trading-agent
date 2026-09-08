@@ -150,3 +150,22 @@ HTTP double; a manual local run is still required to verify socket binding,
 real HTTP serialization, matching process environments, and cache expiry. The
 fixture is not a broker quote, and a passing dry run does not replace the
 Phase 4D MetaEditor/demo-MT5 verification or approve real-money execution.
+
+## Phase 4G manual verification status
+
+Phase 4G is pending manual MetaEditor and dedicated demo-MT5 verification.
+`PHASE_4G_METAEDITOR_DEMO_MT5_QUOTE_EXPORT_VERIFICATION.md` defines the
+evidence-driven, quote-only procedure. Remaining checks are:
+
+- compile the active EA in MetaEditor with zero errors and zero warnings;
+- attach it to a demo XAUUSD chart without enabling trading permissions;
+- confirm complete atomic Common Files output at
+  `fef_mt5_quote_snapshot.json`;
+- verify all available canonical-to-broker symbol mappings in Market Watch;
+- verify bid/ask invariants and repeatedly fresh broker tick timestamps;
+- run the publisher once against the real MT5-generated file;
+- confirm relay and status expose `MT5_RELAY` / `MT5 LIVE` with broker and
+  tradeable flags true, then confirm expiry when publishing stops.
+
+Python documentation tests cannot satisfy these terminal/runtime checks. Phase
+4G remains quote-only, demo-only, and does not approve real-money execution.
