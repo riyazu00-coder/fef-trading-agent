@@ -303,10 +303,12 @@
     }
 
     #btn-main-execute {
-      background: linear-gradient(135deg, #53e3ef, #18b6a7) !important;
-      border: 1px solid rgba(137, 244, 248, 0.72) !important;
-      color: #031014 !important;
-      box-shadow: 0 8px 24px rgba(21, 181, 184, 0.20) !important;
+      background: linear-gradient(135deg, rgba(55, 65, 81, 0.92), rgba(30, 41, 59, 0.96)) !important;
+      border: 1px solid rgba(148, 163, 184, 0.30) !important;
+      color: #94a3b8 !important;
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.04) !important;
+      cursor: not-allowed !important;
+      opacity: 0.78;
     }
 
     #btn-quick-buy,
@@ -491,6 +493,56 @@
 
     .safety-position-clear { color: #71efd1 !important; }
     .safety-position-warning { color: #ee9696 !important; }
+
+    .trade-deck-layout {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .trade-parameters {
+      flex: 1 1 650px;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .trade-action-controls {
+      display: grid !important;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      flex: 1 1 480px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      gap: 8px;
+    }
+
+    .trade-action-controls > button {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0 !important;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 1180px) {
+      .trade-action-controls {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 520px) {
+      .trade-action-controls {
+        gap: 5px;
+      }
+
+      .trade-action-controls > button {
+        padding-left: 6px !important;
+        padding-right: 6px !important;
+      }
+    }
 
     #pip-eurusd-change,
     #pip-gbpusd-change,
@@ -1011,7 +1063,7 @@
     </main>
 
     <!-- BOTTOM SECTION: Illuminated Command Deck Trade Panel -->
-    <footer class="holo-card px-3 py-1.5 lg:px-4 lg:py-2 mt-1 border-t-2 border-cyan-400/50 shadow-2xl shadow-cyan-500/20 flex-shrink-0">
+    <footer class="holo-card px-3 py-1.5 lg:px-4 lg:py-2 mt-1 border-t-2 border-cyan-400/50 shadow-2xl shadow-cyan-500/20 flex-shrink-0 overflow-x-hidden">
       <div class="safety-lock-panel font-mono" id="safety-lock-panel" role="status" aria-label="Execution safety status">
         <div class="flex items-center gap-2">
           <span class="text-red-300" aria-hidden="true">🔒</span>
@@ -1036,10 +1088,10 @@
         </div>
       </div>
       
-      <div class="flex flex-col lg:flex-row items-center justify-between gap-2 lg:gap-3 font-mono">
+      <div class="trade-deck-layout gap-2 lg:gap-3 font-mono">
         
         <!-- Live Order Parameters & Option B Risk Sizing -->
-        <div class="flex flex-wrap items-center gap-2 lg:gap-3 text-xs md:text-sm">
+        <div class="trade-parameters flex flex-wrap items-center gap-2 lg:gap-3 text-xs md:text-sm">
           <div class="px-2.5 py-1 rounded bg-amber-500/20 border border-amber-500/50 text-amber-300 font-bold" id="deck-symbol-pill">
             TRADE PANEL: XAU/USD
           </div>
@@ -1097,10 +1149,10 @@
         </div>
 
         <!-- Option A: Dual One-Click Instant BUY / SELL Buttons & Actions -->
-        <div class="flex items-center gap-2 w-full lg:w-auto">
+        <div class="trade-action-controls">
           
           <!-- Instant 1-Click BUY Button -->
-          <button type="button" onclick="quickExecute('BUY')" id="btn-quick-buy" class="btn-glow-emerald px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-orbitron font-black text-xs tracking-wider transition-all transform active:scale-95 flex flex-col items-center justify-center min-w-[115px]">
+          <button type="button" onclick="quickExecute('BUY')" id="btn-quick-buy" class="btn-glow-emerald px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-orbitron font-black text-xs tracking-wider transition-all transform active:scale-95 flex flex-col items-center justify-center">
             <div class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-slate-950 animate-ping"></span>
               <span>BUY (100p SL)</span>
@@ -1112,7 +1164,7 @@
           </button>
 
           <!-- Instant 1-Click SELL Button -->
-          <button type="button" onclick="quickExecute('SELL')" id="btn-quick-sell" class="btn-glow-rose px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-slate-100 font-orbitron font-black text-xs tracking-wider transition-all transform active:scale-95 flex flex-col items-center justify-center min-w-[115px]">
+          <button type="button" onclick="quickExecute('SELL')" id="btn-quick-sell" class="btn-glow-rose px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-slate-100 font-orbitron font-black text-xs tracking-wider transition-all transform active:scale-95 flex flex-col items-center justify-center">
             <div class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-rose-200 animate-ping"></span>
               <span>SELL (100p SL)</span>
@@ -1128,9 +1180,9 @@
             <span class="hidden sm:inline">ANALYZE</span>
           </button>
 
-          <button type="button" onclick="executeBrokerOrder()" id="btn-main-execute" class="flex-1 lg:flex-none px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-orbitron font-black text-xs tracking-wider transition-all shadow-lg shadow-cyan-500/20 transform active:scale-95 flex items-center justify-center gap-1.5">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-            <span class="hidden sm:inline">CONFIRM & EXECUTE</span>
+          <button type="button" onclick="executeBrokerOrder()" id="btn-main-execute" disabled aria-disabled="true" title="Order route locked — no live execution permission" class="px-3.5 py-2 rounded-xl font-orbitron font-black text-xs tracking-wider transition-all flex items-center justify-center gap-1.5">
+            <span aria-hidden="true">🔒</span>
+            <span>EXECUTION LOCKED</span>
           </button>
 
         </div>
