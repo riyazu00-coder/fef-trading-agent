@@ -142,3 +142,11 @@ Market Watch tick behavior, timestamp freshness, or behavior during terminal
 shutdown and partial I/O failure. MetaEditor compilation and the Phase 4D
 demo-MT5 checklist remain required. Quote export remains data-only and does not
 approve real-money execution.
+
+Phase 4F adds a loopback-only fixture dry run that exercises the existing
+publisher, authenticated relay submission, read-only relay cache, and status
+provenance without calling trading routes. Its automated tests use an in-memory
+HTTP double; a manual local run is still required to verify socket binding,
+real HTTP serialization, matching process environments, and cache expiry. The
+fixture is not a broker quote, and a passing dry run does not replace the
+Phase 4D MetaEditor/demo-MT5 verification or approve real-money execution.
