@@ -136,6 +136,16 @@ class TestPriceFeedProvenance(unittest.TestCase):
     def test_provider_failure_falls_back_safely_and_deterministically(self):
         feed = MarketFeed()
         with (
+            patch.object(
+                market_feed_module.time,
+                "time",
+                side_effect=[1_000.0, 1_040.0],
+            ),
+            patch.object(
+                market_feed_module.time,
+                "monotonic",
+                return_value=50.0,
+            ),
             patch.object(market_feed_module.quote_store, "get", return_value=None),
             patch.object(
                 market_feed_module.urllib.request,
@@ -147,11 +157,14 @@ class TestPriceFeedProvenance(unittest.TestCase):
             second = feed.get_live_quote("USOIL")
 
         self.assertEqual(first.mid, REFERENCE_PRICES["USOIL"])
+        self.assertEqual(first.mid, second.mid)
         self.assertEqual(first.bid, second.bid)
         self.assertEqual(first.ask, second.ask)
         self.assertEqual(first.source, "REFERENCE_PRICES")
         self.assertEqual(first.source_label, "FALLBACK · NON-BROKER")
         self.assertNotEqual(first.source_label, "LIVE")
+        # A wall-clock adjustment must not invalidate the short-lived negative
+        # provider cache; TTLs use monotonic time.
         self.assertEqual(urlopen.call_count, 1)
         self.assertFalse(first.is_broker_quote)
         self.assertFalse(first.is_tradeable)
