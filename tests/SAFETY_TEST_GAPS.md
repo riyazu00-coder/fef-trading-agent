@@ -260,3 +260,18 @@ always empty. Manual browser verification must cover relay recovery, expiry,
 FILE_COMMON fallback, external reference, static fallback, responsive layout,
 and warning readability. Phase 5B changes no execution behavior. Real-money
 execution remains blocked and is not approved.
+
+## Phase 5C dashboard safety-lock visibility status
+
+Phase 5C adds a persistent, visibility-only execution safety panel beside the
+trade controls. It identifies the current policy state as execution locked,
+demo-only, quote-only, and not approved for real money. It also states that the
+MT5 relay grants quote visibility only, scopes the Risk Guardian badge to the
+full analysis path, and reports whether the existing account snapshot contains
+open positions.
+
+The panel does not disable, enable, reroute, or invoke any trading control. The
+first native Windows VPS dry run remains deferred until the Exness VPS is
+available, followed by the already documented supervision, reboot, remote HTTPS,
+staleness, and provenance evidence. Real-money execution remains blocked and is
+not approved.
