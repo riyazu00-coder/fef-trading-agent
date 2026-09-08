@@ -450,6 +450,48 @@
       letter-spacing: 0.035em;
     }
 
+    .safety-lock-panel {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 5px 10px;
+      margin-bottom: 6px;
+      padding: 5px 8px;
+      border: 1px solid rgba(223, 99, 99, 0.42);
+      border-radius: 10px;
+      background: linear-gradient(90deg, rgba(67, 22, 29, 0.42), rgba(9, 18, 32, 0.88));
+      box-shadow: inset 0 1px rgba(255, 210, 210, 0.04);
+    }
+
+    .safety-lock-badges {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .safety-lock-primary {
+      color: #f1a0a0 !important;
+      border-color: rgba(239, 107, 107, 0.52);
+      background: rgba(99, 31, 38, 0.42);
+    }
+
+    .safety-lock-policy {
+      color: #e4ba77 !important;
+      border-color: rgba(216, 163, 83, 0.42);
+      background: rgba(91, 62, 22, 0.30);
+    }
+
+    .safety-lock-info {
+      color: #80cbd7 !important;
+      border-color: rgba(74, 179, 202, 0.38);
+      background: rgba(12, 72, 82, 0.30);
+    }
+
+    .safety-position-clear { color: #71efd1 !important; }
+    .safety-position-warning { color: #ee9696 !important; }
+
     #pip-eurusd-change,
     #pip-gbpusd-change,
     #pip-usoil-change,
@@ -960,7 +1002,7 @@
             </div>
           </div>
           <div class="space-y-1.5 flex-1 min-h-0 overflow-y-auto pr-0.5" id="open-positions-container">
-            <div class="text-center text-slate-500 py-2 text-[11px]">No active broker positions</div>
+            <div class="text-center text-slate-500 py-2 text-[11px]">No open positions detected</div>
           </div>
         </div>
 
@@ -970,6 +1012,29 @@
 
     <!-- BOTTOM SECTION: Illuminated Command Deck Trade Panel -->
     <footer class="holo-card px-3 py-1.5 lg:px-4 lg:py-2 mt-1 border-t-2 border-cyan-400/50 shadow-2xl shadow-cyan-500/20 flex-shrink-0">
+      <div class="safety-lock-panel font-mono" id="safety-lock-panel" role="status" aria-label="Execution safety status">
+        <div class="flex items-center gap-2">
+          <span class="text-red-300" aria-hidden="true">🔒</span>
+          <div>
+            <div class="text-[10px] font-black tracking-wider text-red-300">EXECUTION SAFETY LOCK</div>
+            <div class="text-[8px] text-slate-400" id="safety-bridge-state">NO LIVE EXECUTION PERMISSION</div>
+          </div>
+        </div>
+        <div class="safety-lock-badges">
+          <span class="source-badge safety-lock-primary">EXECUTION LOCKED</span>
+          <span class="source-badge safety-lock-policy">DEMO ONLY</span>
+          <span class="source-badge safety-lock-info">QUOTE ONLY</span>
+          <span class="source-badge safety-lock-primary">REAL MONEY NOT APPROVED</span>
+          <span class="source-badge safety-lock-primary">BUY/SELL LOCKED</span>
+          <span class="source-badge safety-lock-info">RISK GUARDIAN ACTIVE · FULL ANALYSIS PATH</span>
+          <span class="source-badge safety-lock-primary">NO LIVE EXECUTION PERMISSION</span>
+        </div>
+        <div class="text-right text-[8px] leading-tight">
+          <div class="text-cyan-200 font-bold" id="safety-relay-boundary">MT5 RELAY: QUOTES ONLY · NOT TRADE APPROVAL</div>
+          <div class="safety-position-clear font-bold" id="safety-position-state">No open positions detected</div>
+          <div class="text-slate-400">BUY/SELL requires future explicit unlock and approval.</div>
+        </div>
+      </div>
       
       <div class="flex flex-col lg:flex-row items-center justify-between gap-2 lg:gap-3 font-mono">
         
@@ -1017,6 +1082,7 @@
             <span class="source-badge reference-price-warning ml-1" id="deck-entry-reference">REFERENCE PRICE ONLY</span>
           </div>
           <div class="provenance-meta" id="deck-entry-meta">SOURCE: STATIC · SYMBOL: XAUUSD · AGE: N/A</div>
+          <div class="execution-price-warning" id="safety-monitoring-warning">Quotes are visible for monitoring only. Execution remains locked.</div>
           <div class="execution-price-warning" id="quick-price-execution-warning">Do not treat this as executable price.</div>
           
           <!-- Auto 100 Pips Stop Loss Guaranteed Badge -->
@@ -1343,6 +1409,42 @@
           executionWarning.innerText = selectedFreshness.state === "stale"
             ? "Do not treat this as executable price. Quote is stale."
             : "Do not treat this as executable price.";
+        }
+      }
+    }
+
+    function updateSafetyLockVisibility(data = {}) {
+      const account = data.account || {};
+      const positions = Array.isArray(account.open_positions) ? account.open_positions : [];
+      const instruments = data.instruments || {};
+      const hasRelayQuote = Object.values(instruments).some(
+        quote => String((quote && quote.source) || "").toUpperCase() === "MT5_RELAY"
+      );
+      const bridge = data.mt5_bridge || {};
+
+      const bridgeState = document.getElementById("safety-bridge-state");
+      if (bridgeState) {
+        bridgeState.innerText = bridge.connected === true
+          ? "MT5 BRIDGE CONNECTED · NO LIVE EXECUTION PERMISSION"
+          : "MT5 BRIDGE DISCONNECTED · NO LIVE EXECUTION PERMISSION";
+      }
+
+      const relayBoundary = document.getElementById("safety-relay-boundary");
+      if (relayBoundary) {
+        relayBoundary.innerText = hasRelayQuote
+          ? "MT5 RELAY ACTIVE: QUOTES ONLY · NOT TRADE APPROVAL"
+          : "QUOTE MONITORING ONLY · RELAY DOES NOT GRANT TRADE APPROVAL";
+      }
+
+      const positionState = document.getElementById("safety-position-state");
+      if (positionState) {
+        positionState.classList.remove("safety-position-clear", "safety-position-warning");
+        if (positions.length === 0) {
+          positionState.innerText = "No open positions detected";
+          positionState.classList.add("safety-position-clear");
+        } else {
+          positionState.innerText = `${positions.length} open position${positions.length === 1 ? "" : "s"} detected · safety lock unchanged`;
+          positionState.classList.add("safety-position-warning");
         }
       }
     }
@@ -1771,6 +1873,7 @@
         document.getElementById("top-equity").innerText = `$${data.account.equity.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
         document.getElementById("mt5-status-badge").innerText = data.mt5_bridge.mode;
         updateRelayHealthUI(data);
+        updateSafetyLockVisibility(data);
 
         // Economic News Horizon & Blackout Guardian
         const horizonBadge = document.getElementById("news-horizon-badge");
@@ -1906,7 +2009,7 @@
       const container = document.getElementById("open-positions-container");
       document.getElementById("positions-count-text").innerText = `${positions.length} Open`;
       if (!positions || positions.length === 0) {
-        container.innerHTML = '<div class="text-center text-slate-500 py-3 text-[11px]">No active broker positions</div>';
+        container.innerHTML = '<div class="text-center text-slate-500 py-3 text-[11px]">No open positions detected</div>';
         return;
       }
       container.innerHTML = "";
