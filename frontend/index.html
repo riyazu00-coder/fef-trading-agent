@@ -418,6 +418,38 @@
       min-height: 29px;
     }
 
+    .relay-health-panel {
+      min-width: 170px;
+      padding: 4px 8px;
+      border: 1px solid rgba(102, 132, 164, 0.28);
+      border-radius: 10px;
+      background: rgba(4, 11, 21, 0.82);
+      box-shadow: inset 0 1px rgba(184, 224, 255, 0.035);
+    }
+
+    .relay-health-dot {
+      width: 6px;
+      height: 6px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: #75869a;
+    }
+
+    .relay-health-fresh { color: #71efd1 !important; border-color: rgba(53, 197, 139, 0.48) !important; background-color: rgba(13, 88, 72, 0.32) !important; }
+    .relay-health-warning { color: #e8bd74 !important; border-color: rgba(216, 163, 83, 0.46) !important; background-color: rgba(91, 62, 22, 0.30) !important; }
+    .relay-health-stale { color: #ee9696 !important; border-color: rgba(223, 99, 99, 0.46) !important; background-color: rgba(77, 25, 29, 0.30) !important; }
+    .relay-health-reference { color: #82b8e6 !important; border-color: rgba(79, 143, 220, 0.38) !important; background-color: rgba(18, 43, 73, 0.30) !important; }
+    .relay-health-empty { color: #9baabd !important; border-color: rgba(102, 132, 164, 0.30) !important; background-color: rgba(22, 37, 55, 0.34) !important; }
+
+    .execution-price-warning {
+      margin-top: 3px;
+      color: #e2b875;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.035em;
+    }
+
     #pip-eurusd-change,
     #pip-gbpusd-change,
     #pip-usoil-change,
@@ -558,6 +590,14 @@
 
         <!-- MT5 Broker Status & Account Value -->
         <div class="flex items-center gap-3 text-xs font-mono">
+          <div class="relay-health-panel relay-health-empty" id="relay-health-panel" aria-live="polite">
+            <div class="flex items-center gap-1.5">
+              <span class="relay-health-dot" id="relay-health-dot"></span>
+              <span class="font-bold text-[10px]" id="relay-health-label">Relay empty</span>
+            </div>
+            <div class="text-[8px] text-slate-400 mt-0.5" id="relay-health-detail">Awaiting quote provenance</div>
+            <div class="text-[8px] text-slate-500" id="relay-bridge-detail">MT5 BRIDGE: UNKNOWN · PENDING ACKS: 0</div>
+          </div>
           <div class="flex items-center gap-1.5 bg-emerald-950/70 border border-emerald-500/50 px-2.5 py-0.5 rounded-xl text-emerald-400 shadow-md shadow-emerald-500/10">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
             <span id="mt5-status-badge" class="font-bold text-[11px]">MetaTrader 5 Connected</span>
@@ -693,6 +733,7 @@
                 <span class="source-badge source-fallback font-mono" id="hero-price-source">FALLBACK</span>
                 <span class="source-badge source-external font-mono" id="hero-price-broker">NON-BROKER</span>
                 <span class="source-badge source-external font-mono" id="hero-price-tradeability">NON-TRADEABLE</span>
+                <span class="source-badge relay-health-reference font-mono" id="hero-price-freshness">FALLBACK</span>
               </div>
               <div class="provenance-meta" id="hero-price-meta">SOURCE: STATIC · SYMBOL: XAUUSD · AGE: N/A</div>
               <span class="text-xs font-mono text-slate-300" id="hero-name">Gold Spot / US Dollar</span>
@@ -830,6 +871,7 @@
                 <span class="source-badge source-fallback font-mono" id="pip-eurusd-source">FALLBACK</span>
                 <span class="source-badge source-external font-mono" id="pip-eurusd-broker">NON-BROKER</span>
                 <span class="source-badge source-external font-mono" id="pip-eurusd-tradeability">NON-TRADEABLE</span>
+                <span class="source-badge relay-health-reference font-mono" id="pip-eurusd-freshness">FALLBACK</span>
               </div>
               <div class="provenance-meta" id="pip-eurusd-meta">SOURCE: STATIC · SYMBOL: EURUSD · AGE: N/A</div>
             </div>
@@ -849,6 +891,7 @@
                 <span class="source-badge source-fallback font-mono" id="pip-gbpusd-source">FALLBACK</span>
                 <span class="source-badge source-external font-mono" id="pip-gbpusd-broker">NON-BROKER</span>
                 <span class="source-badge source-external font-mono" id="pip-gbpusd-tradeability">NON-TRADEABLE</span>
+                <span class="source-badge relay-health-reference font-mono" id="pip-gbpusd-freshness">FALLBACK</span>
               </div>
               <div class="provenance-meta" id="pip-gbpusd-meta">SOURCE: STATIC · SYMBOL: GBPUSD · AGE: N/A</div>
             </div>
@@ -868,6 +911,7 @@
                 <span class="source-badge source-fallback font-mono" id="pip-usoil-source">FALLBACK</span>
                 <span class="source-badge source-external font-mono" id="pip-usoil-broker">NON-BROKER</span>
                 <span class="source-badge source-external font-mono" id="pip-usoil-tradeability">NON-TRADEABLE</span>
+                <span class="source-badge relay-health-reference font-mono" id="pip-usoil-freshness">FALLBACK</span>
               </div>
               <div class="provenance-meta" id="pip-usoil-meta">SOURCE: STATIC · SYMBOL: USOIL · AGE: N/A</div>
             </div>
@@ -887,6 +931,7 @@
                 <span class="source-badge source-fallback font-mono" id="pip-usdjpy-source">FALLBACK</span>
                 <span class="source-badge source-external font-mono" id="pip-usdjpy-broker">NON-BROKER</span>
                 <span class="source-badge source-external font-mono" id="pip-usdjpy-tradeability">NON-TRADEABLE</span>
+                <span class="source-badge relay-health-reference font-mono" id="pip-usdjpy-freshness">FALLBACK</span>
               </div>
               <div class="provenance-meta" id="pip-usdjpy-meta">SOURCE: STATIC · SYMBOL: USDJPY · AGE: N/A</div>
             </div>
@@ -972,6 +1017,7 @@
             <span class="source-badge reference-price-warning ml-1" id="deck-entry-reference">REFERENCE PRICE ONLY</span>
           </div>
           <div class="provenance-meta" id="deck-entry-meta">SOURCE: STATIC · SYMBOL: XAUUSD · AGE: N/A</div>
+          <div class="execution-price-warning" id="quick-price-execution-warning">Do not treat this as executable price.</div>
           
           <!-- Auto 100 Pips Stop Loss Guaranteed Badge -->
           <div class="text-red-400 flex items-center gap-1 text-xs">
@@ -1053,6 +1099,8 @@
     let currentActiveSymbol = "XAUUSD";
     let activeAnalysisData = null;
     const previousDisplayedPrices = new Map();
+    const QUOTE_FRESH_MAX_AGE_SECONDS = 5;
+    const QUOTE_WARNING_MAX_AGE_SECONDS = 10;
 
     function validDisplayNumber(value) {
       if (value === null || value === undefined || value === "") return null;
@@ -1115,7 +1163,10 @@
       ).trim();
       const isBrokerQuote = quote.is_broker_quote === true;
       const isTradeable = isBrokerQuote && quote.is_tradeable === true;
-      const ageSeconds = Number(quote.age_seconds);
+      const rawAgeSeconds = quote.age_seconds;
+      const ageSeconds = rawAgeSeconds === null || rawAgeSeconds === undefined || rawAgeSeconds === ""
+        ? NaN
+        : Number(rawAgeSeconds);
       const ageLabel = Number.isFinite(ageSeconds) && ageSeconds >= 0
         ? `${ageSeconds < 10 ? ageSeconds.toFixed(1) : Math.round(ageSeconds)}s`
         : "N/A";
@@ -1131,11 +1182,178 @@
       };
     }
 
+    function getQuoteFreshnessState(quote = {}) {
+      const source = String(quote.source || "").trim().toUpperCase();
+      const rawAgeSeconds = quote.age_seconds;
+      const ageSeconds = rawAgeSeconds === null || rawAgeSeconds === undefined || rawAgeSeconds === ""
+        ? NaN
+        : Number(rawAgeSeconds);
+      const hasAge = Number.isFinite(ageSeconds) && ageSeconds >= 0;
+
+      if (source === "MT5_RELAY") {
+        if (!hasAge || ageSeconds > QUOTE_WARNING_MAX_AGE_SECONDS) {
+          return { state: "stale", label: "RELAY STALE", ageSeconds };
+        }
+        if (ageSeconds > QUOTE_FRESH_MAX_AGE_SECONDS) {
+          return { state: "warning", label: "RELAY AGE WARNING", ageSeconds };
+        }
+        return { state: "fresh", label: "RELAY FRESH", ageSeconds };
+      }
+
+      if (source === "FILE_COMMON" || source === "SOCKET") {
+        if (!hasAge || ageSeconds > QUOTE_WARNING_MAX_AGE_SECONDS) {
+          return { state: "stale", label: "LOCAL FEED STALE", ageSeconds };
+        }
+        if (ageSeconds > QUOTE_FRESH_MAX_AGE_SECONDS) {
+          return { state: "warning", label: "LOCAL AGE WARNING", ageSeconds };
+        }
+        return { state: "fresh", label: "LOCAL BROKER LIVE", ageSeconds };
+      }
+
+      if (source === "YAHOO_FINANCE_CHART") {
+        return { state: "reference", label: "DELAYED REFERENCE", ageSeconds };
+      }
+      if (source === "STATIC" || source === "REFERENCE_PRICES") {
+        return { state: "warning", label: "FALLBACK", ageSeconds };
+      }
+      return { state: "empty", label: "RELAY EMPTY", ageSeconds };
+    }
+
+    function setFreshnessLabel(elementId, freshness) {
+      const element = document.getElementById(elementId);
+      if (!element) return;
+      element.classList.remove(
+        "relay-health-fresh",
+        "relay-health-warning",
+        "relay-health-stale",
+        "relay-health-reference",
+        "relay-health-empty"
+      );
+      const stateClass = {
+        fresh: "relay-health-fresh",
+        warning: "relay-health-warning",
+        stale: "relay-health-stale",
+        reference: "relay-health-reference",
+        empty: "relay-health-empty",
+      }[freshness.state] || "relay-health-empty";
+      element.classList.add("source-badge", stateClass);
+      element.innerText = freshness.label;
+    }
+
+    function updateRelayHealthUI(data = {}) {
+      const instruments = data.instruments || {};
+      const selectedQuote = instruments[currentActiveSymbol] || null;
+      const relayQuotes = Object.values(instruments).filter(
+        quote => String((quote && quote.source) || "").toUpperCase() === "MT5_RELAY"
+      );
+      const panel = document.getElementById("relay-health-panel");
+      const label = document.getElementById("relay-health-label");
+      const detail = document.getElementById("relay-health-detail");
+      const dot = document.getElementById("relay-health-dot");
+      const bridgeDetail = document.getElementById("relay-bridge-detail");
+      const executionWarning = document.getElementById("quick-price-execution-warning");
+
+      let panelState = "empty";
+      let healthLabel = "Relay empty";
+      let healthDetail = "No MT5 relay quote is available";
+      let selectedFreshness = { state: "empty", label: "RELAY EMPTY", ageSeconds: NaN };
+
+      if (selectedQuote) {
+        const source = String(selectedQuote.source || "").toUpperCase();
+        selectedFreshness = getQuoteFreshnessState(selectedQuote);
+
+        if (source === "MT5_RELAY") {
+          panelState = selectedFreshness.state;
+          if (selectedFreshness.state === "fresh") {
+            healthLabel = "Relay healthy";
+            healthDetail = `Relay fresh · ${currentActiveSymbol} · ${selectedQuote.age_seconds}s`;
+          } else if (selectedFreshness.state === "warning") {
+            healthLabel = "Relay age warning";
+            healthDetail = `${currentActiveSymbol} relay quote is approaching expiry`;
+          } else {
+            healthLabel = "Relay stale";
+            healthDetail = `${currentActiveSymbol} relay quote must not be treated as current`;
+          }
+        } else if ((source === "FILE_COMMON" || source === "SOCKET") && selectedQuote.is_broker_quote === true) {
+          panelState = selectedFreshness.state;
+          healthLabel = selectedFreshness.state === "stale"
+            ? "Local broker feed stale"
+            : "Local broker feed live";
+          healthDetail = "Local broker feed live · relay not active";
+          if (selectedFreshness.state === "warning") {
+            healthDetail = "Local broker feed age warning · relay not active";
+          } else if (selectedFreshness.state === "stale") {
+            healthDetail = "Local broker feed stale · relay not active";
+          }
+        } else if (source === "YAHOO_FINANCE_CHART") {
+          panelState = "reference";
+          healthLabel = "Using delayed reference";
+          healthDetail = relayQuotes.length > 0
+            ? "Relay unavailable for selected instrument · Reference price only"
+            : "Relay empty · Delayed non-broker reference";
+        } else if (source === "STATIC" || source === "REFERENCE_PRICES") {
+          panelState = "warning";
+          healthLabel = "Using fallback source";
+          healthDetail = relayQuotes.length > 0
+            ? "Relay unavailable for selected instrument · Reference price only"
+            : "Relay empty · Static fallback · Reference price only";
+        } else {
+          healthLabel = "Relay empty";
+          healthDetail = "Quote source unavailable for selected instrument";
+        }
+      }
+
+      const panelClass = {
+        fresh: "relay-health-fresh",
+        warning: "relay-health-warning",
+        stale: "relay-health-stale",
+        reference: "relay-health-reference",
+        empty: "relay-health-empty",
+      }[panelState] || "relay-health-empty";
+      for (const element of [panel, dot]) {
+        if (!element) continue;
+        element.classList.remove(
+          "relay-health-fresh",
+          "relay-health-warning",
+          "relay-health-stale",
+          "relay-health-reference",
+          "relay-health-empty"
+        );
+        element.classList.add(panelClass);
+      }
+      if (label) label.innerText = healthLabel;
+      if (detail) detail.innerText = healthDetail;
+
+      const bridge = data.mt5_bridge || {};
+      const bridgeState = bridge.connected === true ? "CONNECTED" : "DISCONNECTED";
+      const pendingAcknowledgements = Number.isFinite(Number(bridge.pending_acknowledgements))
+        ? Number(bridge.pending_acknowledgements)
+        : 0;
+      if (bridgeDetail) {
+        bridgeDetail.innerText = `MT5 BRIDGE: ${bridgeState} · PENDING ACKS: ${pendingAcknowledgements}`;
+      }
+
+      if (executionWarning) {
+        const isSafeBrokerPrice = selectedQuote &&
+          selectedQuote.is_broker_quote === true &&
+          selectedQuote.is_tradeable === true &&
+          selectedFreshness.state !== "stale";
+        executionWarning.classList.toggle("hidden", isSafeBrokerPrice);
+        if (!isSafeBrokerPrice) {
+          executionWarning.innerText = selectedFreshness.state === "stale"
+            ? "Do not treat this as executable price. Quote is stale."
+            : "Do not treat this as executable price.";
+        }
+      }
+    }
+
     function updateQuoteProvenance(prefix, quote, displayPrice) {
       const provenance = getQuoteProvenance(quote, displayPrice);
+      const freshness = getQuoteFreshnessState(quote);
       setSourceLabel(`${prefix}-source`, provenance.primaryLabel);
       setSourceLabel(`${prefix}-broker`, provenance.brokerLabel);
       setSourceLabel(`${prefix}-tradeability`, provenance.tradeabilityLabel);
+      setFreshnessLabel(`${prefix}-freshness`, freshness);
 
       const metadata = document.getElementById(`${prefix}-meta`);
       if (metadata) {
@@ -1552,6 +1770,7 @@
         document.getElementById("session-clock-time").innerText = `(${d.toUTCString().slice(17, 25)} GMT / 09:32:15 EST)`;
         document.getElementById("top-equity").innerText = `$${data.account.equity.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
         document.getElementById("mt5-status-badge").innerText = data.mt5_bridge.mode;
+        updateRelayHealthUI(data);
 
         // Economic News Horizon & Blackout Guardian
         const horizonBadge = document.getElementById("news-horizon-badge");

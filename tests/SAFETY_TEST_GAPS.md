@@ -244,3 +244,19 @@ Manual browser verification is still required across responsive sizes and all
 source transitions, including quote expiry and recovery. The visual labels do
 not grant execution permission. Real-money execution remains blocked and is not
 approved.
+
+## Phase 5B dashboard relay-health and stale-warning status
+
+Phase 5B adds a compact relay-health summary, per-instrument freshness badges,
+and a non-executable/stale warning beside quick-price previews. The browser uses
+the existing instrument provenance, quote age, broker/tradeable flags, and MT5
+bridge status. Freshness thresholds are five seconds for fresh, more than five
+through ten seconds for warning, and more than ten seconds for stale.
+
+Because the current `/api/status` payload does not expose relay-cache rejection
+history, a selected fallback can prove that the relay is unavailable for that
+instrument but cannot distinguish an expired cache entry from a cache that was
+always empty. Manual browser verification must cover relay recovery, expiry,
+FILE_COMMON fallback, external reference, static fallback, responsive layout,
+and warning readability. Phase 5B changes no execution behavior. Real-money
+execution remains blocked and is not approved.
