@@ -167,14 +167,15 @@ class MarketFeed:
         return ssl.create_default_context()
 
     def _get_external_reference(
-        self, source_symbol: str, now: float
+        self, source_symbol: str
     ) -> Optional[Tuple[float, float]]:
+        checked_at = time.monotonic()
         cached = self._external_reference_cache.get(source_symbol)
-        if cached and now - cached[0] < EXTERNAL_REFERENCE_CACHE_SECONDS:
+        if cached and checked_at - cached[0] < EXTERNAL_REFERENCE_CACHE_SECONDS:
             return cached[1]
 
         reference = self._fetch_external_reference(source_symbol)
-        self._external_reference_cache[source_symbol] = (now, reference)
+        self._external_reference_cache[source_symbol] = (checked_at, reference)
         return reference
 
     @staticmethod
@@ -255,7 +256,7 @@ class MarketFeed:
         source_symbol = symbol
         source_label = "FALLBACK · NON-BROKER"
         quote_timestamp = now
-        external_reference = self._get_external_reference(spec.yahoo_symbol, now)
+        external_reference = self._get_external_reference(spec.yahoo_symbol)
         if external_reference is not None:
             base_price, quote_timestamp = external_reference
             source = "YAHOO_FINANCE_CHART"
