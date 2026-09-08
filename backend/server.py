@@ -16,6 +16,13 @@ from dataclasses import asdict
 from backend.config import config, INSTRUMENTS
 from backend.auth import MUTATING_ENDPOINTS, verify_bearer_token
 from backend.data.market_feed import market_feed
+from backend.data.quote_relay import (
+    MAX_RELAY_PAYLOAD_BYTES,
+    RelayAuthenticationError,
+    RelayQuoteValidationError,
+    quote_relay_cache,
+    verify_relay_bearer_token,
+)
 from backend.data.macro_feed import macro_feed
 from backend.data.public_apis import public_apis_hub
 from backend.data.economic_calendar import economic_calendar
@@ -81,6 +88,15 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
             }
             return self._send_json(data)
 
+        elif path == "/api/relay/quotes":
+            quotes, stale_symbols = quote_relay_cache.read_latest()
+            return self._send_json({
+                "status": "READY" if quotes else "EMPTY",
+                "quotes": quotes,
+                "stale_symbols": stale_symbols,
+                "server_time": time.time(),
+            })
+
         elif path == "/api/public-feeds":
             return self._send_json(public_apis_hub.get_full_status())
 
@@ -112,11 +128,51 @@ class TradingAgentsApiHandler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
         length = int(self.headers.get("Content-Length", 0))
+
+        if path == "/api/relay/quotes":
+            if length > MAX_RELAY_PAYLOAD_BYTES:
+                return self._send_json({
+                    "error": "Relay payload too large",
+                    "status": "REJECTED",
+                }, 413)
+            if not verify_relay_bearer_token(self.headers.get("Authorization", "")):
+                return self._send_json({
+                    "error": "Unauthorized",
+                    "status": "UNAUTHORIZED",
+                    "message": "Missing or invalid relay Bearer token",
+                }, 401)
+
         body_raw = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
         try:
             payload = json.loads(body_raw)
         except Exception:
             payload = {}
+
+        if path == "/api/relay/quotes":
+            try:
+                snapshot = quote_relay_cache.submit(
+                    payload,
+                    self.headers.get("Authorization", ""),
+                )
+            except RelayAuthenticationError as exc:
+                return self._send_json({
+                    "error": "Unauthorized",
+                    "status": "UNAUTHORIZED",
+                    "message": str(exc),
+                }, 401)
+            except RelayQuoteValidationError as exc:
+                return self._send_json({
+                    "error": "Invalid relay quote",
+                    "status": "REJECTED",
+                    "message": str(exc),
+                }, 400)
+
+            return self._send_json({
+                "status": "ACCEPTED",
+                "symbol": snapshot.symbol,
+                "broker_symbol": snapshot.broker_symbol,
+                "timestamp": snapshot.timestamp,
+            }, 202)
 
         if path in MUTATING_ENDPOINTS:
             if not self._verify_bearer_token(body_raw):
