@@ -133,3 +133,12 @@ shared TTL-backed cloud cache, replay/sequence protection, rate limits, secret
 rotation, monitoring, and a Vercel-compatible read path. Demo-MT5 verification
 must compare relayed values with Market Watch and prove stale/offline transitions
 without creating or modifying any order.
+
+Phase 4E adds an isolated multi-symbol JSON exporter to the active EA and static
+tests for its schema, atomic temp/final file pattern, symbol coverage, and
+separation from existing command handlers. Python tests cannot compile MQL5 or
+prove MetaTrader filesystem replacement semantics, broker symbol discovery,
+Market Watch tick behavior, timestamp freshness, or behavior during terminal
+shutdown and partial I/O failure. MetaEditor compilation and the Phase 4D
+demo-MT5 checklist remain required. Quote export remains data-only and does not
+approve real-money execution.

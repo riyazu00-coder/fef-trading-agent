@@ -16,9 +16,20 @@ input int    InpSocketPort   = 5555;      // Local Python Server Port
 input ulong  InpMagicNumber  = 888999;    // Magic Number
 input ulong  InpDeviation    = 10;        // Max Slippage (Points)
 input int    InpPollInterval = 500;       // Poll Interval (Milliseconds)
+input int    InpQuoteExportIntervalSeconds = 2; // Quote-only JSON interval (0 disables)
+input int    InpQuoteMaxTickAgeSeconds = 10;    // Skip stale broker ticks
+input string InpQuoteXAUUSDBrokerSymbol = "";  // Optional exact broker mapping
+input string InpQuoteUSOILBrokerSymbol  = "";  // Optional exact broker mapping
+input string InpQuoteEURUSDBrokerSymbol = "";  // Optional exact broker mapping
+input string InpQuoteGBPUSDBrokerSymbol = "";  // Optional exact broker mapping
+input string InpQuoteUSDJPYBrokerSymbol = "";  // Optional exact broker mapping
 
 // Global Variables
 CTrade trade;
+ulong g_last_quote_export_ms = 0;
+
+#define FEF_QUOTE_EXPORT_FILE      "fef_mt5_quote_snapshot.json"
+#define FEF_QUOTE_EXPORT_TEMP_FILE "fef_mt5_quote_snapshot.json.tmp"
 
 //+------------------------------------------------------------------+
 //| Helper to normalize broker symbol to standard FEF key            |
@@ -33,6 +44,246 @@ string NormalizeSymbolName(string raw_symbol)
    if(StringFind(s, "GBPUSD") >= 0) return "GBPUSD";
    if(StringFind(s, "USDJPY") >= 0) return "USDJPY";
    return s;
+}
+
+//+------------------------------------------------------------------+
+//| Return an operator-supplied exact quote symbol mapping            |
+//+------------------------------------------------------------------+
+string ConfiguredQuoteBrokerSymbol(string canonical_symbol)
+{
+   if(canonical_symbol == "XAUUSD") return InpQuoteXAUUSDBrokerSymbol;
+   if(canonical_symbol == "USOIL")  return InpQuoteUSOILBrokerSymbol;
+   if(canonical_symbol == "EURUSD") return InpQuoteEURUSDBrokerSymbol;
+   if(canonical_symbol == "GBPUSD") return InpQuoteGBPUSDBrokerSymbol;
+   if(canonical_symbol == "USDJPY") return InpQuoteUSDJPYBrokerSymbol;
+   return "";
+}
+
+//+------------------------------------------------------------------+
+//| Match only known prefix/suffix forms for quote discovery          |
+//+------------------------------------------------------------------+
+bool IsKnownQuoteSymbolVariant(string candidate, string canonical_symbol)
+{
+   StringToUpper(candidate);
+   StringToUpper(canonical_symbol);
+   if(candidate == canonical_symbol)
+      return true;
+
+   int position = StringFind(candidate, canonical_symbol);
+   if(position < 0)
+      return false;
+
+   string prefix = StringSubstr(candidate, 0, position);
+   string suffix = StringSubstr(candidate, position + StringLen(canonical_symbol));
+   bool known_prefix = (StringLen(prefix) == 0 || prefix == "M" ||
+                        prefix == "PRO" || prefix == "RAW");
+   if(!known_prefix && StringLen(prefix) > 0)
+   {
+      string last_prefix_character = StringSubstr(prefix, StringLen(prefix) - 1, 1);
+      known_prefix = (last_prefix_character == "." || last_prefix_character == "_" ||
+                      last_prefix_character == "-" || last_prefix_character == "#");
+   }
+
+   bool known_suffix = (StringLen(suffix) == 0 || suffix == "M" ||
+                        suffix == "PRO" || suffix == "RAW" || suffix == "CASH");
+   if(!known_suffix && StringLen(suffix) > 0)
+   {
+      string first_suffix_character = StringSubstr(suffix, 0, 1);
+      known_suffix = (first_suffix_character == "." || first_suffix_character == "_" ||
+                      first_suffix_character == "-" || first_suffix_character == "#");
+   }
+   return(known_prefix && known_suffix);
+}
+
+//+------------------------------------------------------------------+
+//| Select a broker symbol and require a fresh, usable MT5 tick       |
+//+------------------------------------------------------------------+
+bool ReadQuoteTick(string broker_symbol, MqlTick &tick)
+{
+   ResetLastError();
+   if(!SymbolSelect(broker_symbol, true))
+      return false;
+   if(SymbolInfoInteger(broker_symbol, SYMBOL_TRADE_MODE) == SYMBOL_TRADE_MODE_DISABLED)
+      return false;
+   if(!SymbolInfoTick(broker_symbol, tick) || tick.bid <= 0.0 ||
+      tick.ask < tick.bid || tick.time <= 0)
+      return false;
+
+   long age_seconds = (long)TimeCurrent() - (long)tick.time;
+   if(age_seconds < 0)
+      age_seconds = 0;
+   return(InpQuoteMaxTickAgeSeconds > 0 &&
+          age_seconds <= InpQuoteMaxTickAgeSeconds);
+}
+
+//+------------------------------------------------------------------+
+//| Resolve one canonical symbol without falling back to chart symbol|
+//+------------------------------------------------------------------+
+bool ResolveQuoteBrokerSymbol(string canonical_symbol, string &broker_symbol,
+                              MqlTick &tick)
+{
+   broker_symbol = "";
+
+   // Exact broker symbol is always preferred.
+   if(ReadQuoteTick(canonical_symbol, tick))
+   {
+      broker_symbol = canonical_symbol;
+      return true;
+   }
+
+   // An operator mapping is safer than guessing an unusual broker alias.
+   string configured = ConfiguredQuoteBrokerSymbol(canonical_symbol);
+   if(StringLen(configured) > 0)
+   {
+      if(ReadQuoteTick(configured, tick))
+      {
+         broker_symbol = configured;
+         return true;
+      }
+      return false;
+   }
+
+   // Discover only known prefix/suffix forms, and reject ambiguity.
+   int matches = 0;
+   string resolved = "";
+   MqlTick resolved_tick;
+   int symbol_count = SymbolsTotal(false);
+   for(int i = 0; i < symbol_count; i++)
+   {
+      string candidate = SymbolName(i, false);
+      if(candidate == canonical_symbol ||
+         !IsKnownQuoteSymbolVariant(candidate, canonical_symbol))
+         continue;
+
+      MqlTick candidate_tick;
+      if(ReadQuoteTick(candidate, candidate_tick))
+      {
+         matches++;
+         resolved = candidate;
+         resolved_tick = candidate_tick;
+      }
+   }
+
+   if(matches != 1)
+      return false;
+
+   broker_symbol = resolved;
+   tick = resolved_tick;
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Build one quote-only relay object                                |
+//+------------------------------------------------------------------+
+bool BuildQuoteJson(string canonical_symbol, string &quote_json)
+{
+   string broker_symbol = "";
+   MqlTick tick;
+   if(!ResolveQuoteBrokerSymbol(canonical_symbol, broker_symbol, tick))
+      return false;
+
+   int digits = (int)SymbolInfoInteger(broker_symbol, SYMBOL_DIGITS);
+   int calculated_digits = digits + 1;
+   if(calculated_digits > 12)
+      calculated_digits = 12;
+   double mid = (tick.bid + tick.ask) / 2.0;
+   double spread = tick.ask - tick.bid;
+   long age_seconds = (long)TimeCurrent() - (long)tick.time;
+   if(age_seconds < 0)
+      age_seconds = 0;
+
+   quote_json = "{\"symbol\":\"" + canonical_symbol +
+                "\",\"broker_symbol\":\"" + EscapeJsonString(broker_symbol) +
+                "\",\"bid\":" + DoubleToString(tick.bid, digits) +
+                ",\"ask\":" + DoubleToString(tick.ask, digits) +
+                ",\"mid\":" + DoubleToString(mid, calculated_digits) +
+                ",\"spread\":" + DoubleToString(spread, calculated_digits) +
+                ",\"timestamp\":" + IntegerToString((long)tick.time) +
+                ",\"age_seconds\":" + IntegerToString(age_seconds) +
+                ",\"source\":\"MT5_RELAY\"" +
+                ",\"source_label\":\"MT5 LIVE\"" +
+                ",\"is_broker_quote\":true" +
+                ",\"is_tradeable\":true}";
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Replace the public quote file only after a complete temp write   |
+//+------------------------------------------------------------------+
+bool WriteQuoteSnapshotAtomically(string snapshot_json)
+{
+   FileDelete(FEF_QUOTE_EXPORT_TEMP_FILE, FILE_COMMON);
+   int handle = FileOpen(FEF_QUOTE_EXPORT_TEMP_FILE,
+                         FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON, 0, CP_UTF8);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("FEF quote temp-file open failed: ", GetLastError());
+      return false;
+   }
+
+   uint written = FileWriteString(handle, snapshot_json);
+   FileFlush(handle);
+   FileClose(handle);
+   if(written != StringLen(snapshot_json))
+   {
+      FileDelete(FEF_QUOTE_EXPORT_TEMP_FILE, FILE_COMMON);
+      Print("FEF quote temp-file write was incomplete.");
+      return false;
+   }
+
+   if(!FileMove(FEF_QUOTE_EXPORT_TEMP_FILE, FILE_COMMON,
+                FEF_QUOTE_EXPORT_FILE, FILE_COMMON|FILE_REWRITE))
+   {
+      Print("FEF quote atomic replace failed: ", GetLastError());
+      FileDelete(FEF_QUOTE_EXPORT_TEMP_FILE, FILE_COMMON);
+      return false;
+   }
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Export all currently usable broker quotes; never dispatch trades |
+//+------------------------------------------------------------------+
+void ExportQuoteSnapshot()
+{
+   string canonical_symbols[5] = {
+      "XAUUSD", "USOIL", "EURUSD", "GBPUSD", "USDJPY"
+   };
+   string snapshot_json = "{\"quotes\":[";
+   int quote_count = 0;
+
+   for(int i = 0; i < ArraySize(canonical_symbols); i++)
+   {
+      string quote_json = "";
+      if(!BuildQuoteJson(canonical_symbols[i], quote_json))
+         continue;
+      if(quote_count > 0)
+         snapshot_json += ",";
+      snapshot_json += quote_json;
+      quote_count++;
+   }
+   snapshot_json += "]}";
+
+   // Retain the previous complete snapshot when no fresh ticks are available.
+   // Its embedded timestamps will age out at the relay validator.
+   if(quote_count > 0)
+      WriteQuoteSnapshotAtomically(snapshot_json);
+}
+
+//+------------------------------------------------------------------+
+//| Run quote export on its own bounded schedule                     |
+//+------------------------------------------------------------------+
+void ExportQuoteSnapshotIfDue()
+{
+   if(InpQuoteExportIntervalSeconds <= 0)
+      return;
+   ulong now_ms = GetTickCount64();
+   ulong interval_ms = (ulong)InpQuoteExportIntervalSeconds * 1000;
+   if(g_last_quote_export_ms != 0 &&
+      now_ms - g_last_quote_export_ms < interval_ms)
+      return;
+   g_last_quote_export_ms = now_ms;
+   ExportQuoteSnapshot();
 }
 
 //+------------------------------------------------------------------+
@@ -91,6 +342,10 @@ void OnTimer()
       FileWriteString(h, json_quote);
       FileClose(h);
    }
+
+   // Independent quote-only relay export. This does not read or dispatch
+   // commands and intentionally contains no account or authentication data.
+   ExportQuoteSnapshotIfDue();
 
    // 2. Check for Pending Orders from Python
    if(FileIsExist("fef_pending_order.json", FILE_COMMON))
