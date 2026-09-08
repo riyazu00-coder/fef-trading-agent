@@ -4,12 +4,13 @@ This module intentionally performs no networking, persistence, or trade
 execution. It defines the trust boundary that a later relay endpoint must use.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 import hmac
 import math
 import os
+import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from backend.config import INSTRUMENTS
 
@@ -31,6 +32,7 @@ RELAY_QUOTE_REQUIRED_FIELDS = frozenset({
 
 DEFAULT_RELAY_MAX_AGE_SECONDS = 10.0
 MAX_RELAY_FUTURE_SKEW_SECONDS = 2.0
+MAX_RELAY_PAYLOAD_BYTES = 16 * 1024
 TRUSTED_RELAY_SOURCE = "MT5_RELAY"
 TRUSTED_RELAY_SOURCE_LABEL = "MT5 LIVE"
 
@@ -57,6 +59,74 @@ class RelayQuoteSnapshot:
     source_label: str
     is_broker_quote: bool
     is_tradeable: bool
+
+
+class RelayQuoteCache:
+    """Thread-safe, process-local cache of authenticated MT5 snapshots."""
+
+    def __init__(self, max_age_seconds: float = DEFAULT_RELAY_MAX_AGE_SECONDS):
+        self.max_age_seconds = float(max_age_seconds)
+        self._quotes: Dict[str, RelayQuoteSnapshot] = {}
+        self._lock = threading.RLock()
+
+    def submit(
+        self,
+        payload: Dict[str, Any],
+        auth_header: str,
+        *,
+        now: Optional[float] = None,
+    ) -> RelayQuoteSnapshot:
+        snapshot = validate_relay_submission(
+            payload,
+            auth_header,
+            now=now,
+            max_age_seconds=self.max_age_seconds,
+        )
+        with self._lock:
+            self._quotes[snapshot.symbol] = snapshot
+        return snapshot
+
+    def get(
+        self,
+        symbol: str,
+        *,
+        now: Optional[float] = None,
+    ) -> Optional[RelayQuoteSnapshot]:
+        canonical_symbol = str(symbol).strip().upper()
+        observed_at = float(time.time() if now is None else now)
+        with self._lock:
+            snapshot = self._quotes.get(canonical_symbol)
+            if snapshot is None:
+                return None
+
+            age_seconds = max(0.0, observed_at - snapshot.timestamp)
+            if age_seconds > self.max_age_seconds:
+                del self._quotes[canonical_symbol]
+                return None
+            return replace(snapshot, age_seconds=round(age_seconds, 3))
+
+    def read_latest(
+        self,
+        *,
+        now: Optional[float] = None,
+    ) -> Tuple[Dict[str, Dict[str, Any]], list]:
+        observed_at = float(time.time() if now is None else now)
+        quotes: Dict[str, Dict[str, Any]] = {}
+        stale_symbols = []
+        with self._lock:
+            for symbol, snapshot in list(self._quotes.items()):
+                age_seconds = max(0.0, observed_at - snapshot.timestamp)
+                if age_seconds > self.max_age_seconds:
+                    stale_symbols.append(symbol)
+                    del self._quotes[symbol]
+                    continue
+                current = replace(snapshot, age_seconds=round(age_seconds, 3))
+                quotes[symbol] = asdict(current)
+        return quotes, sorted(stale_symbols)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._quotes.clear()
 
 
 def verify_relay_bearer_token(auth_header: str) -> bool:
@@ -186,3 +256,6 @@ def _finite_number(value: Any, field_name: str) -> float:
     if not math.isfinite(number):
         raise RelayQuoteValidationError(f"{field_name} must be finite")
     return number
+
+
+quote_relay_cache = RelayQuoteCache()

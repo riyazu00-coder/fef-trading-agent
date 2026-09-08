@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 
 from backend.config import INSTRUMENTS, InstrumentSpec
+from backend.data.quote_relay import quote_relay_cache
 from backend.data.quote_store import quote_store
 
 
@@ -192,8 +193,21 @@ class MarketFeed:
 
         now = time.time()
 
-        # 1. Check if MT5 has sent a live quote within the last 60 seconds
-        mt5_quote = quote_store.get(symbol, max_age_seconds=60.0)
+        # 1. Prefer a fresh snapshot accepted by the authenticated MT5 relay.
+        relay_quote = quote_relay_cache.get(symbol, now=now)
+        if relay_quote is not None:
+            mt5_quote = {
+                "bid": relay_quote.bid,
+                "ask": relay_quote.ask,
+                "timestamp": relay_quote.timestamp,
+                "source": relay_quote.source,
+                "source_label": relay_quote.source_label,
+                "raw_symbol": relay_quote.broker_symbol,
+                "has_broker_bid_ask": True,
+            }
+        else:
+            # 2. Preserve the existing local socket/Common Files MT5 source.
+            mt5_quote = quote_store.get(symbol, max_age_seconds=60.0)
 
         if mt5_quote and mt5_quote.get("bid") and float(mt5_quote["bid"]) > 0:
             bid = round(float(mt5_quote["bid"]), spec.digits)
@@ -223,7 +237,7 @@ class MarketFeed:
                 mid=round((bid + ask) / 2.0, spec.digits),
                 source=str(mt5_quote.get("source", "MT5")),
                 source_symbol=str(mt5_quote.get("raw_symbol") or symbol),
-                source_label="LIVE",
+                source_label=str(mt5_quote.get("source_label", "LIVE")),
                 age_seconds=round(max(0.0, now - quote_timestamp), 3),
                 is_tradeable=has_broker_bid_ask and ask >= bid,
                 is_broker_quote=True,
@@ -234,7 +248,7 @@ class MarketFeed:
             self._price_cache[symbol] = quote
             return quote
 
-        # 2. Fetch a keyless external display reference using the configured
+        # 3. Fetch a keyless external display reference using the configured
         # Yahoo symbol. This is never an executable quote.
         base_price = REFERENCE_PRICES.get(symbol, 100.0)
         source = "REFERENCE_PRICES"

@@ -225,9 +225,25 @@ All checks must use a dedicated demo account:
 - [ ] Confirm the relay cannot call or authorize any trading mutation endpoint.
 - [ ] Confirm no order is created during any quote-relay test.
 
+## Phase 4B local foundation status
+
+Phase 4B adds a process-local, thread-safe quote cache and two local backend
+routes:
+
+- authenticated `POST /api/relay/quotes` validates and stores one quote;
+- public read-only `GET /api/relay/quotes` returns only fresh snapshots.
+
+Expired snapshots are removed and reported as stale. `MarketFeed` prefers a
+fresh authenticated relay snapshot, then preserves the existing local
+QuoteStore, Yahoo, and static-fallback priority. The quote-relay secret remains
+separate from the execution secret and cannot authorize trading routes.
+
+This cache is a local foundation only. It is not suitable as a shared Vercel
+cache because serverless instances do not share reliable process memory.
+
 ## Explicitly deferred work
 
-This phase does not implement an ingest endpoint, shared cloud cache, VPS
+Phase 4B does not implement a shared cloud cache, Vercel ingest route, VPS
 publisher, WebSocket, MQL5 quote publisher changes, frontend redesign, execution
 integration, or deployment. Those changes require separate review and approval.
 

@@ -120,3 +120,16 @@ All manual bridge verification must use a dedicated demo MT5 account with the
 smallest permitted volume and no unrelated live-account credentials. No
 real-money or live-account testing is permitted until every safety gate passes
 and explicit approval is recorded.
+
+## Quote relay deployment
+
+Phase 4B provides only an authenticated local submission endpoint and an
+in-memory read cache. Automated tests cover authentication, freshness, source
+validation, expiry, market-feed priority, read-only behavior, and separation
+from execution calls.
+
+Production work still requires a quote-only VPS publisher, HTTPS deployment, a
+shared TTL-backed cloud cache, replay/sequence protection, rate limits, secret
+rotation, monitoring, and a Vercel-compatible read path. Demo-MT5 verification
+must compare relayed values with Market Watch and prove stale/offline transitions
+without creating or modifying any order.
