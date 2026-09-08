@@ -230,3 +230,17 @@ Remaining work after the Phase 4K plan:
 - retain no-position and no-trading-action evidence throughout every check.
 
 Real-money execution remains blocked and is not approved.
+
+## Phase 5A dashboard quote-provenance polish status
+
+Phase 5A makes the existing browser quote provenance explicit on the selected
+instrument, instrument cards, trade-entry display, and quick-price previews. It
+uses the existing source, source label/symbol, broker/tradeable flags, age, and
+derived-field provenance without changing backend or execution behavior.
+
+Static tests verify the MT5 relay, Common Files, external delayed reference,
+fallback, broker/tradeability, reference-only, and simulated-derived labels.
+Manual browser verification is still required across responsive sizes and all
+source transitions, including quote expiry and recovery. The visual labels do
+not grant execution permission. Real-money execution remains blocked and is not
+approved.
