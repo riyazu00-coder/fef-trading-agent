@@ -389,6 +389,35 @@
     .source-unavailable { color: #df8585 !important; border-color: rgba(223, 99, 99, 0.36); background: rgba(77, 25, 29, 0.28); }
     .source-external { color: #83add8 !important; border-color: rgba(79, 143, 220, 0.32); background: rgba(18, 43, 73, 0.30); }
 
+    .provenance-badges {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 3px;
+      margin-top: 3px;
+    }
+
+    .provenance-meta {
+      margin-top: 3px;
+      color: #7f91a7;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 0.035em;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .reference-price-warning {
+      color: #e0b56f !important;
+      border-color: rgba(216, 163, 83, 0.42);
+      background: rgba(91, 62, 22, 0.30);
+    }
+
+    .provenance-card-details {
+      min-height: 29px;
+    }
+
     #pip-eurusd-change,
     #pip-gbpusd-change,
     #pip-usoil-change,
@@ -660,7 +689,12 @@
               <div class="text-xl lg:text-2xl font-orbitron font-black text-amber-300 tracking-wide flex items-center gap-2 compact-hero-price" id="hero-price">
                 $2,514.80
               </div>
-              <span class="source-badge source-fallback font-mono" id="hero-price-source">FALLBACK</span>
+              <div class="provenance-badges" aria-label="Selected instrument quote provenance">
+                <span class="source-badge source-fallback font-mono" id="hero-price-source">FALLBACK</span>
+                <span class="source-badge source-external font-mono" id="hero-price-broker">NON-BROKER</span>
+                <span class="source-badge source-external font-mono" id="hero-price-tradeability">NON-TRADEABLE</span>
+              </div>
+              <div class="provenance-meta" id="hero-price-meta">SOURCE: STATIC · SYMBOL: XAUUSD · AGE: N/A</div>
               <span class="text-xs font-mono text-slate-300" id="hero-name">Gold Spot / US Dollar</span>
             </div>
             <div class="text-right">
@@ -668,7 +702,7 @@
                 +1.15%
               </div>
               <div class="text-[10px] font-mono text-cyan-300 mt-0.5">Spread: <span id="hero-spread">1.2 pips</span></div>
-              <div class="source-badge source-simulated font-mono mt-0.5 ml-auto" id="hero-market-fields-source">CHANGE: SIMULATED · SPREAD: SIMULATED</div>
+              <div class="source-badge source-simulated font-mono mt-0.5 ml-auto" id="hero-market-fields-source">SIMULATED CHANGE · SIMULATED SPREAD · SIMULATED HIGH/LOW</div>
             </div>
           </div>
 
@@ -791,7 +825,15 @@
               <span class="text-emerald-400" id="pip-eurusd-change">+25.3 p · SIMULATED</span>
             </div>
             <div class="text-base lg:text-lg font-orbitron font-bold text-slate-100 mt-0.5 compact-pip-price" id="pip-eurusd">1.1095</div>
-            <div class="source-badge source-fallback font-mono" id="pip-eurusd-source">FALLBACK</div>
+            <div class="provenance-card-details">
+              <div class="provenance-badges">
+                <span class="source-badge source-fallback font-mono" id="pip-eurusd-source">FALLBACK</span>
+                <span class="source-badge source-external font-mono" id="pip-eurusd-broker">NON-BROKER</span>
+                <span class="source-badge source-external font-mono" id="pip-eurusd-tradeability">NON-TRADEABLE</span>
+              </div>
+              <div class="provenance-meta" id="pip-eurusd-meta">SOURCE: STATIC · SYMBOL: EURUSD · AGE: N/A</div>
+            </div>
+            <div class="source-badge source-simulated font-mono mt-0.5" id="pip-eurusd-derived">SIMULATED CHANGE · SIMULATED HIGH/LOW</div>
             <div class="text-[9px] font-mono text-slate-400 mt-0.5" id="pip-eurusd-spread">Spread: 0.8 pips · SIMULATED</div>
           </div>
 
@@ -802,7 +844,15 @@
               <span class="text-emerald-400" id="pip-gbpusd-change">+18.7 p · SIMULATED</span>
             </div>
             <div class="text-base lg:text-lg font-orbitron font-bold text-slate-100 mt-0.5 compact-pip-price" id="pip-gbpusd">1.3040</div>
-            <div class="source-badge source-fallback font-mono" id="pip-gbpusd-source">FALLBACK</div>
+            <div class="provenance-card-details">
+              <div class="provenance-badges">
+                <span class="source-badge source-fallback font-mono" id="pip-gbpusd-source">FALLBACK</span>
+                <span class="source-badge source-external font-mono" id="pip-gbpusd-broker">NON-BROKER</span>
+                <span class="source-badge source-external font-mono" id="pip-gbpusd-tradeability">NON-TRADEABLE</span>
+              </div>
+              <div class="provenance-meta" id="pip-gbpusd-meta">SOURCE: STATIC · SYMBOL: GBPUSD · AGE: N/A</div>
+            </div>
+            <div class="source-badge source-simulated font-mono mt-0.5" id="pip-gbpusd-derived">SIMULATED CHANGE · SIMULATED HIGH/LOW</div>
             <div class="text-[9px] font-mono text-slate-400 mt-0.5" id="pip-gbpusd-spread">Spread: 1.1 pips · SIMULATED</div>
           </div>
 
@@ -813,7 +863,15 @@
               <span class="text-red-400" id="pip-usoil-change">-0.85% · SIMULATED</span>
             </div>
             <div class="text-base lg:text-lg font-orbitron font-bold text-amber-200 mt-0.5 compact-pip-price" id="pip-usoil">$74.20</div>
-            <div class="source-badge source-fallback font-mono" id="pip-usoil-source">FALLBACK</div>
+            <div class="provenance-card-details">
+              <div class="provenance-badges">
+                <span class="source-badge source-fallback font-mono" id="pip-usoil-source">FALLBACK</span>
+                <span class="source-badge source-external font-mono" id="pip-usoil-broker">NON-BROKER</span>
+                <span class="source-badge source-external font-mono" id="pip-usoil-tradeability">NON-TRADEABLE</span>
+              </div>
+              <div class="provenance-meta" id="pip-usoil-meta">SOURCE: STATIC · SYMBOL: USOIL · AGE: N/A</div>
+            </div>
+            <div class="source-badge source-simulated font-mono mt-0.5" id="pip-usoil-derived">SIMULATED CHANGE · SIMULATED HIGH/LOW</div>
             <div class="text-[9px] font-mono text-slate-400 mt-0.5">EIA: +1.4M bbl</div>
           </div>
 
@@ -824,7 +882,15 @@
               <span class="text-red-400" id="pip-usdjpy-change">-41.2 p · SIMULATED</span>
             </div>
             <div class="text-base lg:text-lg font-orbitron font-bold text-slate-100 mt-0.5 compact-pip-price" id="pip-usdjpy">147.60</div>
-            <div class="source-badge source-fallback font-mono" id="pip-usdjpy-source">FALLBACK</div>
+            <div class="provenance-card-details">
+              <div class="provenance-badges">
+                <span class="source-badge source-fallback font-mono" id="pip-usdjpy-source">FALLBACK</span>
+                <span class="source-badge source-external font-mono" id="pip-usdjpy-broker">NON-BROKER</span>
+                <span class="source-badge source-external font-mono" id="pip-usdjpy-tradeability">NON-TRADEABLE</span>
+              </div>
+              <div class="provenance-meta" id="pip-usdjpy-meta">SOURCE: STATIC · SYMBOL: USDJPY · AGE: N/A</div>
+            </div>
+            <div class="source-badge source-simulated font-mono mt-0.5" id="pip-usdjpy-derived">SIMULATED CHANGE · SIMULATED HIGH/LOW</div>
             <div class="text-[9px] font-mono text-slate-400 mt-0.5">BOJ Hike Bias</div>
           </div>
 
@@ -902,7 +968,10 @@
           <div class="text-slate-300 text-xs">
             Entry: <span class="font-bold text-slate-100" id="deck-entry">4,430.26</span>
             <span class="source-badge source-fallback ml-1" id="deck-entry-source">FALLBACK</span>
+            <span class="source-badge source-external ml-1" id="deck-entry-broker">NON-BROKER</span>
+            <span class="source-badge reference-price-warning ml-1" id="deck-entry-reference">REFERENCE PRICE ONLY</span>
           </div>
+          <div class="provenance-meta" id="deck-entry-meta">SOURCE: STATIC · SYMBOL: XAUUSD · AGE: N/A</div>
           
           <!-- Auto 100 Pips Stop Loss Guaranteed Badge -->
           <div class="text-red-400 flex items-center gap-1 text-xs">
@@ -926,7 +995,8 @@
               <kbd class="text-[8px] bg-slate-950/80 text-emerald-300 px-1 rounded font-mono">B</kbd>
             </div>
             <span class="text-[10px] font-mono text-emerald-950 font-bold mt-0.5" id="quick-buy-price">@ 4,430.31</span>
-            <span class="source-badge source-simulated font-mono" id="quick-buy-source">SIMULATED</span>
+            <span class="source-badge source-fallback font-mono" id="quick-buy-source">FALLBACK</span>
+            <span class="source-badge reference-price-warning font-mono" id="quick-buy-reference">REFERENCE PRICE ONLY</span>
           </button>
 
           <!-- Instant 1-Click SELL Button -->
@@ -937,7 +1007,8 @@
               <kbd class="text-[8px] bg-slate-950/80 text-rose-300 px-1 rounded font-mono">S</kbd>
             </div>
             <span class="text-[10px] font-mono text-rose-200 font-bold mt-0.5" id="quick-sell-price">@ 4,430.26</span>
-            <span class="source-badge source-simulated font-mono" id="quick-sell-source">SIMULATED</span>
+            <span class="source-badge source-fallback font-mono" id="quick-sell-source">FALLBACK</span>
+            <span class="source-badge reference-price-warning font-mono" id="quick-sell-reference">REFERENCE PRICE ONLY</span>
           </button>
 
           <button type="button" onclick="runMultiAgentAnalysis(currentActiveSymbol)" class="px-2.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-mono text-xs font-bold transition-all shadow-md flex items-center gap-1.5">
@@ -1021,14 +1092,84 @@
 
     function getDisplaySourceLabel(quote, displayPrice, previewOnly = false) {
       if (displayPrice === null) return "PRICE UNAVAILABLE";
+
+      const source = String((quote && quote.source) || "").toUpperCase();
+      if (source === "MT5_RELAY") return "MT5 LIVE";
+      if (source === "FILE_COMMON") return "LIVE";
+      if (source === "YAHOO_FINANCE_CHART") return "DELAYED REFERENCE";
+      if (source === "STATIC" || source === "REFERENCE_PRICES") return "FALLBACK";
       if (quote && quote.is_broker_quote === true) return quote.source_label || "LIVE";
-      if (previewOnly) return "SIMULATED · NON-BROKER";
+      if (previewOnly && !source) return "SIMULATED · NON-BROKER";
 
       const reportedLabel = String((quote && quote.source_label) || "FALLBACK").toUpperCase();
       const sourceLabel = reportedLabel.includes("PRICE UNAVAILABLE") ? "FALLBACK" : reportedLabel;
       return sourceLabel.includes("NON-BROKER")
         ? sourceLabel
         : `${sourceLabel} · NON-BROKER`;
+    }
+
+    function getQuoteProvenance(quote = {}, displayPrice = null) {
+      const source = String(quote.source || "UNKNOWN").trim().toUpperCase();
+      const sourceSymbol = String(
+        quote.source_symbol || quote.broker_symbol || quote.symbol || "UNKNOWN"
+      ).trim();
+      const isBrokerQuote = quote.is_broker_quote === true;
+      const isTradeable = isBrokerQuote && quote.is_tradeable === true;
+      const ageSeconds = Number(quote.age_seconds);
+      const ageLabel = Number.isFinite(ageSeconds) && ageSeconds >= 0
+        ? `${ageSeconds < 10 ? ageSeconds.toFixed(1) : Math.round(ageSeconds)}s`
+        : "N/A";
+
+      return {
+        source,
+        sourceSymbol,
+        ageLabel,
+        primaryLabel: getDisplaySourceLabel(quote, displayPrice),
+        brokerLabel: isBrokerQuote ? "BROKER QUOTE" : "NON-BROKER",
+        tradeabilityLabel: isTradeable ? "TRADEABLE" : "NON-TRADEABLE",
+        referenceOnly: displayPrice !== null && !isTradeable,
+      };
+    }
+
+    function updateQuoteProvenance(prefix, quote, displayPrice) {
+      const provenance = getQuoteProvenance(quote, displayPrice);
+      setSourceLabel(`${prefix}-source`, provenance.primaryLabel);
+      setSourceLabel(`${prefix}-broker`, provenance.brokerLabel);
+      setSourceLabel(`${prefix}-tradeability`, provenance.tradeabilityLabel);
+
+      const metadata = document.getElementById(`${prefix}-meta`);
+      if (metadata) {
+        metadata.innerText = `SOURCE: ${provenance.source} · SYMBOL: ${provenance.sourceSymbol} · AGE: ${provenance.ageLabel}`;
+      }
+
+      const referenceWarning = document.getElementById(`${prefix}-reference`);
+      if (referenceWarning) {
+        referenceWarning.classList.toggle("hidden", !provenance.referenceOnly);
+        if (provenance.referenceOnly) {
+          setSourceLabel(`${prefix}-reference`, "REFERENCE PRICE ONLY");
+          referenceWarning.classList.add("reference-price-warning");
+        }
+      }
+
+      const derivedLabels = [];
+      if (String(quote.high_low_source || "").toUpperCase().includes("SIMULATED")) {
+        derivedLabels.push("SIMULATED HIGH/LOW");
+      }
+      if (String(quote.change_source || "").toUpperCase().includes("SIMULATED")) {
+        derivedLabels.push("SIMULATED CHANGE");
+      }
+      if (String(quote.spread_source || "").toUpperCase().includes("SIMULATED")) {
+        derivedLabels.push("SIMULATED SPREAD");
+      }
+
+      const derived = document.getElementById(`${prefix}-derived`);
+      if (derived) {
+        derived.classList.toggle("hidden", derivedLabels.length === 0);
+        if (derivedLabels.length > 0) {
+          setSourceLabel(`${prefix}-derived`, derivedLabels.join(" · "));
+        }
+      }
+      return provenance;
     }
 
     function updatePriceElement(elementId, value, displayText, trackingKey = elementId) {
@@ -1311,7 +1452,9 @@
       const normalized = String(label || "PRICE UNAVAILABLE").toUpperCase();
       let sourceClass = "source-simulated";
       if (normalized.includes("PRICE UNAVAILABLE")) sourceClass = "source-unavailable";
-      else if (normalized.includes("MT5 LIVE") || normalized === "LIVE") sourceClass = "source-live";
+      else if (normalized.includes("NON-TRADEABLE") || normalized.includes("NON-BROKER")) sourceClass = "source-external";
+      else if (normalized.includes("REFERENCE PRICE ONLY")) sourceClass = "source-fallback";
+      else if (normalized.includes("MT5 LIVE") || normalized === "LIVE" || normalized === "BROKER QUOTE" || normalized === "TRADEABLE") sourceClass = "source-live";
       else if (normalized.includes("EXTERNAL REFERENCE") || normalized.includes("DELAYED")) sourceClass = "source-delayed";
       else if (normalized.includes("FALLBACK")) sourceClass = "source-fallback";
       else if (normalized.includes("TRADINGVIEW EXTERNAL")) sourceClass = "source-external";
@@ -1336,13 +1479,17 @@
       // Update Hero Hologram
       document.getElementById("card-symbol-badge").innerText = tech.setup_direction + " SETUP (" + data.symbol + ")";
       updatePriceElement("hero-price", analysisDisplayPrice, formatDisplayPrice(analysisDisplayPrice), `hero:${data.symbol}`);
-      setSourceLabel("hero-price-source", getDisplaySourceLabel(quote, analysisDisplayPrice));
+      updateQuoteProvenance("hero-price", quote, analysisDisplayPrice);
       document.getElementById("hero-name").innerText = data.symbol === 'XAUUSD' ? 'Gold Spot / US Dollar' :
                                                        data.symbol === 'USOIL' ? 'WTI Crude Oil' :
                                                        data.symbol === 'EURUSD' ? 'Euro / US Dollar' :
                                                        data.symbol === 'GBPUSD' ? 'British Pound / US Dollar' : 'US Dollar / Japanese Yen';
       document.getElementById("hero-spread").innerText = `${tech.atr_pips > 50 ? '1.2' : '0.8'} pips`;
-      setSourceLabel("hero-market-fields-source", `CHANGE: ${quote.change_source || 'SIMULATED'} · SPREAD: SIMULATED`);
+      const analysisDerivedLabels = [];
+      if ((quote.high_low_source || "SIMULATED") === "SIMULATED") analysisDerivedLabels.push("SIMULATED HIGH/LOW");
+      if ((quote.change_source || "SIMULATED") === "SIMULATED") analysisDerivedLabels.push("SIMULATED CHANGE");
+      if ((quote.spread_source || "SIMULATED") === "SIMULATED") analysisDerivedLabels.push("SIMULATED SPREAD");
+      setSourceLabel("hero-market-fields-source", analysisDerivedLabels.join(" · "));
       document.getElementById("chart-support").innerText = `$${tech.key_support}`;
       document.getElementById("chart-res").innerText = `$${tech.key_resistance}`;
       document.getElementById("tech-rsi-val").innerText = tech.rsi_14;
@@ -1386,7 +1533,7 @@
       document.getElementById("deck-action").className = `font-bold ${ticket.action === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`;
       const entryDisplayPrice = getBestDisplayPrice({ ...quote, fallback_price: ticket.entry_price });
       updatePriceElement("deck-entry", entryDisplayPrice, formatDisplayPrice(entryDisplayPrice), `deck:${data.symbol}`);
-      setSourceLabel("deck-entry-source", getDisplaySourceLabel(quote, entryDisplayPrice));
+      updateQuoteProvenance("deck-entry", quote, entryDisplayPrice);
       document.getElementById("deck-sl").innerText = `$${ticket.stop_loss} (-${ticket.stop_pips} p)`;
       document.getElementById("deck-tp").innerText = `$${ticket.take_profit} (+${ticket.tp_pips} p)`;
 
@@ -1443,20 +1590,24 @@
           const q = data.instruments[currentActiveSymbol];
           const displayedPrice = getBestDisplayPrice(q);
           updatePriceElement("hero-price", displayedPrice, formatDisplayPrice(displayedPrice), `hero:${currentActiveSymbol}`);
-          setSourceLabel("hero-price-source", getDisplaySourceLabel(q, displayedPrice));
+          updateQuoteProvenance("hero-price", q, displayedPrice);
           document.getElementById("hero-spread").innerText = `${q.spread_pips} pips`;
-          setSourceLabel("hero-market-fields-source", `CHANGE: ${q.change_source || 'SIMULATED'} · SPREAD: ${q.spread_source || 'SIMULATED'}`);
+          const heroDerivedLabels = [];
+          if (String(q.high_low_source || "SIMULATED").toUpperCase().includes("SIMULATED")) heroDerivedLabels.push("SIMULATED HIGH/LOW");
+          if (String(q.change_source || "SIMULATED").toUpperCase().includes("SIMULATED")) heroDerivedLabels.push("SIMULATED CHANGE");
+          if (String(q.spread_source || "SIMULATED").toUpperCase().includes("SIMULATED")) heroDerivedLabels.push("SIMULATED SPREAD");
+          setSourceLabel("hero-market-fields-source", heroDerivedLabels.join(" · ") || "DERIVED FIELDS: LIVE");
           document.getElementById("hero-change").innerText = `${q.change_pct >= 0 ? '+' : ''}${q.change_pct}%`;
           updatePriceElement("deck-entry", displayedPrice, formatDisplayPrice(displayedPrice), `deck:${currentActiveSymbol}`);
-          setSourceLabel("deck-entry-source", getDisplaySourceLabel(q, displayedPrice));
+          updateQuoteProvenance("deck-entry", q, displayedPrice);
           const buyPreviewPrice = validDisplayNumber(q.ask) ?? displayedPrice;
           const qBuy = document.getElementById("quick-buy-price");
           if (qBuy) updatePriceElement("quick-buy-price", buyPreviewPrice, formatDisplayPrice(buyPreviewPrice, "", "@ "), `quick-buy:${currentActiveSymbol}`);
-          setSourceLabel("quick-buy-source", getDisplaySourceLabel(q, buyPreviewPrice, !q.is_broker_quote));
+          updateQuoteProvenance("quick-buy", q, buyPreviewPrice);
           const sellPreviewPrice = validDisplayNumber(q.bid) ?? displayedPrice;
           const qSell = document.getElementById("quick-sell-price");
           if (qSell) updatePriceElement("quick-sell-price", sellPreviewPrice, formatDisplayPrice(sellPreviewPrice, "", "@ "), `quick-sell:${currentActiveSymbol}`);
-          setSourceLabel("quick-sell-source", getDisplaySourceLabel(q, sellPreviewPrice, !q.is_broker_quote));
+          updateQuoteProvenance("quick-sell", q, sellPreviewPrice);
         }
 
         // Pip card prices
@@ -1471,7 +1622,7 @@
           if (!quote) return;
           const price = getBestDisplayPrice(quote);
           updatePriceElement(definition.priceId, price, formatDisplayPrice(price, definition.prefix), `card:${symbol}`);
-          setSourceLabel(definition.sourceId, getDisplaySourceLabel(quote, price));
+          updateQuoteProvenance(definition.priceId, quote, price);
           const changeValue = definition.changeUnit === "%" ? quote.change_pct : quote.pip_change;
           document.getElementById(definition.changeId).innerText = `${changeValue}${definition.changeUnit} · ${quote.change_source}`;
           if (definition.spreadId) {
