@@ -84,15 +84,21 @@ the `quotes` wrapper is the recommended stable export format.
 
 ## File location and publisher handoff
 
-Recommended filename: `FEF/fef_live_quotes.json` under the MT5 Common Files
-directory. The future EA should resolve that directory with
-`TerminalInfoString(TERMINAL_COMMONDATA_PATH)` and write with `FILE_COMMON`;
-it must not embed a machine-specific absolute path.
+Implemented relay-export filename: `fef_mt5_quote_snapshot.json` under the MT5
+Common Files directory. The EA resolves that directory through `FILE_COMMON`;
+the corresponding host path can be located with
+`TerminalInfoString(TERMINAL_COMMONDATA_PATH)`. The EA must not embed a
+machine-specific absolute path.
+
+The existing `fef_live_quotes.json` single-chart telemetry file remains in
+place for local `QuoteStore` compatibility. The new relay snapshot is separate,
+contains the complete multi-symbol contract, and is the file that should be
+assigned to `FEF_QUOTE_SOURCE_FILE`.
 
 On the Windows/VPS host, determine the resulting absolute path and set:
 
 ```powershell
-$env:FEF_QUOTE_SOURCE_FILE = "<MT5 common data path>\Files\FEF\fef_live_quotes.json"
+$env:FEF_QUOTE_SOURCE_FILE = "<MT5 common data path>\Files\fef_mt5_quote_snapshot.json"
 $env:FEF_QUOTE_RELAY_URL = "https://<relay-host>/api/relay/quotes"
 $env:FEF_QUOTE_RELAY_SECRET = "<dedicated quote-only secret>"
 $env:FEF_QUOTE_PUBLISH_INTERVAL_SECONDS = "2"
@@ -115,8 +121,8 @@ on order-command handling:
 3. Read one coherent tick (`bid`, `ask`, and tick timestamp) from MT5.
 4. Reject absent, zero, non-finite, crossed, or stale tick values.
 5. Calculate `mid` and `spread` from that same tick.
-6. Serialize the complete snapshot to a temporary file in the same Common
-   Files directory, for example `fef_live_quotes.json.tmp`.
+6. Serialize the complete snapshot to `fef_mt5_quote_snapshot.json.tmp` in the
+   same Common Files directory.
 7. Flush and close the temporary file.
 8. Replace the final JSON file with the completed temporary file using the
    safest same-directory replace operation supported by the deployed MT5
@@ -196,3 +202,16 @@ No MQL5 quote exporter should be implemented until this contract and the exact
 broker-symbol mappings are reviewed and approved. Any later MQL5 change must be
 isolated from execution code, reviewed independently, and verified on demo MT5.
 Passing quote-export tests does not approve real-money execution.
+
+## Phase 4E implementation status
+
+The active `mql5/FEF_TradingAgentsBridge.mq5` now contains the isolated
+quote-only exporter described here. It preserves the legacy telemetry writer,
+collects fresh ticks independently for the five canonical symbols, skips
+unavailable or ambiguous instruments, and moves a flushed UTF-8 temporary file
+over `fef_mt5_quote_snapshot.json` with `FILE_REWRITE`.
+
+Python source tests verify the contract text and separation from trading code,
+but they cannot compile or run MQL5. MetaEditor compilation and every item in
+the demo-MT5 checklist remain mandatory before deployment. This status does not
+approve real-money execution.

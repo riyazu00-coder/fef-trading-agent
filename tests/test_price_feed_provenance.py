@@ -2,7 +2,6 @@
 
 from dataclasses import asdict, dataclass
 import io
-import itertools
 import json
 import os
 from pathlib import Path
@@ -136,13 +135,7 @@ class TestPriceFeedProvenance(unittest.TestCase):
 
     def test_provider_failure_falls_back_safely_and_deterministically(self):
         feed = MarketFeed()
-        wall_times = itertools.chain([1_000.0], itertools.repeat(1_040.0))
         with (
-            patch.object(
-                market_feed_module.time,
-                "time",
-                side_effect=wall_times,
-            ),
             patch.object(
                 market_feed_module.time,
                 "monotonic",
@@ -150,12 +143,19 @@ class TestPriceFeedProvenance(unittest.TestCase):
             ),
             patch.object(market_feed_module.quote_store, "get", return_value=None),
             patch.object(
-                market_feed_module.urllib.request,
-                "urlopen",
-                side_effect=TimeoutError("provider timed out"),
-            ) as urlopen,
+                feed,
+                "_fetch_external_reference",
+                return_value=None,
+            ) as external_fetch,
         ):
             first = feed.get_live_quote("USOIL")
+            self.assertEqual(
+                feed._external_reference_cache[INSTRUMENTS["USOIL"].yahoo_symbol],
+                (50.0, None),
+            )
+            external_fetch.assert_called_once_with(
+                INSTRUMENTS["USOIL"].yahoo_symbol
+            )
             second = feed.get_live_quote("USOIL")
 
         self.assertEqual(first.mid, REFERENCE_PRICES["USOIL"])
@@ -165,9 +165,9 @@ class TestPriceFeedProvenance(unittest.TestCase):
         self.assertEqual(first.source, "REFERENCE_PRICES")
         self.assertEqual(first.source_label, "FALLBACK · NON-BROKER")
         self.assertNotEqual(first.source_label, "LIVE")
-        # A wall-clock adjustment must not invalidate the short-lived negative
-        # provider cache; TTLs use monotonic time.
-        self.assertEqual(urlopen.call_count, 1)
+        # The second lookup at the same monotonic point must reuse the cached
+        # provider failure instead of invoking the provider again.
+        self.assertEqual(external_fetch.call_count, 1)
         self.assertFalse(first.is_broker_quote)
         self.assertFalse(first.is_tradeable)
         self.assertEqual(first.spread_source, "SIMULATED")
