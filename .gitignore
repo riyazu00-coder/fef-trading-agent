@@ -69,3 +69,4 @@ yarn-debug.log*
 yarn-error.log*
 .vercel
 .env*
+!deploy/windows/quote-relay/.env.example
