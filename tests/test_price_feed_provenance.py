@@ -2,6 +2,7 @@
 
 from dataclasses import asdict, dataclass
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -135,11 +136,12 @@ class TestPriceFeedProvenance(unittest.TestCase):
 
     def test_provider_failure_falls_back_safely_and_deterministically(self):
         feed = MarketFeed()
+        wall_times = itertools.chain([1_000.0], itertools.repeat(1_040.0))
         with (
             patch.object(
                 market_feed_module.time,
                 "time",
-                side_effect=[1_000.0, 1_040.0],
+                side_effect=wall_times,
             ),
             patch.object(
                 market_feed_module.time,
