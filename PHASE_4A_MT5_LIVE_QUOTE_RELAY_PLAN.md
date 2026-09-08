@@ -241,11 +241,66 @@ separate from the execution secret and cannot authorize trading routes.
 This cache is a local foundation only. It is not suitable as a shared Vercel
 cache because serverless instances do not share reliable process memory.
 
+## Phase 4C quote publisher skeleton
+
+Phase 4C adds `scripts/quote_relay_publisher.py`, a quote-only process that reads
+a local JSON snapshot, normalizes it through the Phase 4A validation contract,
+and submits it only to `/api/relay/quotes`.
+
+Required environment variables:
+
+- `FEF_QUOTE_RELAY_URL`: either an origin such as `http://127.0.0.1:8000` or the
+  complete `/api/relay/quotes` URL;
+- `FEF_QUOTE_RELAY_SECRET`: dedicated quote-ingest credential;
+- `FEF_QUOTE_SOURCE_FILE`: absolute or service-account-accessible JSON path;
+- `FEF_QUOTE_PUBLISH_INTERVAL_SECONDS`: polling interval from 1 to 3600 seconds
+  (default `2.0`).
+
+For a single safe local submission:
+
+```bash
+export FEF_QUOTE_RELAY_URL="http://127.0.0.1:8000"
+export FEF_QUOTE_RELAY_SECRET="set-in-your-local-secret-store"
+export FEF_QUOTE_SOURCE_FILE="/absolute/path/to/fef_live_quotes.json"
+export FEF_QUOTE_PUBLISH_INTERVAL_SECONDS="2"
+python3 scripts/quote_relay_publisher.py --once
+```
+
+For a future Windows VPS PowerShell session:
+
+```powershell
+$env:FEF_QUOTE_RELAY_URL = "https://quote-service.example/api/relay/quotes"
+$env:FEF_QUOTE_RELAY_SECRET = "set-via-the-vps-secret-store"
+$env:FEF_QUOTE_SOURCE_FILE = "C:\ProgramData\FEF\fef_live_quotes.json"
+$env:FEF_QUOTE_PUBLISH_INTERVAL_SECONDS = "2"
+python scripts\quote_relay_publisher.py
+```
+
+The source file may contain one quote object, a list, a `quotes` collection, or
+a map keyed by canonical symbol. Each quote needs canonical `symbol`, positive
+`bid`/`ask`, and preferably the exact `raw_symbol`/`broker_symbol` and source
+`timestamp`. If timestamp is absent, the publisher uses file modification time
+and still applies the ten-second freshness limit.
+
+The publisher computes mid and spread, overwrites provenance with the trusted
+MT5 relay values, validates locally, and then submits with the dedicated Bearer
+token. Missing configuration, unreadable/malformed files, invalid or stale
+quotes, and network failures fail closed. Network retries are limited to two
+three-second attempts with a short delay. Logs include symbol and HTTP status
+but never the token. Plain HTTP is accepted only for loopback development;
+remote destinations must use verified HTTPS and exactly the quote relay path.
+
+The script imports no execution component and contains no trading route. Treat
+the source file as a trusted boundary: restrict its directory permissions to the
+MT5/publisher service accounts and do not allow untrusted processes to replace
+it. Run the skeleton against a local or isolated demo environment only.
+
 ## Explicitly deferred work
 
-Phase 4B does not implement a shared cloud cache, Vercel ingest route, VPS
-publisher, WebSocket, MQL5 quote publisher changes, frontend redesign, execution
-integration, or deployment. Those changes require separate review and approval.
+Phase 4C does not implement a shared cloud cache, Vercel ingest route, Windows
+service installer, WebSocket, MQL5 quote publisher changes, frontend redesign,
+execution integration, or deployment. Those changes require separate review
+and approval.
 
 No real-money/live-account execution is approved. Phase 4A is a quote-relay
 plan and validation foundation only.
