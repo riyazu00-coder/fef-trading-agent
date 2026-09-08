@@ -1,0 +1,74 @@
+{
+  "quotes": [
+    {
+      "symbol": "XAUUSD",
+      "broker_symbol": "XAUUSD.a",
+      "bid": 4413.2,
+      "ask": 4413.4,
+      "mid": 4413.3,
+      "spread": 0.2,
+      "timestamp": 2000000000.0,
+      "age_seconds": 0.0,
+      "source": "MT5_RELAY",
+      "source_label": "MT5 LIVE",
+      "is_broker_quote": true,
+      "is_tradeable": true
+    },
+    {
+      "symbol": "USOIL",
+      "broker_symbol": "USOIL.cash",
+      "bid": 64.2,
+      "ask": 64.24,
+      "mid": 64.22,
+      "spread": 0.04,
+      "timestamp": 2000000000.0,
+      "age_seconds": 0.0,
+      "source": "MT5_RELAY",
+      "source_label": "MT5 LIVE",
+      "is_broker_quote": true,
+      "is_tradeable": true
+    },
+    {
+      "symbol": "EURUSD",
+      "broker_symbol": "EURUSD.a",
+      "bid": 1.1624,
+      "ask": 1.1626,
+      "mid": 1.1625,
+      "spread": 0.0002,
+      "timestamp": 2000000000.0,
+      "age_seconds": 0.0,
+      "source": "MT5_RELAY",
+      "source_label": "MT5 LIVE",
+      "is_broker_quote": true,
+      "is_tradeable": true
+    },
+    {
+      "symbol": "GBPUSD",
+      "broker_symbol": "GBPUSD.a",
+      "bid": 1.345,
+      "ask": 1.3452,
+      "mid": 1.3451,
+      "spread": 0.0002,
+      "timestamp": 2000000000.0,
+      "age_seconds": 0.0,
+      "source": "MT5_RELAY",
+      "source_label": "MT5 LIVE",
+      "is_broker_quote": true,
+      "is_tradeable": true
+    },
+    {
+      "symbol": "USDJPY",
+      "broker_symbol": "USDJPY.a",
+      "bid": 147.2,
+      "ask": 147.22,
+      "mid": 147.21,
+      "spread": 0.02,
+      "timestamp": 2000000000.0,
+      "age_seconds": 0.0,
+      "source": "MT5_RELAY",
+      "source_label": "MT5 LIVE",
+      "is_broker_quote": true,
+      "is_tradeable": true
+    }
+  ]
+}
