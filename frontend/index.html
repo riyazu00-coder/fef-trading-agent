@@ -1112,7 +1112,7 @@
               </div>
             </div>
 
-            <!-- Option B: Dollar-Risk Sizing Chips (Calculates Lot for Guaranteed 100-Pip Stop) -->
+            <!-- Option B: Dollar-Risk Sizing Chips (Uses the 100-Pip Stop Preview) -->
             <div class="flex items-center gap-1 pt-0.5 border-t border-slate-800/80">
               <span class="text-[9px] text-amber-400/90 font-mono font-bold tracking-wider">RISK:</span>
               <button type="button" onclick="setRiskLot(100)" id="chip-risk-100" class="risk-chip text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/40 font-bold transition-all">$100</button>
@@ -1137,7 +1137,7 @@
           <div class="execution-price-warning" id="safety-monitoring-warning">Quotes are visible for monitoring only. Execution remains locked.</div>
           <div class="execution-price-warning" id="quick-price-execution-warning">Do not treat this as executable price.</div>
           
-          <!-- Auto 100 Pips Stop Loss Guaranteed Badge -->
+          <!-- Auto 100 Pips Stop Loss Preview Badge -->
           <div class="text-red-400 flex items-center gap-1 text-xs">
             <span class="text-[9px] px-1.5 py-0.5 rounded bg-red-950/90 border border-red-500/60 text-red-300 font-bold uppercase tracking-wider">AUTO 100p SL</span>
             <span class="font-bold" id="deck-sl">4,420.26 (-100 p)</span>
@@ -1204,7 +1204,7 @@
           <span class="hidden md:inline"><kbd class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-rose-300 font-bold">5</kbd> USD/JPY</span>
         </div>
         <div class="text-[9px] text-slate-500 font-bold">
-          ⚡ GUARANTEED 100-PIP STOP LOSS AUTO-ATTACHED TO ALL EXECUTIONS
+          Execution locked. Stop-loss preview shown for planning only.
         </div>
       </div>
 
