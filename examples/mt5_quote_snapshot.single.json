@@ -1,0 +1,14 @@
+{
+  "symbol": "XAUUSD",
+  "broker_symbol": "XAUUSD.a",
+  "bid": 4413.2,
+  "ask": 4413.4,
+  "mid": 4413.3,
+  "spread": 0.2,
+  "timestamp": 2000000000.0,
+  "age_seconds": 0.0,
+  "source": "MT5_RELAY",
+  "source_label": "MT5 LIVE",
+  "is_broker_quote": true,
+  "is_tradeable": true
+}
