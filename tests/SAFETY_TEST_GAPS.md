@@ -168,3 +168,21 @@ publisher ingestion, secret storage/rotation, service supervision, stale-quote
 monitoring, relay/status provenance, expiry, restart recovery, and firewall
 isolation from every trading endpoint. Real-money execution remains blocked and
 is not approved by the Phase 4G quote-only pass.
+
+## Phase 4I VPS deployment planning status
+
+Phase 4I documents the native Windows VPS quote-relay deployment workflow in
+`PHASE_4I_VPS_QUOTE_RELAY_DEPLOYMENT_PLAN.md`. It adds no deployment automation
+or runtime behavior. Remaining manual work is:
+
+- complete a native Windows VPS dry run using demo MT5 only;
+- verify authenticated publisher delivery to the real remote HTTPS relay;
+- exercise Task Scheduler or approved service supervision continuously;
+- verify exactly one publisher returns after a VPS reboot;
+- configure and trigger stale-quote and publisher-health alerting;
+- confirm the dashboard `/api/status` provenance and honest expiry/downgrade;
+- verify firewall and credentials expose no trading endpoint or capability.
+
+The remote cache architecture, secret provisioning, TLS/network controls,
+monitoring ownership, and rollback evidence require review before that dry run.
+Phase 4I is quote-only planning and provides no real-money execution approval.
