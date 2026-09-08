@@ -154,11 +154,17 @@ class TestCloudTunnelSecurity(unittest.TestCase):
 
     def test_valid_bearer_token_executes_successfully(self):
         """POST /api/quick_execute with valid Bearer token executes order."""
-        status, res = self._simulate_server_post(
-            "/api/quick_execute",
-            {"symbol": "XAUUSD", "action": "BUY", "lot_size": 0.50},
-            auth_header=f"Bearer {TEST_SECRET}"
-        )
+        # This test characterizes the paper response and must not depend on a
+        # real Common Files quote that happens to be fresh on the test host.
+        with patch(
+            "backend.server.mt5_bridge.get_status",
+            return_value={"connected": False},
+        ):
+            status, res = self._simulate_server_post(
+                "/api/quick_execute",
+                {"symbol": "XAUUSD", "action": "BUY", "lot_size": 0.50},
+                auth_header=f"Bearer {TEST_SECRET}"
+            )
         self.assertEqual(status, 200)
         self.assertEqual(res.get("status"), "PAPER_EXECUTED")
         self.assertIn("ticket", res)
