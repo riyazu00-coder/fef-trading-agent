@@ -186,3 +186,27 @@ or runtime behavior. Remaining manual work is:
 The remote cache architecture, secret provisioning, TLS/network controls,
 monitoring ownership, and rollback evidence require review before that dry run.
 Phase 4I is quote-only planning and provides no real-money execution approval.
+
+## Phase 4J VPS service asset preparation status
+
+Phase 4J adds placeholder-only Windows configuration, fail-closed PowerShell
+wrappers for one-shot and continuous quote publishing, a read-only health check,
+and Task Scheduler/rollback instructions under `deploy/windows/quote-relay/`.
+Static tests verify required configuration, remote HTTPS enforcement, loopback-
+only HTTP, source-file checks, secret redaction, read-only health requests, and
+separation from every trading-state mutation route. No VPS deployment or runtime
+behavior is changed by these assets.
+
+Remaining evidence and work:
+
+- perform the actual native Windows VPS dry run using demo MT5;
+- record Task Scheduler or separately approved NSSM supervised-run evidence;
+- prove exactly one publisher and fresh quote export recover after a VPS reboot;
+- prove authenticated ingestion through the approved remote HTTPS relay;
+- configure and exercise stale-quote and publisher-health monitoring;
+- verify dashboard provenance and honest expiry/downgrade end to end;
+- confirm secrets, logs, firewall policy, and process identity remain isolated
+  from trading capabilities.
+
+Phase 4J remains quote-only. Real-money execution is still blocked and is not
+approved.
