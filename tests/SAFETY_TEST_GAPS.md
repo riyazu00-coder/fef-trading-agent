@@ -153,19 +153,18 @@ Phase 4D MetaEditor/demo-MT5 verification or approve real-money execution.
 
 ## Phase 4G manual verification status
 
-Phase 4G is pending manual MetaEditor and dedicated demo-MT5 verification.
-`PHASE_4G_METAEDITOR_DEMO_MT5_QUOTE_EXPORT_VERIFICATION.md` defines the
-evidence-driven, quote-only procedure. Remaining checks are:
+Phase 4G local manual quote-relay verification passed on Exness demo MT5 under
+Mac/Wine. MetaEditor generated the active EA's `.ex5`; the attached EA produced
+a fresh five-symbol `fef_mt5_quote_snapshot.json`; the publisher received HTTP
+202 for XAUUSD, USOIL, EURUSD, GBPUSD, and USDJPY; and `/api/status` exposed
+`MT5_RELAY` / `MT5 LIVE` with broker and tradeable flags true. No positions were
+open and no trade or position-control operation was tested.
 
-- compile the active EA in MetaEditor with zero errors and zero warnings;
-- attach it to a demo XAUUSD chart without enabling trading permissions;
-- confirm complete atomic Common Files output at
-  `fef_mt5_quote_snapshot.json`;
-- verify all available canonical-to-broker symbol mappings in Market Watch;
-- verify bid/ask invariants and repeatedly fresh broker tick timestamps;
-- run the publisher once against the real MT5-generated file;
-- confirm relay and status expose `MT5_RELAY` / `MT5 LIVE` with broker and
-  tradeable flags true, then confirm expiry when publishing stops.
-
-Python documentation tests cannot satisfy these terminal/runtime checks. Phase
-4G remains quote-only, demo-only, and does not approve real-money execution.
+`PHASE_4H_MT5_EVIDENCE_AND_VPS_QUOTE_RELAY_CHECKLIST.md` records the supplied
+evidence and the remaining Phase 4H work. Native Windows VPS verification still
+must cover clean MetaEditor compilation evidence, exact broker-symbol mappings,
+Common Files permissions and atomic output, clock/freshness behavior, HTTPS
+publisher ingestion, secret storage/rotation, service supervision, stale-quote
+monitoring, relay/status provenance, expiry, restart recovery, and firewall
+isolation from every trading endpoint. Real-money execution remains blocked and
+is not approved by the Phase 4G quote-only pass.
