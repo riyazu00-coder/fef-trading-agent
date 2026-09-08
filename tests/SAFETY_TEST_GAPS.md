@@ -210,3 +210,23 @@ Remaining evidence and work:
 
 Phase 4J remains quote-only. Real-money execution is still blocked and is not
 approved.
+
+## Phase 4K Windows VPS dry-run evidence status
+
+Phase 4K is pending actual Windows VPS evidence. The quote-only evidence
+requirements, PowerShell commands, pass/fail gates, failure decision tree, and
+rollback procedure are documented in
+`PHASE_4K_VPS_DRY_RUN_EVIDENCE_PLAN.md`. Static tests verify the runbook, but do
+not constitute a VPS execution pass.
+
+Remaining work after the Phase 4K plan:
+
+- execute and record the actual native Windows VPS dry run on demo MT5;
+- record a sustained Task Scheduler or separately approved NSSM supervision run;
+- prove reboot recovery with exactly one publisher instance;
+- prove authenticated delivery through the approved remote HTTPS relay;
+- configure, trigger, and record stale-quote monitoring evidence;
+- confirm dashboard provenance and honest expiry/downgrade end to end;
+- retain no-position and no-trading-action evidence throughout every check.
+
+Real-money execution remains blocked and is not approved.
