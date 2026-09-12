@@ -1,0 +1,137 @@
+'use client';
+
+import React from 'react';
+import { useActiveAsset } from '@/context/ActiveAssetContext';
+import {
+  MARKET_REGISTRY,
+  getPriorityMarkets,
+  getMarketsByCategory,
+  MarketDefinition
+} from '@/lib/registry/market-registry';
+
+export const LiveTickerStrip: React.FC = () => {
+  const { activeSymbol, setActiveSymbol, allAssets, categoryFilter, setCategoryFilter } = useActiveAsset();
+
+  // Resolve active market list according to selected category filter
+  const activeMarkets: MarketDefinition[] = React.useMemo(() => {
+    if (categoryFilter === 'ALL' || categoryFilter === 'EXNESS FEED') {
+      return getPriorityMarkets();
+    }
+    return getMarketsByCategory(categoryFilter);
+  }, [categoryFilter]);
+
+  const categories = ['ALL', 'METALS', 'FOREX', 'INDICES', 'COMMODITIES', 'CRYPTO', 'EXNESS FEED'];
+
+  return (
+    <div className="flex flex-col md:flex-row md:items-center gap-2 overflow-x-auto pb-1 scrollbar-none w-full">
+      {/* Ticker Cards Horizontal Scroll Area */}
+      <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto scrollbar-none py-0.5">
+        {activeMarkets.length === 0 ? (
+          <div className="flex items-center space-x-3 px-4 py-2 rounded-xl bg-[#081224]/90 border border-cyan-500/20 text-[11px] font-mono w-full">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            <span className="text-amber-300 font-bold uppercase">NO CONNECTED {categoryFilter} FEEDS</span>
+            <span className="text-gray-400">— Connect a provider or enable available demo instruments.</span>
+          </div>
+        ) : (
+          activeMarkets.map((item) => {
+            const isSelected = activeSymbol === item.symbol;
+            const liveData = allAssets[item.symbol];
+            const p = liveData ? liveData.price : item.basePrice;
+            const change = liveData ? liveData.change24h : item.typicalDailyChangePct;
+            const isPositive = change >= 0;
+
+            const formatPrice = (val: number, dec: number) => {
+              if (item.category === 'CRYPTO' || item.category === 'INDICES') {
+                return `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+              }
+              if (item.category === 'METALS' || item.category === 'COMMODITIES') {
+                return `$${val.toFixed(dec)}`;
+              }
+              return val.toFixed(dec);
+            };
+
+            const points = item.sparklineBaseline || [p, p];
+            const min = Math.min(...points);
+            const max = Math.max(...points);
+            const range = max - min || 1;
+
+            const pathData = points
+              .map((val, idx) => {
+                const x = (idx / (points.length - 1)) * 48;
+                const y = 18 - ((val - min) / range) * 14;
+                return `${idx === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+              })
+              .join(' ');
+
+            return (
+              <button
+                key={item.symbol}
+                onClick={() => setActiveSymbol(item.symbol)}
+                className={`flex items-center justify-between px-3 py-2 rounded-xl border transition-all text-left min-w-[162px] flex-shrink-0 cursor-pointer ${
+                  isSelected
+                    ? 'bg-[#07101D] border-[#22D3EE] shadow-[0_0_15px_rgba(34,211,238,0.35)] ring-1 ring-[#22D3EE]/50'
+                    : 'bg-[#07101D]/75 hover:bg-[#07101D] border-white/10 hover:border-[#22D3EE]/40'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-sans font-bold text-[#F8FAFC] text-[11px] tracking-wider">
+                      {item.symbol}
+                    </span>
+                    <span className="font-mono font-bold text-[#F8FAFC] text-[10px]">
+                      {formatPrice(p, item.decimalPrecision)}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-1.5 mt-0.5">
+                    <span className="text-[8px] font-sans uppercase text-[#94A3B8] bg-white/5 px-1 py-0.2 rounded border border-white/5 font-semibold">
+                      {item.category}
+                    </span>
+                    <span
+                      className={`text-[9px] font-mono font-bold ${
+                        isPositive ? 'text-[#34D399]' : 'text-[#FB7185]'
+                      }`}
+                    >
+                      {isPositive ? '▲ +' : '▼ '}
+                      {change}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Micro Sparkline */}
+                <div className="w-11 h-5 ml-2">
+                  <svg className="w-full h-full overflow-visible" viewBox="0 0 48 20">
+                    <path
+                      d={pathData}
+                      fill="none"
+                      stroke={isPositive ? '#34D399' : '#FB7185'}
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      {/* Category Filter Pills (Responsive on right / sub-row) */}
+      <div className="flex items-center space-x-1 flex-shrink-0 bg-[#081224]/90 p-1 rounded-xl border border-white/10 text-[9.5px] font-mono overflow-x-auto scrollbar-none">
+        {categories.map((cat) => (
+          <button
+            key={cat}
+            onClick={() => setCategoryFilter(cat)}
+            className={`px-2 py-1 rounded-lg transition-all font-bold whitespace-nowrap cursor-pointer ${
+              categoryFilter === cat
+                ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/60 shadow-[0_0_8px_rgba(0,240,255,0.3)]'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};

@@ -1,0 +1,29 @@
+{
+  "name": "fef-trading-solution",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "node scripts/test-swarm-consistency.js && node scripts/test-mt5-bridge.js && node scripts/test-hub-animation.js && node scripts/test-market-session.js"
+  },
+  "dependencies": {
+    "next": "13.5.6",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "@supabase/supabase-js": "2.39.4",
+    "clsx": "2.0.0",
+    "lucide-react": "0.303.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.11.24",
+    "@types/react": "18.2.37",
+    "@types/react-dom": "18.2.15",
+    "typescript": "5.2.2",
+    "tailwindcss": "3.3.5",
+    "postcss": "8.4.31",
+    "autoprefixer": "10.4.16"
+  }
+}
