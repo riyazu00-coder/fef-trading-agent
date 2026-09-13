@@ -8,6 +8,9 @@
  */
 
 import { MARKET_REGISTRY, MarketCategory, MarketFeedStatus } from '../registry/market-registry';
+import { fetchCryptoQuotesWithFallback } from './crypto-feed-service';
+
+export type CryptoPriceType = 'LAST' | 'SPOT' | 'MID' | 'DERIVED';
 
 export interface LiveMarketAsset {
   symbol: string;
@@ -25,6 +28,10 @@ export interface LiveMarketAsset {
   lastUpdated: string;
   category: MarketCategory | 'COMMODITY';
   feedStatus?: MarketFeedStatus;
+  provider?: string;
+  classification?: string;
+  priceType?: CryptoPriceType;
+  referencePrice?: number;
 }
 
 /**
@@ -57,29 +64,34 @@ function buildInitialLiveAssets(): Record<string, LiveMarketAsset> {
   const map: Record<string, LiveMarketAsset> = {};
 
   for (const def of Object.values(MARKET_REGISTRY)) {
-    const p = def.basePrice;
+    const isCrypto = def.category === 'CRYPTO';
+    const p = isCrypto ? 0 : def.basePrice;
     const spread = def.typicalSpread;
-    const change = def.typicalDailyChangePct;
+    const change = isCrypto ? 0 : def.typicalDailyChangePct;
     const isPos = change >= 0;
 
     map[def.symbol] = {
       symbol: def.symbol,
       name: def.displayName,
       price: p,
-      bid: Number((p - spread / 2).toFixed(def.decimalPrecision)),
-      ask: Number((p + spread / 2).toFixed(def.decimalPrecision)),
+      bid: isCrypto ? 0 : Number((p - spread / 2).toFixed(def.decimalPrecision)),
+      ask: isCrypto ? 0 : Number((p + spread / 2).toFixed(def.decimalPrecision)),
       spread: spread,
       change24h: change,
-      high24h: Number((p * (1 + Math.abs(change) * 0.008 + 0.004)).toFixed(def.decimalPrecision)),
-      low24h: Number((p * (1 - Math.abs(change) * 0.008 - 0.004)).toFixed(def.decimalPrecision)),
+      high24h: isCrypto ? 0 : Number((p * (1 + Math.abs(change) * 0.008 + 0.004)).toFixed(def.decimalPrecision)),
+      low24h: isCrypto ? 0 : Number((p * (1 - Math.abs(change) * 0.008 - 0.004)).toFixed(def.decimalPrecision)),
       volume: def.category === 'INDICES' ? '$38.4B' : def.category === 'CRYPTO' ? '$42.1B' : def.category === 'METALS' ? '$24.8B' : '$54.2B',
       sparkline: isPos
         ? '0,28 20,24 40,20 60,18 80,14 100,16 120,10 140,8'
         : '0,10 20,14 40,16 60,22 80,25 100,28 120,32 140,34',
-      source: def.feedProvider,
-      lastUpdated: 'Live',
+      source: isCrypto ? 'None' : def.feedProvider,
+      provider: isCrypto ? 'None' : def.feedProvider,
+      lastUpdated: isCrypto ? 'Pending Feed' : 'Live',
       category: def.category,
-      feedStatus: def.feedStatus
+      feedStatus: isCrypto ? 'DATA LIMITED' : def.feedStatus,
+      classification: isCrypto ? 'DATA LIMITED' : (def.feedStatus === 'LIVE' ? 'LIVE' : 'DEMO'),
+      priceType: isCrypto ? 'DERIVED' : 'LAST',
+      referencePrice: def.basePrice
     };
   }
 
@@ -171,50 +183,32 @@ export async function fetchLiveMarketPrices(): Promise<Record<string, LiveMarket
     }
   } catch {}
 
-  // 2. Fetch Real Crypto Tickers from Binance (BTC, ETH, SOL, XRP, BNB)
+  // 2. Fetch Real Crypto Tickers with Multi-Tier Fallback (Binance -> Kraken -> Coinbase -> Data Limited)
   try {
-    const cryptoPairs = [
-      { sym: 'BTCUSD', binance: 'BTCUSDT' },
-      { sym: 'ETHUSD', binance: 'ETHUSDT' },
-      { sym: 'SOLUSD', binance: 'SOLUSDT' },
-      { sym: 'XRPUSD', binance: 'XRPUSDT' },
-      { sym: 'BNBUSD', binance: 'BNBUSDT' }
-    ];
+    const cryptoSymbols = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'BNBUSD'];
+    const cryptoQuotes = await fetchCryptoQuotesWithFallback(cryptoSymbols);
 
-    const results = await Promise.allSettled(
-      cryptoPairs.map((cp) =>
-        fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${cp.binance}`).then((r) =>
-          r.ok ? r.json() : null
-        )
-      )
-    );
-
-    results.forEach((res, idx) => {
-      if (res.status === 'fulfilled' && res.value) {
-        const d = res.value;
-        const sym = cryptoPairs[idx].sym;
-        const price = parseFloat(d.lastPrice);
-        const change = parseFloat(d.priceChangePercent);
-        const high = parseFloat(d.highPrice);
-        const low = parseFloat(d.lowPrice);
-
-        if (!isNaN(price) && price > 0 && assets[sym]) {
-          const spread = assets[sym].spread;
-          assets[sym] = {
-            ...assets[sym],
-            price,
-            bid: Number((price - spread / 2).toFixed(assets[sym].symbol.includes('XRP') ? 4 : 2)),
-            ask: Number((price + spread / 2).toFixed(assets[sym].symbol.includes('XRP') ? 4 : 2)),
-            change24h: Number(change.toFixed(2)),
-            high24h: high,
-            low24h: low,
-            source: 'Binance 24hr Live API',
-            lastUpdated: timeStr,
-            feedStatus: 'LIVE'
-          };
-        }
+    for (const [sym, quote] of Object.entries(cryptoQuotes)) {
+      if (assets[sym]) {
+        assets[sym] = {
+          ...assets[sym],
+          price: quote.price,
+          bid: quote.bid,
+          ask: quote.ask,
+          spread: quote.spread,
+          change24h: quote.change24h,
+          high24h: quote.high24h,
+          low24h: quote.low24h,
+          source: quote.source,
+          provider: quote.provider,
+          classification: quote.classification,
+          feedStatus: quote.feedStatus,
+          priceType: quote.priceType,
+          referencePrice: quote.referencePrice,
+          lastUpdated: quote.lastUpdated
+        };
       }
-    });
+    }
   } catch {}
 
   // 3. Fetch Real Forex Rates from Open-ER API & compute crosses
