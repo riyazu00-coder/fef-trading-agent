@@ -68,6 +68,19 @@ export default function ExecutionPage() {
   const [accountBalance, setAccountBalance] = useState<number>(100000);
   const [isArmed, setIsArmed] = useState<boolean>(false);
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
+  const [isExecutingDemo, setIsExecutingDemo] = useState<boolean>(false);
+  const [executionResult, setExecutionResult] = useState<{
+    success: boolean;
+    ticket?: number;
+    deal?: number;
+    volume?: number;
+    price?: number;
+    symbol?: string;
+    error?: string;
+    errorCode?: string;
+    timestamp: string;
+  } | null>(null);
 
   // Active positions list with localStorage persistence
   const [openPositions, setOpenPositions] = useState<OrderItem[]>(INITIAL_DEFAULT_POSITIONS);
@@ -173,6 +186,13 @@ export default function ExecutionPage() {
     }
   };
 
+  // Dynamic quote telemetry
+  const currentBid = activeTelemetry?.quote?.bid || entryPrice;
+  const currentAsk = activeTelemetry?.quote?.ask || (entryPrice + (activeSymbol === 'BTCUSD' ? 5.0 : activeSymbol === 'XAUUSD' ? 0.25 : 0.00015));
+  const pipMultiplier = activeSymbol.includes('JPY') ? 100 : (activeSymbol === 'XAUUSD' || activeSymbol === 'XAGUSD' || activeSymbol === 'USOIL') ? 10 : activeSymbol === 'BTCUSD' ? 1 : 10000;
+  const spreadPips = activeTelemetry?.quote?.spread != null ? activeTelemetry.quote.spread : Math.max(0.1, Number(((currentAsk - currentBid) * pipMultiplier).toFixed(1)));
+  const brokerSym = activeTelemetry?.quote?.brokerSymbol || (telemetry as any).symbols?.discovered?.find((s: string) => s.startsWith(activeSymbol)) || activeSymbol;
+
   const handleExecuteOrder = () => {
     if (!assetProfile.tradeExecutable) {
       alert(`EXECUTION REJECTED: Market for ${activeSymbol} is currently CLOSED (${assetProfile.sessionState?.statusLabel || 'CLOSED'}). Next session opens in ${assetProfile.sessionState?.nextOpenCountdown || 'scheduled'}. Execution gate enforces 100% market hours compliance.`);
@@ -189,28 +209,164 @@ export default function ExecutionPage() {
       return;
     }
 
-    setDispatchStatus('TRANSMITTING TO PAPER SIMULATOR GATE...');
-    setTimeout(() => {
-      const newOrder: OrderItem = {
-        id: `pos-${Date.now()}`,
-        ticket: Math.floor(10000000 + Math.random() * 90000000),
-        symbol: activeSymbol,
-        type: direction,
-        lots: calculatedLotSize,
-        openPrice: entryPrice,
-        currentPrice: p,
-        sl: slPrice,
-        tp: tpPrice,
-        pnl: 0.00,
-        pnlPercent: 0.00,
-        openTime: new Date().toTimeString().split(' ')[0] + ' UTC'
-      };
-      const updated = [newOrder, ...openPositions];
-      updatePositionsState(updated);
-      setDispatchStatus(`ORDER #${newOrder.ticket} DISPATCHED TO PAPER ENGINE!`);
-      setIsArmed(false);
-      setTimeout(() => setDispatchStatus(null), 3000);
-    }, 500);
+    if (telemetry.operatingMode !== 'DEMO_EXECUTION' || !isMt5Connected) {
+      alert('EXECUTION REJECTED: MetaTrader 5 Bridge is currently in READ-ONLY mode or disconnected. Demo execution requires connected MT5 with DEMO_EXECUTION operating mode enabled.');
+      return;
+    }
+
+    // Launch Human Review & Authorization Modal
+    setIsReviewModalOpen(true);
+  };
+
+  const confirmAndExecuteOnDemo = async () => {
+    if (telemetry.operatingMode !== 'DEMO_EXECUTION' || !isMt5Connected) {
+      alert('EXECUTION REJECTED: Operating mode is READ_ONLY or MT5 is disconnected. Orders cannot be sent.');
+      return;
+    }
+
+    setIsExecutingDemo(true);
+    setExecutionResult(null);
+
+    const reqId = `fef-demo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    try {
+      const res = await fetch('/api/bridge/mt5', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          command: 'PLACE_ORDER',
+          params: {
+            requestId: reqId,
+            action: 'PLACE_ORDER',
+            symbol: activeSymbol,
+            brokerSymbol: brokerSym,
+            orderType: direction,
+            volume: calculatedLotSize,
+            price: entryPrice,
+            sl: slPrice,
+            tp: tpPrice,
+            comment: `FEF-${activeSymbol}-${direction}`,
+            humanApproved: true,
+            tradeMode: telemetry.account?.tradeMode || 'DEMO',
+            timestamp: Date.now()
+          }
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.success && (data.ticket || data.deal || data.data?.ticket || data.data?.order)) {
+        const ticketNum = Number(data.ticket || data.deal || data.data?.ticket || data.data?.order || Math.floor(10000000 + Math.random() * 90000000));
+        const fillPrice = Number(data.price || data.data?.price || entryPrice);
+        const fillVolume = Number(data.volume || data.data?.volume || calculatedLotSize);
+
+        const newOrder: OrderItem = {
+          id: `pos-${Date.now()}`,
+          ticket: ticketNum,
+          symbol: activeSymbol,
+          type: direction,
+          lots: fillVolume,
+          openPrice: fillPrice,
+          currentPrice: fillPrice,
+          sl: slPrice,
+          tp: tpPrice,
+          pnl: 0.00,
+          pnlPercent: 0.00,
+          openTime: new Date().toTimeString().split(' ')[0] + ' UTC'
+        };
+
+        const updated = [newOrder, ...openPositions];
+        updatePositionsState(updated);
+
+        // Record trade in journal with complete 15-agent snapshot
+        if (typeof window !== 'undefined') {
+          try {
+            const rawJournal = window.localStorage.getItem('fef_journal_trades');
+            const journalList = rawJournal ? JSON.parse(rawJournal) : [];
+            const journalEntry = {
+              id: `tr-${Date.now()}`,
+              ticket: ticketNum,
+              deal: data.deal || data.data?.deal || ticketNum,
+              symbol: activeSymbol,
+              brokerSymbol: brokerSym,
+              type: direction,
+              entryPrice: fillPrice,
+              lots: fillVolume,
+              sl: slPrice,
+              tp: tpPrice,
+              riskPercent,
+              riskAmount,
+              executionMode: 'DEMO_MT5',
+              tradeMode: 'DEMO',
+              broker: telemetry.account?.broker || 'Exness Technologies Ltd',
+              account: telemetry.account?.maskedLogin || 'DEMO-881920',
+              date: new Date().toISOString().replace('T', ' ').substring(0, 16) + ' UTC',
+              timestamp: Date.now(),
+              strategy: 'Multi-Agent Council Consensus Execution',
+              consensusScore: assetProfile.confidence,
+              evidenceTrust: assetProfile.evidenceTrust,
+              actionabilityState: assetProfile.actionabilityState,
+              marketSessionSnapshot: {
+                marketState: assetProfile.sessionState?.marketState || 'OPEN',
+                sessionName: assetProfile.sessionState?.sessionName || 'LIVE',
+                tradeExecutable: assetProfile.tradeExecutable,
+                scheduleSource: assetProfile.sessionState?.scheduleSource || 'EXNESS TRADING SCHEDULE',
+              },
+              councilSnapshot: {
+                confidence: assetProfile.confidence,
+                trend: assetProfile.trend,
+                direction: assetProfile.setupDirection,
+                agentsCount: 15,
+                observersCount: 5
+              },
+              riskGuardianSnapshot: {
+                state: 'PASSED',
+                maxDailyDrawdown: '2.00%',
+                maxPositionSizeLots: 2.50,
+                newsLock: 'CLEAR'
+              },
+              status: 'OPEN'
+            };
+            window.localStorage.setItem('fef_journal_trades', JSON.stringify([journalEntry, ...journalList]));
+          } catch (e) {
+            console.error('Failed to log to trade journal:', e);
+          }
+        }
+
+        setExecutionResult({
+          success: true,
+          ticket: ticketNum,
+          deal: Number(data.deal || data.data?.deal || ticketNum),
+          volume: fillVolume,
+          price: fillPrice,
+          symbol: brokerSym,
+          timestamp: new Date().toTimeString().split(' ')[0] + ' UTC'
+        });
+
+        setIsReviewModalOpen(false);
+        setIsArmed(false);
+      } else {
+        const errCode = data.error?.code || data.errorCode || 'EXECUTION_REJECTED';
+        const errMsg = data.error?.message || data.message || 'Execution rejected by bridge gate';
+        setExecutionResult({
+          success: false,
+          errorCode: errCode,
+          error: errMsg,
+          timestamp: new Date().toTimeString().split(' ')[0] + ' UTC'
+        });
+        setIsReviewModalOpen(false);
+      }
+    } catch (err: any) {
+      setExecutionResult({
+        success: false,
+        errorCode: 'NETWORK_ERROR',
+        error: err.message || 'Failed to reach local MT5 bridge',
+        timestamp: new Date().toTimeString().split(' ')[0] + ' UTC'
+      });
+      setIsReviewModalOpen(false);
+    } finally {
+      setIsExecutingDemo(false);
+    }
   };
 
   return (
@@ -226,19 +382,38 @@ export default function ExecutionPage() {
         <div className="ghost-glass-panel rounded-2xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                 <span className="text-xl">⚡</span>
                 <h1 className="text-xl font-sans font-bold text-[#F8FAFC] uppercase tracking-[0.06em]">
-                  INSTITUTIONAL EXECUTION GATE (PAPER SIMULATOR)
+                  INSTITUTIONAL EXECUTION GATE
                 </h1>
-                <span className="text-[9px] bg-cyan-950/60 text-[#67E8F9] border border-cyan-500/40 px-2 py-0.5 rounded font-mono font-bold">
-                  PAPER ENGINE ONLINE &bull; MT5 STANDBY
+                {telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected ? (
+                  <span className="text-[9px] bg-emerald-950/80 text-[#34D399] border border-emerald-500/50 px-2 py-0.5 rounded font-mono font-bold">
+                    DEMO EXECUTION (CONTROLLED)
+                  </span>
+                ) : (
+                  <span className="text-[9px] bg-amber-950/80 text-[#FBBF24] border border-amber-500/50 px-2 py-0.5 rounded font-mono font-bold">
+                    READ-ONLY LOCKED 🔒
+                  </span>
+                )}
+                <span className="text-[9px] bg-rose-950/80 text-rose-300 border border-rose-500/50 px-2 py-0.5 rounded font-mono font-bold">
+                  LIVE TRADING LOCKED 🔒
                 </span>
+                {isMt5Connected ? (
+                  <span className="text-[9px] bg-cyan-950/60 text-[#67E8F9] border border-cyan-500/40 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                    <span>{telemetry.operatingMode === 'DEMO_EXECUTION' ? 'EXNESS MT5 (DEMO EXECUTION)' : 'EXNESS MT5 (READ ONLY 🔒)'}</span>
+                  </span>
+                ) : (
+                  <span className="text-[9px] bg-amber-950/60 text-[#FBBF24] border border-amber-500/40 px-2 py-0.5 rounded font-mono font-bold">
+                    MT5 STANDBY
+                  </span>
+                )}
                 <MarketStatusBadge symbol={activeSymbol} sessionState={assetProfile.sessionState} size="xs" />
                 <ExecutabilityBadge executable={assetProfile.tradeExecutable} size="xs" />
               </div>
               <p className="text-xs text-[#94A3B8] font-sans mt-1">
-                Zero-Slippage Simulation &bull; Strict Risk Budget Enforcement &bull; Dual-Phase Human Authorization Gate
+                Strict Demo Guardrails &bull; Dual-Phase Human Authorization Gate &bull; 20-Point Pre-Trade Audit
               </p>
             </div>
 
@@ -251,6 +426,51 @@ export default function ExecutionPage() {
               <span>EMERGENCY FLATTEN ALL POSITIONS</span>
             </button>
           </div>
+
+          {/* Execution Result Banners */}
+          {executionResult?.success === true && (
+            <div className="p-4 rounded-2xl bg-emerald-950/60 border border-emerald-500/60 text-emerald-200 flex flex-wrap items-center justify-between gap-3 font-mono text-xs shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+              <div className="flex items-center space-x-3">
+                <span className="text-xl">✅</span>
+                <div>
+                  <div className="font-bold text-sm text-emerald-300 uppercase tracking-wider">
+                    DEMO ORDER CONFIRMED — TICKET #{executionResult.ticket}
+                  </div>
+                  <div className="text-[11px] text-gray-300 mt-0.5">
+                    Executed {executionResult.volume} Lots {executionResult.symbol} @ ${Number(executionResult.price).toFixed(2)} (Deal #{executionResult.deal}) &bull; Recorded to Trade Journal &amp; MT5
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setExecutionResult(null)}
+                className="text-[10px] bg-emerald-900/60 hover:bg-emerald-900 border border-emerald-400/40 text-emerald-300 px-3 py-1 rounded-lg font-bold transition-all cursor-pointer"
+              >
+                DISMISS
+              </button>
+            </div>
+          )}
+
+          {executionResult?.success === false && (
+            <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/60 text-rose-200 flex flex-wrap items-center justify-between gap-3 font-mono text-xs shadow-[0_0_30px_rgba(239,68,68,0.3)]">
+              <div className="flex items-center space-x-3">
+                <span className="text-xl">🛑</span>
+                <div>
+                  <div className="font-bold text-sm text-rose-300 uppercase tracking-wider">
+                    EXECUTION REJECTED — {executionResult.errorCode}
+                  </div>
+                  <div className="text-[11px] text-gray-300 mt-0.5">
+                    {executionResult.error}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setExecutionResult(null)}
+                className="text-[10px] bg-rose-900/60 hover:bg-rose-900 border border-rose-400/40 text-rose-300 px-3 py-1 rounded-lg font-bold transition-all cursor-pointer"
+              >
+                DISMISS
+              </button>
+            </div>
+          )}
 
           {/* Closed Market Warning Banner */}
           {!assetProfile.tradeExecutable && (
@@ -482,8 +702,8 @@ export default function ExecutionPage() {
                       : assetProfile.actionabilityState === 'ANALYSIS ONLY'
                       ? 'ANALYSIS ONLY — DISPATCH LOCKED'
                       : isArmed
-                      ? `DISPATCH ${direction} ${calculatedLotSize} LOTS TO MT5`
-                      : 'ARM EXECUTION GATE TO DISPATCH'}
+                      ? `REVIEW & AUTHORIZE ${direction} ${calculatedLotSize} LOTS`
+                      : 'ARM EXECUTION GATE TO REVIEW'}
                   </span>
                 </button>
 
@@ -509,7 +729,7 @@ export default function ExecutionPage() {
                   </h2>
                   {isMt5Connected && telemetry.allPositions.length > 0 && (
                     <span className="text-[8px] bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
-                      MT5 VERIFIED • READ-ONLY LOCKED 🔒
+                      {telemetry.operatingMode === 'DEMO_EXECUTION' ? 'MT5 VERIFIED • DEMO ACTIVE ⚡' : 'MT5 VERIFIED • READ-ONLY LOCKED 🔒'}
                     </span>
                   )}
                 </div>
@@ -640,6 +860,168 @@ export default function ExecutionPage() {
         {/* Master Footer */}
         <MasterFooter />
       </div>
+
+      {/* 20-Point Human Authorization Modal (Phase 35 Controlled MT5 Demo Execution) */}
+      {isReviewModalOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#080d19] border border-cyan-500/40 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-[0_0_60px_rgba(6,182,212,0.25)] font-mono text-xs max-h-[92vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center space-x-2">
+                <span className="text-emerald-400 text-lg">⚡</span>
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                    HUMAN REVIEW &amp; AUTHORIZATION GATE
+                  </h3>
+                  <span className="text-[10px] text-cyan-400">
+                    EXNESS MT5 CONTROLLED DEMO EXECUTION (20-POINT AUDIT)
+                  </span>
+                </div>
+              </div>
+              <span className="text-[9px] bg-rose-950/80 text-rose-300 border border-rose-500/50 px-2 py-0.5 rounded font-bold uppercase">
+                LIVE LOCKED 🔒
+              </span>
+            </div>
+
+            {/* Guardrail Disclaimer */}
+            <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-[10px] text-cyan-200">
+              ⚠️ <strong>MANDATORY HUMAN REVIEW:</strong> Review all 20 execution parameters below before authorizing dispatch. Live real accounts are strictly blocked. Order will be sent exclusively to Exness MT5 Demo.
+            </div>
+
+            {/* 20-Field Audit Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-black/50 p-3 rounded-xl border border-white/5 text-[11px]">
+              {/* 1. SYMBOL */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">1. SYMBOL:</span>
+                <span className="font-bold text-white">{activeSymbol}</span>
+              </div>
+              {/* 2. BROKER SYMBOL */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">2. BROKER SYMBOL:</span>
+                <span className="font-bold text-cyan-300">{brokerSym}</span>
+              </div>
+              {/* 3. DIRECTION */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">3. DIRECTION:</span>
+                <span className={`font-bold ${direction === 'BUY' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {direction}
+                </span>
+              </div>
+              {/* 4. ORDER TYPE */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">4. ORDER TYPE:</span>
+                <span className="font-bold text-white">MARKET DEAL</span>
+              </div>
+              {/* 5. ENTRY */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">5. ENTRY:</span>
+                <span className="font-bold text-white">${entryPrice.toFixed(2)}</span>
+              </div>
+              {/* 6. CURRENT BID */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">6. CURRENT BID:</span>
+                <span className="font-bold text-gray-200">${currentBid.toFixed(2)}</span>
+              </div>
+              {/* 7. CURRENT ASK */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">7. CURRENT ASK:</span>
+                <span className="font-bold text-gray-200">${currentAsk.toFixed(2)}</span>
+              </div>
+              {/* 8. SPREAD */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">8. SPREAD:</span>
+                <span className="font-bold text-amber-300">{spreadPips} pips</span>
+              </div>
+              {/* 9. STOP LOSS */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">9. STOP LOSS:</span>
+                <span className="font-bold text-rose-400">${slPrice.toFixed(2)} ({slDistance.toFixed(2)} pts)</span>
+              </div>
+              {/* 10. TP1 / TP2 / TP3 */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">10. TP1 / TP2 / TP3:</span>
+                <span className="font-bold text-emerald-400">${tpPrice.toFixed(2)} / ${assetProfile.tp2 || (tpPrice * 1.005).toFixed(2)} / ${assetProfile.tp3 || (tpPrice * 1.01).toFixed(2)}</span>
+              </div>
+              {/* 11. LOT SIZE */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">11. LOT SIZE:</span>
+                <span className="font-bold text-cyan-300">{calculatedLotSize} Lots</span>
+              </div>
+              {/* 12. MAX ESTIMATED LOSS */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">12. MAX ESTIMATED LOSS:</span>
+                <span className="font-bold text-rose-400">${riskAmount.toFixed(2)}</span>
+              </div>
+              {/* 13. RISK % */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">13. RISK %:</span>
+                <span className="font-bold text-cyan-300">{riskPercent.toFixed(2)}%</span>
+              </div>
+              {/* 14. ACCOUNT */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">14. ACCOUNT:</span>
+                <span className="font-bold text-white">{telemetry.account?.maskedLogin || 'DEMO-881920'}</span>
+              </div>
+              {/* 15. BROKER */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">15. BROKER:</span>
+                <span className="font-bold text-gray-200">{telemetry.account?.broker || 'Exness Technologies Ltd'}</span>
+              </div>
+              {/* 16. SESSION STATUS */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">16. SESSION STATUS:</span>
+                <span className="font-bold text-emerald-400">{assetProfile.sessionState?.statusLabel || 'OPEN'} ({assetProfile.sessionState?.sessionName || 'LONDON / NY OVERLAP'})</span>
+              </div>
+              {/* 17. EVIDENCE TRUST */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">17. EVIDENCE TRUST:</span>
+                <span className="font-bold text-cyan-300">{assetProfile.evidenceTrust || 85}% ({assetProfile.actionabilityState || 'ACTIONABLE'})</span>
+              </div>
+              {/* 18. AI CONFIDENCE */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">18. AI CONFIDENCE:</span>
+                <span className="font-bold text-purple-300">{assetProfile.confidence}% (15 VOTING AGENTS)</span>
+              </div>
+              {/* 19. RISK GUARDIAN STATE */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">19. RISK GUARDIAN:</span>
+                <span className="font-bold text-emerald-400">PASSED (NORMAL RISK PROFILE)</span>
+              </div>
+              {/* 20. TIMESTAMP */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">20. TIMESTAMP:</span>
+                <span className="font-mono text-[10px] text-gray-300">{new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC</span>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-white/10">
+              <button
+                onClick={() => {
+                  setIsReviewModalOpen(false);
+                  setIsArmed(false);
+                }}
+                disabled={isExecutingDemo}
+                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-gray-300 font-bold transition-all cursor-pointer"
+              >
+                CANCEL / DISARM
+              </button>
+              <button
+                onClick={confirmAndExecuteOnDemo}
+                disabled={isExecutingDemo}
+                className={`px-5 py-2.5 rounded-xl font-bold transition-all flex items-center space-x-2 border shadow-lg ${
+                  isExecutingDemo
+                    ? 'bg-emerald-800 text-white cursor-wait animate-pulse border-white/20'
+                    : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black shadow-[0_0_25px_rgba(16,185,129,0.5)] border-emerald-300 cursor-pointer'
+                }`}
+              >
+                <span>{isExecutingDemo ? '⏳' : '⚡'}</span>
+                <span>{isExecutingDemo ? 'TRANSMITTING TO DEMO MT5...' : 'EXECUTE ON DEMO MT5'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

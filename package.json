@@ -4,10 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "rm -rf .next && next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node scripts/test-swarm-consistency.js && node scripts/test-mt5-bridge.js && node scripts/test-hub-animation.js && node scripts/test-market-session.js && node scripts/test-phase34-evidence-integrity.js"
+    "test": "node scripts/test-swarm-consistency.js && node scripts/test-mt5-bridge.js && node scripts/test-hub-animation.js && node scripts/test-market-session.js && node scripts/test-phase34-evidence-integrity.js && node scripts/test-phase35-demo-execution.js && node scripts/test-phase35-1-mode-consistency.js && node scripts/test-phase35-acceptance.js"
   },
   "dependencies": {
     "next": "13.5.6",

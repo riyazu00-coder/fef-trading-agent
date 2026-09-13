@@ -165,36 +165,106 @@ export async function POST(req: NextRequest) {
 
     const command = action.toUpperCase() as BridgeCommand;
 
-    // Defense-in-depth: Reject any mutating command
-    if (RESTRICTED_EXECUTION_COMMANDS.has(command)) {
-      if (symbol) {
-        const session = evaluateMarketSession(symbol, new Date());
-        if (!session.tradeExecutable) {
-          return NextResponse.json(
-            {
-              success: false,
-              state: 'REJECTED',
-              error: {
-                code: 'MARKET_CLOSED_EXECUTION_BLOCKED',
-                message: `Risk Guardian Gate: Execution command '${command}' rejected because market for ${symbol} is ${session.statusLabel}.`
-              }
-            },
-            { status: 403 }
-          );
-        }
-      }
+    // Defense-in-depth: Live Execution Hard Lock
+    if (body.mode === 'LIVE' || body.operatingMode === 'LIVE' || body.liveTrading === true) {
+      return NextResponse.json(
+        {
+          success: false,
+          state: 'LOCKED',
+          error: {
+            code: 'LIVE_EXECUTION_LOCKED',
+            message: 'Live-money execution is strictly disabled and locked in Phase 35.'
+          }
+        },
+        { status: 403 }
+      );
+    }
 
+    // Other mutating commands remain strictly rejected
+    const STRICTLY_RESTRICTED = ['MODIFY_ORDER', 'CANCEL_ORDER', 'CLOSE_POSITION', 'CLOSE_ALL', 'DELETE_ORDER'];
+    if (STRICTLY_RESTRICTED.includes(command)) {
       return NextResponse.json(
         {
           success: false,
           state: 'CONNECTED_READ_ONLY',
           error: {
             code: 'READ_ONLY_LOCK_ACTIVE',
-            message: `Write action '${command}' rejected: FEF MT5 Bridge is locked in READ_ONLY safety mode. Real execution is blocked.`
+            message: `Write action '${command}' rejected: Only controlled DEMO PLACE_ORDER is supported in Phase 35.`
           }
         },
         { status: 403 }
       );
+    }
+
+    // Controlled DEMO PLACE_ORDER Gate
+    if (command === 'PLACE_ORDER') {
+      const targetSym = symbol || params?.canonicalSymbol || params?.brokerSymbol || 'XAUUSD';
+      const session = evaluateMarketSession(targetSym, new Date());
+      if (!session.tradeExecutable) {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'MARKET_CLOSED',
+              message: `Risk Guardian Gate: Execution command 'PLACE_ORDER' rejected because market for ${targetSym} is ${session.statusLabel}.`
+            }
+          },
+          { status: 403 }
+        );
+      }
+
+      // Trust Gate check
+      const actionState = params?.actionabilityState;
+      if (actionState && actionState !== 'ACTIONABLE') {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'EVIDENCE_TRUST_BLOCKED',
+              message: `Trust Gate: Execution rejected. Current trust state is '${actionState}'. Only ACTIONABLE state may execute.`
+            }
+          },
+          { status: 403 }
+        );
+      }
+
+      // Human Approval check
+      if (params && params.humanApproved === false) {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'HUMAN_APPROVAL_REQUIRED',
+              message: 'Execution rejected: Explicit human approval is required for all demo orders.'
+            }
+          },
+          { status: 403 }
+        );
+      }
+
+      // Demo account verification from bridge state
+      try {
+        const bridgeStatus = await mt5HttpClient.getStatus();
+        if (bridgeStatus?.account && bridgeStatus.account.tradeMode && bridgeStatus.account.tradeMode !== 'DEMO') {
+          return NextResponse.json(
+            {
+              success: false,
+              state: 'REJECTED',
+              error: {
+                code: 'NOT_DEMO_ACCOUNT',
+                message: 'Execution rejected: Connected MT5 account is not verified as a DEMO account.'
+              }
+            },
+            { status: 403 }
+          );
+        }
+      } catch {}
+
+      const res = await dispatchCommand('PLACE_ORDER', params, symbol);
+      return NextResponse.json(res);
     }
 
     const res = await dispatchCommand(command, params, symbol);

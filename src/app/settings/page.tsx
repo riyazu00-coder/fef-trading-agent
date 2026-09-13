@@ -6,9 +6,11 @@ import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 
 export default function SettingsPage() {
   const { activeSymbol } = useActiveAsset();
+  const { telemetry, isMt5Connected, isLocalBridgeOnline } = useMT5Telemetry();
 
   // Settings State
   const [maxDailyLoss, setMaxDailyLoss] = useState<number>(2.0);
@@ -31,7 +33,12 @@ export default function SettingsPage() {
     latencyMs?: number;
     heartbeatAgeMs?: number | null;
     transport?: string;
+    mode?: string;
   } | null>(null);
+
+  const effectiveIsConnected = mt5TestResult ? mt5TestResult.mt5Connected : isMt5Connected;
+  const effectiveMode = (mt5TestResult?.mode || telemetry.operatingMode) || 'READ_ONLY';
+  const isDemoExecution = effectiveIsConnected && effectiveMode === 'DEMO_EXECUTION';
 
   // UI Audio & Appearance
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -56,6 +63,7 @@ export default function SettingsPage() {
 
       if (statusData && statusData.localBridge === 'ONLINE') {
         const mt5Online = Boolean(statusData.mt5Connected);
+        const resolvedMode = (statusData.mode || statusData.operatingMode || 'READ_ONLY');
         setMt5TestResult({
           success: mt5Online,
           localBridgeOnline: true,
@@ -67,7 +75,8 @@ export default function SettingsPage() {
           account: statusData.account,
           latencyMs: statusData.localBridgeLatencyMs || 5,
           heartbeatAgeMs: statusData.heartbeatAgeMs,
-          transport: statusData.transport || 'HTTP / WEBREQUEST'
+          transport: statusData.transport || 'HTTP / WEBREQUEST',
+          mode: resolvedMode
         });
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({
@@ -77,7 +86,8 @@ export default function SettingsPage() {
             terminal: statusData.terminal,
             account: statusData.account,
             latencyMs: statusData.localBridgeLatencyMs || 5,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            mode: resolvedMode
           }));
         }
         return;
@@ -94,10 +104,11 @@ export default function SettingsPage() {
           mt5Connected: false,
           message: pingData.error?.message || 'Failed to connect to MT5 Bridge on ' + mt5Host + ':' + mt5Port,
           latencyMs: pingData.latencyMs,
-          transport: pingData.transport || 'HTTP / WEBREQUEST'
+          transport: pingData.transport || 'HTTP / WEBREQUEST',
+          mode: 'READ_ONLY'
         });
         if (typeof window !== 'undefined') {
-          window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({ connected: false, state: pingData.state }));
+          window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({ connected: false, state: pingData.state, mode: 'READ_ONLY' }));
         }
         return;
       }
@@ -109,6 +120,7 @@ export default function SettingsPage() {
       ]);
       const termData = await statusRes2.json();
       const accountData = await accountRes.json();
+      const pingMode = (pingData.mode || pingData.operatingMode || 'READ_ONLY');
 
       setMt5TestResult({
         success: true,
@@ -118,17 +130,19 @@ export default function SettingsPage() {
         terminal: termData.data,
         account: accountData.data,
         latencyMs: pingData.latencyMs || 8,
-        transport: pingData.transport || 'HTTP / WEBREQUEST'
+        transport: pingData.transport || 'HTTP / WEBREQUEST',
+        mode: pingMode
       });
 
       if (typeof window !== 'undefined') {
         window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({
           connected: true,
-          state: 'CONNECTED_READ_ONLY',
+          state: pingMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY',
           terminal: termData.data,
           account: accountData.data,
           latencyMs: pingData.latencyMs || 8,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          mode: pingMode
         }));
       }
     } catch (err: any) {
@@ -136,10 +150,11 @@ export default function SettingsPage() {
         success: false,
         localBridgeOnline: false,
         mt5Connected: false,
-        message: 'Bridge communication error: ' + (err.message || 'Bridge request failed')
+        message: 'Bridge communication error: ' + (err.message || 'Bridge request failed'),
+        mode: 'READ_ONLY'
       });
       if (typeof window !== 'undefined') {
-        window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({ connected: false, state: 'BRIDGE_OFFLINE' }));
+        window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({ connected: false, state: 'BRIDGE_OFFLINE', mode: 'READ_ONLY' }));
       }
     } finally {
       setTestingMt5(false);
@@ -300,8 +315,12 @@ export default function SettingsPage() {
                   </h2>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <span className="text-[9px] bg-amber-950/60 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded font-mono font-bold">
-                    READ-ONLY LOCKED 🔒
+                  <span className={`text-[9px] px-2 py-0.5 rounded font-mono font-bold border ${
+                    isDemoExecution
+                      ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
+                      : 'bg-amber-950/60 text-amber-300 border-amber-500/40'
+                  }`}>
+                    {isDemoExecution ? 'DEMO EXECUTION ⚡' : 'READ-ONLY LOCKED 🔒'}
                   </span>
                   <span className="text-[9px] bg-cyan-950 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-mono">
                     PORT {mt5Port}
@@ -386,8 +405,8 @@ export default function SettingsPage() {
                     </div>
                     <div className="bg-black/40 p-2 rounded border border-white/5">
                       <span className="text-gray-400 block text-[8.5px]">OPERATING MODE</span>
-                      <span className="font-bold text-amber-300">
-                        READ-ONLY 🔒
+                      <span className={`font-bold ${isDemoExecution ? 'text-cyan-400' : 'text-amber-300'}`}>
+                        {isDemoExecution ? 'DEMO EXECUTION ⚡' : 'READ-ONLY LOCKED 🔒'}
                       </span>
                     </div>
                   </div>

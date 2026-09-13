@@ -81,10 +81,19 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Transform raw account to account context
       const accountContext = deriveAccountRiskContext(data.account, data.positions);
 
+      const rawMode = (data.operatingMode || data.mode || 'READ_ONLY') as 'READ_ONLY' | 'DEMO_EXECUTION';
+      const opMode: 'READ_ONLY' | 'DEMO_EXECUTION' = (
+        mt5Online &&
+        data.state !== 'MT5_OFFLINE' &&
+        rawMode === 'DEMO_EXECUTION' &&
+        accountContext?.tradeMode === 'DEMO'
+      ) ? 'DEMO_EXECUTION' : 'READ_ONLY';
+      const isReadOnly = opMode === 'READ_ONLY';
+
       setTelemetry({
         localBridgeOnline: localOnline,
         mt5Connected: mt5Online,
-        state: data.state || (mt5Online ? 'CONNECTED_READ_ONLY' : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE'),
+        state: data.state || (mt5Online ? (opMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY') : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE'),
         transport: data.transport || 'HTTP / WEBREQUEST',
         heartbeatAgeMs: data.heartbeatAgeMs ?? null,
         lastHeartbeat: data.lastHeartbeat ?? null,
@@ -93,8 +102,8 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
         allPositions: Array.isArray(data.positions) ? data.positions : [],
         allPendingOrders: Array.isArray(data.orders) ? data.orders : [],
         allQuotes,
-        operatingMode: 'READ_ONLY',
-        readOnlyLockActive: true,
+        operatingMode: opMode,
+        readOnlyLockActive: isReadOnly,
         lastSyncTimestamp: Date.now()
       });
     } catch {

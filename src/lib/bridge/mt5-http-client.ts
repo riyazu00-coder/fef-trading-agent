@@ -16,7 +16,9 @@ import {
   MT5QuoteData,
   MT5PositionItem,
   MT5PendingOrderItem,
-  MT5BrokerSessionInfo
+  MT5BrokerSessionInfo,
+  DemoOrderPayload,
+  DemoExecutionResult
 } from './mt5-bridge-protocol';
 import { symbolDirectory } from './symbol-mapper';
 
@@ -57,8 +59,8 @@ export class MT5HttpClient {
     params?: Record<string, any>,
     symbol?: string
   ): Promise<BridgeResponsePayload<T>> {
-    // 1. Hard Read-Only Safety Gate
-    if (RESTRICTED_EXECUTION_COMMANDS.has(command)) {
+    // 1. Reject live execution and unauthorized mutating commands
+    if (RESTRICTED_EXECUTION_COMMANDS.has(command) && command !== 'PLACE_ORDER') {
       return {
         reqId: `req-${Date.now()}`,
         command,
@@ -77,7 +79,8 @@ export class MT5HttpClient {
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+      const effectiveTimeout = command === 'PLACE_ORDER' ? Math.max(6000, this.config.timeoutMs) : this.config.timeoutMs;
+      const timeout = setTimeout(() => controller.abort(), effectiveTimeout);
 
       const res = await fetch(`${this.config.baseUrl}/api/command`, {
         method: 'POST',
@@ -219,6 +222,10 @@ export class MT5HttpClient {
 
   public async getBrokerSessions(symbol?: string): Promise<BridgeResponsePayload<MT5BrokerSessionInfo>> {
     return this.sendCommand<MT5BrokerSessionInfo>('GET_BROKER_SESSIONS', undefined, symbol);
+  }
+
+  public async placeDemoOrder(payload: DemoOrderPayload): Promise<BridgeResponsePayload<DemoExecutionResult>> {
+    return this.sendCommand<DemoExecutionResult>('PLACE_ORDER', payload as any, payload.brokerSymbol);
   }
 }
 

@@ -46,6 +46,10 @@ export const ALLOWED_READ_COMMANDS: ReadonlySet<BridgeCommand> = new Set<BridgeC
   'GET_BROKER_SESSIONS'
 ]);
 
+export const ALLOWED_DEMO_EXECUTION_COMMANDS: ReadonlySet<BridgeCommand> = new Set<BridgeCommand>([
+  'PLACE_ORDER'
+]);
+
 export const RESTRICTED_EXECUTION_COMMANDS: ReadonlySet<BridgeCommand> = new Set<BridgeCommand>([
   'PLACE_ORDER',
   'MODIFY_ORDER',
@@ -54,6 +58,66 @@ export const RESTRICTED_EXECUTION_COMMANDS: ReadonlySet<BridgeCommand> = new Set
   'CLOSE_ALL',
   'DELETE_ORDER'
 ]);
+
+export type ExecutionOperatingMode = 'READ_ONLY' | 'DEMO_EXECUTION';
+
+export type ExecutionFailureCode =
+  | 'MT5_OFFLINE'
+  | 'STALE_HEARTBEAT'
+  | 'NOT_DEMO_ACCOUNT'
+  | 'MARKET_CLOSED'
+  | 'SESSION_BLOCKED'
+  | 'EVIDENCE_TRUST_BLOCKED'
+  | 'RISK_GUARDIAN_BLOCKED'
+  | 'STALE_QUOTE'
+  | 'INVALID_SYMBOL'
+  | 'INVALID_VOLUME'
+  | 'INVALID_SL'
+  | 'INSUFFICIENT_MARGIN'
+  | 'WIDE_SPREAD'
+  | 'DUPLICATE_REQUEST'
+  | 'DUPLICATE_EXECUTION_REQUEST'
+  | 'BROKER_REJECTED'
+  | 'TRADE_DISABLED'
+  | 'EXECUTION_TIMEOUT'
+  | 'LIVE_EXECUTION_LOCKED'
+  | 'READ_ONLY_LOCK_ACTIVE'
+  | 'HUMAN_APPROVAL_REQUIRED';
+
+export interface DemoOrderPayload {
+  requestId: string;
+  canonicalSymbol: string;
+  brokerSymbol: string;
+  direction: 'BUY' | 'SELL';
+  orderType: 'MARKET_BUY' | 'MARKET_SELL' | 'BUY' | 'SELL';
+  volume: number;
+  entryReference: number;
+  stopLoss: number;
+  takeProfit: number;
+  magic: number;
+  comment: string;
+  expectedMaxLoss: number;
+  riskPercent: number;
+  evidenceTrust: number;
+  decisionId: string;
+  timestamp: number;
+}
+
+export interface DemoExecutionResult {
+  success: boolean;
+  requestId: string;
+  retcode: number;
+  retcodeDescription: string;
+  ticket?: number;
+  deal?: number;
+  brokerSymbol: string;
+  direction: 'BUY' | 'SELL';
+  volume: number;
+  fillPrice: number;
+  sl: number;
+  tp: number;
+  timestamp: number;
+}
 
 export interface BridgeRequestPayload {
   reqId: string;

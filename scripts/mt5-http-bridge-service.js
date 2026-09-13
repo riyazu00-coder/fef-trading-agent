@@ -27,13 +27,17 @@ const HOST = '127.0.0.1';
 const VALID_TOKEN = process.env.FEF_BRIDGE_TOKEN || envToken || 'fef_local_bridge_token_v1';
 const HEARTBEAT_TIMEOUT_MS = 6000; // 6 seconds without heartbeat marks MT5_OFFLINE
 
-// In-Memory Telemetry State
+// In-Memory Telemetry State & Demo Execution Queues
+const executedRequestIds = new Map();
+const pendingOrdersQueue = [];
+const orderWaiters = new Map();
+
 const bridgeState = {
   serviceStartedAt: Date.now(),
   lastHeartbeat: 0,
   heartbeatCount: 0,
   mt5Connected: false,
-  operatingMode: 'READ_ONLY',
+  operatingMode: 'READ_ONLY', // ALWAYS starts in READ_ONLY safe default
   transport: 'HTTP / WEBREQUEST',
   terminal: {
     build: 0,
@@ -236,29 +240,115 @@ async function handleHttpRequest(req, res) {
     if (body.magic) bridgeState.terminal.magic = Number(body.magic);
     if (typeof body.terminalConnected === 'boolean') bridgeState.terminal.terminalConnected = body.terminalConnected;
 
+    // Canonical operating mode synchronization from EA telemetry
+    const requestedMode = String(body.operatingMode || 'READ_ONLY').trim().toUpperCase();
+    const knownTradeMode = String(bridgeState.account.tradeMode || 'UNKNOWN').trim().toUpperCase();
+
+    if (requestedMode === 'LIVE' || requestedMode === 'LIVE_EXECUTION') {
+      console.warn(`[FEF-HTTP-SECURITY] Rejected illegal execution mode '${requestedMode}'. Forcing READ_ONLY.`);
+      bridgeState.operatingMode = 'READ_ONLY';
+      bridgeState.account.operatingMode = 'READ_ONLY';
+    } else if (requestedMode === 'DEMO_EXECUTION') {
+      // DEMO_EXECUTION may only be armed if the account is verified DEMO and terminal is connected
+      if (knownTradeMode === 'DEMO' && bridgeState.terminal.terminalConnected !== false) {
+        bridgeState.operatingMode = 'DEMO_EXECUTION';
+        bridgeState.account.operatingMode = 'DEMO_EXECUTION';
+      } else {
+        console.warn(`[FEF-HTTP] DEMO_EXECUTION rejected: Account tradeMode is '${knownTradeMode}' (not verified DEMO). Forcing READ_ONLY.`);
+        bridgeState.operatingMode = 'READ_ONLY';
+        bridgeState.account.operatingMode = 'READ_ONLY';
+      }
+    } else {
+      // READ_ONLY or unknown values
+      bridgeState.operatingMode = 'READ_ONLY';
+      bridgeState.account.operatingMode = 'READ_ONLY';
+    }
+
     if (bridgeState.heartbeatCount % 30 === 1) {
-      console.log(`[FEF-HTTP] MT5 heartbeat received from ${bridgeState.terminal.broker} build ${bridgeState.terminal.build} (${bridgeState.terminal.accountLogin})`);
+      console.log(`[FEF-HTTP] MT5 heartbeat received from ${bridgeState.terminal.broker} build ${bridgeState.terminal.build} (${bridgeState.terminal.accountLogin}) | Canonical Mode: ${bridgeState.operatingMode}`);
+    }
+
+    let pendingOrder = null;
+    if (bridgeState.operatingMode === 'DEMO_EXECUTION' && pendingOrdersQueue.length > 0) {
+      pendingOrder = pendingOrdersQueue.shift();
     }
 
     return sendJson(res, 200, {
       success: true,
-      state: 'CONNECTED_READ_ONLY',
+      state: bridgeState.operatingMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY',
       serverTime: new Date().toISOString(),
-      mode: 'READ_ONLY',
+      mode: bridgeState.operatingMode,
+      operatingMode: bridgeState.operatingMode,
       heartbeatCount: bridgeState.heartbeatCount,
+      pendingOrder,
     });
+  }
+
+  // =========================================================================
+  // 1b. POST /mt5/order-result (From FEF_HTTP_Bridge.mq5)
+  // =========================================================================
+  if (req.method === 'POST' && (urlPath === '/mt5/order-result' || urlPath === '/mt5/execution-result')) {
+    const result = body;
+    const reqId = result.requestId;
+    if (reqId) {
+      executedRequestIds.set(reqId, result);
+      const waiter = orderWaiters.get(reqId);
+      if (waiter) {
+        clearTimeout(waiter.timer);
+        orderWaiters.delete(reqId);
+        waiter.resolve(result);
+      }
+    }
+
+    // Append executed position to local in-memory state so positions immediately update
+    if (result.success && result.ticket) {
+      const existingPos = bridgeState.positions.find(p => p.ticket === result.ticket);
+      if (!existingPos) {
+        bridgeState.positions.unshift({
+          ticket: Number(result.ticket),
+          brokerSymbol: String(result.brokerSymbol || ''),
+          canonicalSymbol: String(result.canonicalSymbol || result.brokerSymbol || ''),
+          direction: String(result.direction || 'BUY'),
+          volume: Number(result.volume || 0.01),
+          openPrice: Number(result.fillPrice || result.openPrice || 0),
+          currentPrice: Number(result.fillPrice || result.openPrice || 0),
+          sl: Number(result.sl || 0),
+          tp: Number(result.tp || 0),
+          profit: 0.00,
+          swap: 0.00,
+          magic: Number(result.magic || 8882026),
+          openTime: new Date(result.timestamp || Date.now()).toISOString().replace('T', ' ').substring(0, 19),
+        });
+      }
+    }
+
+    return sendJson(res, 200, { success: true, acknowledged: true });
   }
 
   // =========================================================================
   // 2. POST /mt5/account (From FEF_HTTP_Bridge.mq5)
   // =========================================================================
   if (req.method === 'POST' && urlPath === '/mt5/account') {
+    const reportedTradeMode = String(body.tradeMode || 'DEMO').trim().toUpperCase();
+
+    // If account reports REAL, immediately force READ_ONLY
+    if (reportedTradeMode === 'REAL') {
+      console.warn('⚠️ [FEF-HTTP-SECURITY] REAL account telemetry received! Hard-locking to READ_ONLY.');
+      bridgeState.operatingMode = 'READ_ONLY';
+      bridgeState.account.operatingMode = 'READ_ONLY';
+    } else if (body.operatingMode === 'DEMO_EXECUTION' && reportedTradeMode === 'DEMO') {
+      bridgeState.operatingMode = 'DEMO_EXECUTION';
+      bridgeState.account.operatingMode = 'DEMO_EXECUTION';
+    } else {
+      bridgeState.account.operatingMode = bridgeState.operatingMode;
+    }
+
     bridgeState.account = {
       maskedLogin: maskAccount(body.maskedLogin),
       broker: body.broker || bridgeState.terminal.broker,
       server: body.server || bridgeState.terminal.server,
       currency: body.currency || bridgeState.terminal.currency,
-      tradeMode: body.tradeMode || 'DEMO',
+      tradeMode: reportedTradeMode,
       balance: Number(body.balance || 0),
       equity: Number(body.equity || 0),
       margin: Number(body.margin || 0),
@@ -267,11 +357,16 @@ async function handleHttpRequest(req, res) {
       leverage: Number(body.leverage || 100),
       tradeAllowed: Boolean(body.tradeAllowed),
       terminalBuild: Number(body.terminalBuild || bridgeState.terminal.build),
-      operatingMode: 'READ_ONLY',
+      operatingMode: bridgeState.operatingMode,
       lastUpdated: Date.now(),
     };
 
-    return sendJson(res, 200, { success: true, stored: 'account' });
+    return sendJson(res, 200, {
+      success: true,
+      stored: 'account',
+      mode: bridgeState.operatingMode,
+      operatingMode: bridgeState.operatingMode,
+    });
   }
 
   // =========================================================================
@@ -377,13 +472,22 @@ async function handleHttpRequest(req, res) {
     const isConnected = isHeartbeatFresh();
     const ageMs = bridgeState.lastHeartbeat ? (Date.now() - bridgeState.lastHeartbeat) : null;
 
+    // Fail-safe: If MT5 heartbeat becomes stale or terminal disconnects, execution is unavailable
+    if (!isConnected && bridgeState.operatingMode !== 'READ_ONLY') {
+      bridgeState.operatingMode = 'READ_ONLY';
+      bridgeState.account.operatingMode = 'READ_ONLY';
+    }
+
+    const effectiveMode = isConnected ? bridgeState.operatingMode : 'READ_ONLY';
+
     return sendJson(res, 200, {
       success: true,
       transport: 'HTTP / WEBREQUEST',
       localBridge: 'ONLINE',
       mt5Connected: isConnected,
-      state: isConnected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
-      mode: 'READ_ONLY',
+      state: isConnected ? (effectiveMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY') : 'MT5_OFFLINE',
+      mode: effectiveMode,
+      operatingMode: effectiveMode,
       heartbeatAgeMs: ageMs,
       lastHeartbeat: bridgeState.lastHeartbeat ? new Date(bridgeState.lastHeartbeat).toISOString() : null,
       heartbeatCount: bridgeState.heartbeatCount,
@@ -407,11 +511,26 @@ async function handleHttpRequest(req, res) {
   // =========================================================================
   if (req.method === 'POST' && (urlPath === '/api/command' || urlPath === '/command')) {
     const command = body.command || 'PING';
-    const reqId = body.reqId || `cmd-${Date.now()}`;
+    const params = body.params || {};
+    const reqId = body.reqId || params.requestId || params.reqId || body.requestId || `cmd-${Date.now()}`;
 
-    // STRICT DEFENSE-IN-DEPTH SAFETY GATE: REJECT ALL MUTATING COMMANDS
-    const RESTRICTED_EXECUTION_COMMANDS = [
-      'PLACE_ORDER',
+    // STRICT DEFENSE-IN-DEPTH SAFETY GATE: LIVE EXECUTION HARD LOCK
+    if (body.mode === 'LIVE' || body.operatingMode === 'LIVE' || body.liveTrading === true || params.tradeMode === 'REAL' || params.liveTrading === true) {
+      return sendJson(res, 200, {
+        reqId,
+        command,
+        success: false,
+        state: 'LOCKED',
+        error: {
+          code: 'LIVE_EXECUTION_LOCKED',
+          message: 'Live-money execution is strictly disabled and locked in Phase 35.'
+        },
+        timestamp: Date.now()
+      });
+    }
+
+    // Other mutating commands remain strictly rejected in Phase 35
+    const STRICTLY_DISALLOWED_COMMANDS = [
       'MODIFY_ORDER',
       'CANCEL_ORDER',
       'CLOSE_POSITION',
@@ -419,7 +538,7 @@ async function handleHttpRequest(req, res) {
       'DELETE_ORDER'
     ];
 
-    if (RESTRICTED_EXECUTION_COMMANDS.includes(command)) {
+    if (STRICTLY_DISALLOWED_COMMANDS.includes(command)) {
       return sendJson(res, 200, {
         reqId,
         command,
@@ -427,8 +546,246 @@ async function handleHttpRequest(req, res) {
         state: 'CONNECTED_READ_ONLY',
         error: {
           code: 'READ_ONLY_LOCK_ACTIVE',
-          message: `Write action '${command}' rejected: FEF MT5 Bridge is locked in READ_ONLY safety mode. Real execution is blocked.`
+          message: `Write action '${command}' rejected: Only controlled DEMO PLACE_ORDER is supported in Phase 35.`
         },
+        timestamp: Date.now(),
+      });
+    }
+
+    if (command === 'PLACE_ORDER') {
+      // 1. MT5 connection & heartbeat freshness (fail-safe)
+      if (!isHeartbeatFresh()) {
+        bridgeState.operatingMode = 'READ_ONLY';
+        bridgeState.account.operatingMode = 'READ_ONLY';
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'MT5_OFFLINE',
+          error: {
+            code: bridgeState.lastHeartbeat ? 'STALE_HEARTBEAT' : 'MT5_OFFLINE',
+            message: 'MT5 terminal is disconnected or heartbeat is stale. Demo execution blocked.'
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      // 2. Canonical operating mode check: MUST be DEMO_EXECUTION
+      if (bridgeState.operatingMode !== 'DEMO_EXECUTION') {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'CONNECTED_READ_ONLY',
+          error: {
+            code: 'READ_ONLY_LOCK_ACTIVE',
+            message: "Write action 'PLACE_ORDER' rejected: FEF MT5 Bridge is in READ_ONLY mode. EA must report DEMO_EXECUTION on a verified DEMO account."
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      // 3. Demo account verification requirement
+      if (bridgeState.account.tradeMode !== 'DEMO') {
+        bridgeState.operatingMode = 'READ_ONLY';
+        bridgeState.account.operatingMode = 'READ_ONLY';
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'NOT_DEMO_ACCOUNT',
+            message: 'Execution rejected: Connected MT5 account is not verified as a DEMO account.'
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      // 4. Duplicate request ID check (Idempotency)
+      if (executedRequestIds.has(reqId)) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'DUPLICATE_EXECUTION_REQUEST',
+            message: `Duplicate execution request rejected: requestId '${reqId}' has already been processed.`
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      const sym = params.brokerSymbol || params.symbol || body.brokerSymbol || body.symbol || 'XAUUSD';
+      const volume = Number(params.volume ?? params.lots ?? body.volume ?? body.lots ?? 0);
+      const direction = String(params.direction || params.orderType || body.direction || body.orderType || 'BUY').toUpperCase();
+      const sl = Number(params.sl ?? params.stopLoss ?? body.sl ?? body.stopLoss ?? 0);
+      const tp = Number(params.tp ?? params.takeProfit ?? body.tp ?? body.takeProfit ?? 0);
+
+      // 5. Volume validation
+      if (volume <= 0 || isNaN(volume)) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'INVALID_VOLUME',
+            message: 'Order rejected: lot size must be greater than 0.'
+          },
+          timestamp: Date.now(),
+        });
+      }
+      if (volume > 20.0) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'MAX_VOLUME_EXCEEDED',
+            message: `Order rejected: lot size ${volume} exceeds max permitted lot size of 20.0 under Risk Guardian.`
+          },
+          timestamp: Date.now(),
+        });
+      }
+      const stepCheck = Math.round(volume * 100);
+      if (Math.abs(volume * 100 - stepCheck) > 0.0001) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'INVALID_VOLUME_STEP',
+            message: `Order rejected: lot size ${volume} does not align with 0.01 lot step.`
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      // 6. Stop Loss required under institutional policy
+      if (sl <= 0 || isNaN(sl)) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'INVALID_SL',
+            message: 'Order rejected: valid non-zero Stop Loss is mandatory under Risk Guardian policy.'
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      // 7. Quote validation & freshness
+      const quote = bridgeState.quotes[sym] || bridgeState.quotes[body.symbol || ''] || null;
+      if (quote) {
+        const quoteAge = Date.now() - (quote.timestamp || Date.now());
+        if (quoteAge > 20000) {
+          return sendJson(res, 200, {
+            reqId,
+            command: 'PLACE_ORDER',
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'STALE_QUOTE',
+              message: `Order rejected: broker quote for ${sym} is stale (${Math.round(quoteAge / 1000)}s old).`
+            },
+            timestamp: Date.now(),
+          });
+        }
+        if (quote.spread > 50) {
+          return sendJson(res, 200, {
+            reqId,
+            command: 'PLACE_ORDER',
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'WIDE_SPREAD',
+              message: `Order rejected: broker spread (${quote.spread} pips) exceeds maximum threshold.`
+            },
+            timestamp: Date.now(),
+          });
+        }
+      }
+
+      // 8. Free margin check
+      const estPrice = quote ? quote.ask : (Number(params.price || body.price) || 2650);
+      const estMarginRequired = (volume * 100 * estPrice) / 500;
+      if (bridgeState.account.freeMargin < estMarginRequired || (bridgeState.account.freeMargin > 0 && bridgeState.account.freeMargin < 20)) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'INSUFFICIENT_MARGIN',
+            message: `Order rejected: estimated required margin ($${estMarginRequired.toFixed(2)}) exceeds free margin ($${bridgeState.account.freeMargin.toFixed(2)}).`
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      // Queue order for EA dispatch
+      const orderPayload = {
+        requestId: reqId,
+        symbol: sym,
+        canonicalSymbol: params.canonicalSymbol || body.symbol || sym,
+        brokerSymbol: sym,
+        direction,
+        orderType: direction === 'BUY' ? 'MARKET_BUY' : 'MARKET_SELL',
+        volume,
+        entryReference: Number(params.entryReference || body.price || (quote ? quote.bid : 0)),
+        stopLoss: sl,
+        takeProfit: tp,
+        magic: Number(params.magic || bridgeState.terminal.magic || 8882026),
+        comment: String(params.comment || 'FEF Demo Order'),
+        timestamp: Date.now()
+      };
+
+      pendingOrdersQueue.push(orderPayload);
+
+      // Await EA execution result via Promise (5000ms timeout)
+      const timeoutMs = 5000;
+      const executionPromise = new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          orderWaiters.delete(reqId);
+          resolve({
+            success: false,
+            error: {
+              code: 'EXECUTION_TIMEOUT',
+              message: `Demo order dispatch timed out after ${timeoutMs}ms awaiting MT5 EA fill.`
+            }
+          });
+        }, timeoutMs);
+
+        orderWaiters.set(reqId, { resolve, timer });
+      });
+
+      const execResult = await executionPromise;
+      if (!execResult.success) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: execResult.error || {
+            code: 'BROKER_REJECTED',
+            message: 'Demo order rejected by broker.'
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      return sendJson(res, 200, {
+        reqId,
+        command: 'PLACE_ORDER',
+        success: true,
+        state: 'CONNECTED_DEMO_EXECUTION',
+        data: execResult,
         timestamp: Date.now(),
       });
     }
@@ -595,7 +952,7 @@ if (require.main === module) {
     console.log('====================================================');
     console.log('FEF MT5 HTTP BRIDGE ONLINE');
     console.log(`Listening on ${HOST}:${PORT}`);
-    console.log('Mode: READ_ONLY');
+    console.log('Mode: READ_ONLY (SAFE STARTUP DEFAULT)');
     console.log('Auth: ENABLED');
     console.log('Waiting for FEF_HTTP_Bridge.mq5');
     console.log('====================================================');
@@ -611,6 +968,16 @@ if (require.main === module) {
   });
 }
 
+function setOperatingMode(mode) {
+  if (mode === 'LIVE' || mode === 'LIVE_EXECUTION') {
+    throw new Error('LIVE_EXECUTION_LOCKED: Live trading is strictly disabled and locked.');
+  }
+  if (mode === 'READ_ONLY' || mode === 'DEMO_EXECUTION') {
+    bridgeState.operatingMode = mode;
+    bridgeState.account.operatingMode = mode;
+  }
+}
+
 module.exports = {
   server,
   handleHttpRequest,
@@ -622,4 +989,8 @@ module.exports = {
   maskAccount,
   isAuthorized,
   isHeartbeatFresh,
+  executedRequestIds,
+  pendingOrdersQueue,
+  orderWaiters,
+  setOperatingMode,
 };

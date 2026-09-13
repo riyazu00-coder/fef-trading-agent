@@ -18,8 +18,16 @@ input string   InpAuthToken         = "fef_local_bridge_token_v1"; // Bridge Aut
 input ulong    InpMagicNumber       = 8882026;                     // FEF Magic Number
 input int      InpHeartbeatSeconds  = 2;                           // Heartbeat Cadence (Seconds)
 
-//--- Hardcoded Operating State (No Execution Mode Enum — Strict Read-Only)
-#define OPERATING_MODE "READ_ONLY"
+//--- Operating Mode Configuration
+enum ENUM_FEF_OPERATING_MODE
+{
+   MODE_READ_ONLY       = 0,  // READ_ONLY (Monitoring & Telemetry Only)
+   MODE_DEMO_EXECUTION  = 1   // DEMO_EXECUTION (Controlled Exness Demo Orders)
+};
+
+input ENUM_FEF_OPERATING_MODE InpOperatingMode = MODE_DEMO_EXECUTION; // Operating Mode
+
+#define OPERATING_MODE (InpOperatingMode == MODE_DEMO_EXECUTION ? "DEMO_EXECUTION" : "READ_ONLY")
 
 //--- Telemetry Timing State
 datetime g_last_heartbeat_time = 0;
@@ -76,6 +84,110 @@ string DescribeWebRequestError(int err)
       case 5201: return "ERR_WEBREQUEST_CONNECT_FAILED: Timeout or connection error.";
       default:   return "MQL5 Error " + IntegerToString(err);
    }
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Describe MT5 Trade Retcode                               |
+//+------------------------------------------------------------------+
+string GetRetcodeDescription(uint retcode)
+{
+   switch(retcode)
+   {
+      case 10004: return "TRADE_RETCODE_REQUOTE";
+      case 10006: return "TRADE_RETCODE_REJECT";
+      case 10007: return "TRADE_RETCODE_CANCEL";
+      case 10008: return "TRADE_RETCODE_PLACED";
+      case 10009: return "TRADE_RETCODE_DONE";
+      case 10010: return "TRADE_RETCODE_DONE_PARTIAL";
+      case 10011: return "TRADE_RETCODE_ERROR";
+      case 10012: return "TRADE_RETCODE_TIMEOUT";
+      case 10013: return "TRADE_RETCODE_INVALID";
+      case 10014: return "TRADE_RETCODE_INVALID_VOLUME";
+      case 10015: return "TRADE_RETCODE_INVALID_PRICE";
+      case 10016: return "TRADE_RETCODE_INVALID_STOPS";
+      case 10017: return "TRADE_RETCODE_TRADE_DISABLED";
+      case 10018: return "TRADE_RETCODE_MARKET_CLOSED";
+      case 10019: return "TRADE_RETCODE_NO_MONEY";
+      case 10020: return "TRADE_RETCODE_PRICE_CHANGED";
+      case 10021: return "TRADE_RETCODE_PRICE_OFF";
+      case 10022: return "TRADE_RETCODE_INVALID_EXP";
+      case 10023: return "TRADE_RETCODE_ORDER_CHANGED";
+      case 10024: return "TRADE_RETCODE_TOO_MANY_REQUESTS";
+      case 10025: return "TRADE_RETCODE_NO_CHANGES";
+      case 10026: return "TRADE_RETCODE_SERVER_DISABLES_AT";
+      case 10027: return "TRADE_RETCODE_CLIENT_DISABLES_AT";
+      case 10028: return "TRADE_RETCODE_LOCKED";
+      case 10029: return "TRADE_RETCODE_FROZEN";
+      case 10030: return "TRADE_RETCODE_INVALID_FILL";
+      case 10031: return "TRADE_RETCODE_CONNECTION";
+      case 10032: return "TRADE_RETCODE_ONLY_REAL";
+      case 10033: return "TRADE_RETCODE_LIMIT_ORDERS";
+      case 10034: return "TRADE_RETCODE_LIMIT_VOLUME";
+      case 10035: return "TRADE_RETCODE_POSITION_CLOSED";
+      default:    return "RETCODE_" + IntegerToString(retcode);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Extract String value from flat JSON payload              |
+//+------------------------------------------------------------------+
+string JsonExtractString(string json, string key)
+{
+   string needle = "\"" + key + "\":\"";
+   int start = StringFind(json, needle);
+   if(start < 0) return "";
+   start += StringLen(needle);
+   int end = StringFind(json, "\"", start);
+   if(end < 0) return "";
+   return StringSubstr(json, start, end - start);
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Extract Double value from flat JSON payload              |
+//+------------------------------------------------------------------+
+double JsonExtractDouble(string json, string key)
+{
+   string needle = "\"" + key + "\":";
+   int start = StringFind(json, needle);
+   if(start < 0) return 0.0;
+   start += StringLen(needle);
+   while(start < StringLen(json) && (StringGetCharacter(json, start) == ' ' || StringGetCharacter(json, start) == '\"'))
+      start++;
+   int end = start;
+   while(end < StringLen(json))
+   {
+      ushort ch = StringGetCharacter(json, end);
+      if((ch >= '0' && ch <= '9') || ch == '.' || ch == '-')
+         end++;
+      else
+         break;
+   }
+   if(end <= start) return 0.0;
+   return StringToDouble(StringSubstr(json, start, end - start));
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Extract Long value from flat JSON payload                |
+//+------------------------------------------------------------------+
+long JsonExtractLong(string json, string key)
+{
+   string needle = "\"" + key + "\":";
+   int start = StringFind(json, needle);
+   if(start < 0) return 0;
+   start += StringLen(needle);
+   while(start < StringLen(json) && (StringGetCharacter(json, start) == ' ' || StringGetCharacter(json, start) == '\"'))
+      start++;
+   int end = start;
+   while(end < StringLen(json))
+   {
+      ushort ch = StringGetCharacter(json, end);
+      if((ch >= '0' && ch <= '9') || ch == '-')
+         end++;
+      else
+         break;
+   }
+   if(end <= start) return 0;
+   return StringToInteger(StringSubstr(json, start, end - start));
 }
 
 //+------------------------------------------------------------------+
@@ -191,6 +303,8 @@ string ResolveBrokerSymbol(string canonical)
    return canonical;
 }
 
+void HandlePendingOrder(string resp);
+
 //+------------------------------------------------------------------+
 //| Push Heartbeat (POST /mt5/heartbeat)                             |
 //+------------------------------------------------------------------+
@@ -209,7 +323,12 @@ void PushHeartbeat()
    json += "}";
 
    string resp = "";
-   PostJson("/mt5/heartbeat", json, resp);
+   int httpStatus = PostJson("/mt5/heartbeat", json, resp);
+
+   if(httpStatus >= 200 && httpStatus < 300 && InpOperatingMode == MODE_DEMO_EXECUTION)
+   {
+      HandlePendingOrder(resp);
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -442,6 +561,125 @@ void PushSymbolsAndSessions()
 }
 
 //+------------------------------------------------------------------+
+//| Execute Controlled Demo Order (DEMO ONLY)                        |
+//+------------------------------------------------------------------+
+void HandlePendingOrder(string resp)
+{
+   int orderPos = StringFind(resp, "\"pendingOrder\":{");
+   if(orderPos < 0) return; // No pending order
+
+   string orderSub = StringSubstr(resp, orderPos);
+
+   // Safety check 1: Hard block on Real accounts
+   ENUM_ACCOUNT_TRADE_MODE tradeMode = (ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   if(tradeMode == ACCOUNT_TRADE_MODE_REAL)
+   {
+      Print("✕ [FEF-SECURITY] Real account execution blocked! InpOperatingMode forced to READ_ONLY.");
+      return;
+   }
+
+   // Safety check 2: EA Operating mode
+   if(InpOperatingMode != MODE_DEMO_EXECUTION)
+   {
+      Print("✕ [FEF-SECURITY] Operating mode is READ_ONLY. Execution rejected.");
+      return;
+   }
+
+   string requestId   = JsonExtractString(orderSub, "requestId");
+   string brokerSym   = JsonExtractString(orderSub, "brokerSymbol");
+   string orderType   = JsonExtractString(orderSub, "orderType");
+   double volume      = JsonExtractDouble(orderSub, "volume");
+   double sl          = JsonExtractDouble(orderSub, "sl");
+   double tp          = JsonExtractDouble(orderSub, "tp");
+   double maxSlippage = JsonExtractDouble(orderSub, "maxSlippagePips");
+   if(maxSlippage <= 0) maxSlippage = 3.0;
+
+   if(StringLen(requestId) == 0 || StringLen(brokerSym) == 0)
+   {
+      Print("✕ [FEF-DEMO-EXECUTE] Malformed order payload: missing requestId or brokerSymbol.");
+      return;
+   }
+
+   Print("⚡ [FEF-DEMO-EXECUTE] Dispatching demo order: ReqID=", requestId, " | ", orderType, " ", DoubleToString(volume, 2), " ", brokerSym, " | SL: ", DoubleToString(sl, 5), " | TP: ", DoubleToString(tp, 5));
+
+   MqlTradeRequest req;
+   MqlTradeResult  res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+
+   req.action = TRADE_ACTION_DEAL;
+   req.symbol = brokerSym;
+   req.volume = volume;
+   req.type   = (orderType == "SELL" ? ORDER_TYPE_SELL : ORDER_TYPE_BUY);
+   req.price  = (req.type == ORDER_TYPE_BUY ? SymbolInfoDouble(brokerSym, SYMBOL_ASK) : SymbolInfoDouble(brokerSym, SYMBOL_BID));
+   req.sl     = sl;
+   req.tp     = tp;
+
+   // Point & Slippage
+   double point = SymbolInfoDouble(brokerSym, SYMBOL_POINT);
+   int digits = (int)SymbolInfoInteger(brokerSym, SYMBOL_DIGITS);
+   double pipSize = (digits == 3 || digits == 5) ? point * 10 : point;
+   if(pipSize <= 0) pipSize = point > 0 ? point : 0.0001;
+   req.deviation = (ulong)MathRound((maxSlippage * pipSize) / (point > 0 ? point : 1));
+
+   req.magic = InpMagicNumber;
+   req.comment = "FEF-" + StringSubstr(requestId, 0, 16);
+
+   // Determine supported filling mode
+   uint filling = (uint)SymbolInfoInteger(brokerSym, SYMBOL_FILLING_MODE);
+   if((filling & SYMBOL_FILLING_IOC) != 0)
+      req.type_filling = ORDER_FILLING_IOC;
+   else if((filling & SYMBOL_FILLING_FOK) != 0)
+      req.type_filling = ORDER_FILLING_FOK;
+   else
+      req.type_filling = ORDER_FILLING_RETURN;
+
+   ResetLastError();
+   bool sent = OrderSend(req, res);
+   int lastErr = GetLastError();
+
+   double currentBid = SymbolInfoDouble(brokerSym, SYMBOL_BID);
+   double currentAsk = SymbolInfoDouble(brokerSym, SYMBOL_ASK);
+   double spreadPips = (currentAsk - currentBid) / (pipSize > 0 ? pipSize : 1.0);
+
+   bool success = sent && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED);
+   string retDesc = GetRetcodeDescription(res.retcode);
+
+   if(success)
+   {
+      Print("✓ [FEF-DEMO-EXECUTE] Order SUCCESS: Ticket=", res.order, " Deal=", res.deal, " Retcode=", res.retcode, " (", retDesc, ") Volume=", DoubleToString(res.volume, 2), " Price=", DoubleToString(res.price, digits));
+   }
+   else
+   {
+      Print("✕ [FEF-DEMO-EXECUTE] Order REJECTED/FAILED: Retcode=", res.retcode, " (", retDesc, ") LastError=", lastErr);
+   }
+
+   string resultJson = "{";
+   resultJson += "\"requestId\":\"" + JsonEscape(requestId) + "\",";
+   resultJson += "\"success\":" + (success ? "true" : "false") + ",";
+   resultJson += "\"ticket\":" + IntegerToString((long)res.order) + ",";
+   resultJson += "\"deal\":" + IntegerToString((long)res.deal) + ",";
+   resultJson += "\"symbol\":\"" + JsonEscape(brokerSym) + "\",";
+   resultJson += "\"volume\":" + DoubleToString(res.volume > 0 ? res.volume : volume, 2) + ",";
+   resultJson += "\"price\":" + DoubleToString(res.price > 0 ? res.price : req.price, digits) + ",";
+   resultJson += "\"bid\":" + DoubleToString(currentBid, digits) + ",";
+   resultJson += "\"ask\":" + DoubleToString(currentAsk, digits) + ",";
+   resultJson += "\"spread\":" + DoubleToString(spreadPips, 1) + ",";
+   resultJson += "\"retcode\":" + IntegerToString(res.retcode) + ",";
+   resultJson += "\"retcodeDescription\":\"" + JsonEscape(retDesc) + "\",";
+   resultJson += "\"comment\":\"" + JsonEscape(res.comment) + "\",";
+   resultJson += "\"timestamp\":" + IntegerToString((long)TimeLocal() * 1000);
+   resultJson += "}";
+
+   string postResp = "";
+   PostJson("/mt5/order-result", resultJson, postResp);
+
+   // Immediately push refreshed positions and account
+   PushPositions();
+   PushAccount();
+}
+
+//+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
@@ -449,8 +687,21 @@ int OnInit()
    Print("=== [FEF-HTTP] FEF TRADING SOLUTIONS HTTP BRIDGE EA INITIALIZING ===");
    Print("[FEF-HTTP] Target Base URL: ", InpBridgeBaseUrl);
    Print("[FEF-HTTP] Magic Number: ", InpMagicNumber, " | Heartbeat Interval: ", InpHeartbeatSeconds, "s");
-   Print("[FEF-HTTP] Operating Mode: ", OPERATING_MODE, " (Strict Read-Only — Zero Execution)");
+   Print("[FEF-HTTP] Operating Mode: ", OPERATING_MODE);
    Print("[FEF-HTTP] Zero DLL Imports — Native MQL5 WebRequest Transport");
+
+   // CRITICAL SECURITY ENFORCEMENT: LIVE ACCOUNTS ARE PERMANENTLY LOCKED OUT OF EXECUTION
+   ENUM_ACCOUNT_TRADE_MODE tradeMode = (ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   if(tradeMode == ACCOUNT_TRADE_MODE_REAL)
+   {
+      if(InpOperatingMode == MODE_DEMO_EXECUTION)
+      {
+         Alert("CRITICAL SECURITY ERROR: LIVE ACCOUNTS ARE NOT PERMITTED FOR EXECUTION. InpOperatingMode must be MODE_READ_ONLY on real accounts.");
+         Print("✕ [FEF-HTTP] REAL ACCOUNT DETECTED WITH DEMO_EXECUTION. Terminating EA.");
+         return INIT_FAILED;
+      }
+      Print("⚠ [FEF-HTTP] Real account detected. Strict read-only telemetry only. Execution locked.");
+   }
 
    // Perform immediate initial heartbeat
    PushHeartbeat();

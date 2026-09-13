@@ -52,7 +52,7 @@ export const ExecutionControlCard: React.FC = () => {
           {isMt5Connected ? (
             <span className="text-[8px] bg-emerald-950/60 text-[#34D399] border border-emerald-500/40 px-1.5 py-0.2 rounded flex items-center space-x-1 font-mono font-bold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>EXNESS MT5 (READ ONLY 🔒)</span>
+              <span>{telemetry.operatingMode === 'DEMO_EXECUTION' ? 'EXNESS MT5 (DEMO EXECUTION)' : 'EXNESS MT5 (READ ONLY 🔒)'}</span>
             </span>
           ) : (
             <span className="text-[8px] bg-amber-950/60 text-[#FBBF24] border border-amber-500/40 px-1.5 py-0.2 rounded flex items-center space-x-1 font-mono font-bold">
@@ -60,6 +60,9 @@ export const ExecutionControlCard: React.FC = () => {
               <span>MT5 STANDBY</span>
             </span>
           )}
+          <span className="text-[8px] bg-rose-950/60 text-rose-300 border border-rose-500/40 px-1.5 py-0.2 rounded font-mono font-bold">
+            LIVE LOCKED 🔒
+          </span>
         </div>
       </div>
 
@@ -141,6 +144,8 @@ export const ExecutionControlCard: React.FC = () => {
             ? 'ORDER ARCHIVED TO TRADE JOURNAL (PAPER)'
             : isExecuting
             ? 'SIMULATING EXECUTION GATEWAY...'
+            : isMt5Connected && telemetry.operatingMode === 'DEMO_EXECUTION'
+            ? 'PROCEED TO DEMO EXECUTION GATE ⚡'
             : isMt5Connected
             ? 'MT5 READ-ONLY LOCKED (SIMULATE PAPER ORDER)'
             : '1-CLICK SIMULATE BUY ORDER (PAPER GATE)'}
