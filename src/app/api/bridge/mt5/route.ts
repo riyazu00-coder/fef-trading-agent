@@ -245,9 +245,24 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Demo account verification from bridge state
+      // Demo account & Operating Mode verification from bridge state
       try {
         const bridgeStatus = await mt5HttpClient.getStatus();
+        const effectiveMode = bridgeStatus?.operatingMode || bridgeStatus?.mode || bridgeStatus?.account?.operatingMode;
+        if (effectiveMode !== 'DEMO_EXECUTION') {
+          return NextResponse.json(
+            {
+              success: false,
+              state: 'REJECTED',
+              error: {
+                code: 'READ_ONLY_MODE_ACTIVE',
+                message: `Execution rejected: Authoritative operating mode is '${effectiveMode || 'READ_ONLY'}'. DEMO_EXECUTION required.`
+              }
+            },
+            { status: 403 }
+          );
+        }
+
         if (bridgeStatus?.account && bridgeStatus.account.tradeMode && bridgeStatus.account.tradeMode !== 'DEMO') {
           return NextResponse.json(
             {
@@ -260,6 +275,51 @@ export async function POST(req: NextRequest) {
             },
             { status: 403 }
           );
+        }
+
+        // Quote freshness verification
+        if (bridgeStatus?.quotes) {
+          const brokerSym = params?.brokerSymbol || targetSym;
+          const quote = bridgeStatus.quotes[targetSym] || bridgeStatus.quotes[brokerSym];
+          if (!quote) {
+            return NextResponse.json(
+              {
+                success: false,
+                state: 'REJECTED',
+                error: {
+                  code: 'QUOTE_UNAVAILABLE',
+                  message: `Execution rejected: Broker quote for ${targetSym} is UNAVAILABLE.`
+                }
+              },
+              { status: 403 }
+            );
+          }
+          if (quote.freshness === 'SESSION_CLOSED') {
+            return NextResponse.json(
+              {
+                success: false,
+                state: 'REJECTED',
+                error: {
+                  code: 'SESSION_CLOSED',
+                  message: `Execution rejected: Market session for ${targetSym} is closed.`
+                }
+              },
+              { status: 403 }
+            );
+          }
+          if (quote.freshness === 'STALE' || quote.isStale) {
+            return NextResponse.json(
+              {
+                success: false,
+                state: 'REJECTED',
+                error: {
+                  code: 'STALE_QUOTE',
+                  message: `Execution rejected: Broker quote for ${targetSym} is STALE.`
+                }
+              },
+              { status: 403 }
+            );
+          }
         }
       } catch {}
 

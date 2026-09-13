@@ -257,7 +257,7 @@ async function main() {
     });
     bridgeState.quotes['XAUUSD'].timestamp = prevTs; // Restore
     assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'STALE_QUOTE');
+    assert(res.data.error.code === 'STALE_QUOTE' || res.data.error.code === 'SESSION_CLOSED', 'Must reject with STALE_QUOTE or SESSION_CLOSED');
   });
 
   // -------------------------------------------------------------------------

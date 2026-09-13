@@ -78,17 +78,18 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Format quotes map
       const allQuotes: Record<string, any> = data.quotes || {};
 
-      // Transform raw account to account context
-      const accountContext = deriveAccountRiskContext(data.account, data.positions);
-
-      const rawMode = (data.operatingMode || data.mode || 'READ_ONLY') as 'READ_ONLY' | 'DEMO_EXECUTION';
+      const rawMode = (data.operatingMode || data.mode || data.account?.operatingMode || 'READ_ONLY') as 'READ_ONLY' | 'DEMO_EXECUTION';
+      const isAccountDemo = data.account?.tradeMode !== 'REAL';
       const opMode: 'READ_ONLY' | 'DEMO_EXECUTION' = (
         mt5Online &&
         data.state !== 'MT5_OFFLINE' &&
         rawMode === 'DEMO_EXECUTION' &&
-        accountContext?.tradeMode === 'DEMO'
+        isAccountDemo
       ) ? 'DEMO_EXECUTION' : 'READ_ONLY';
       const isReadOnly = opMode === 'READ_ONLY';
+
+      // Transform raw account to account context with consistent authoritative operating mode
+      const accountContext = deriveAccountRiskContext(data.account, data.positions, opMode);
 
       setTelemetry({
         localBridgeOnline: localOnline,

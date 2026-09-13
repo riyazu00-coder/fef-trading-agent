@@ -214,6 +214,20 @@ export default function ExecutionPage() {
       return;
     }
 
+    const currentQuote = telemetry.allQuotes[activeSymbol] || telemetry.allQuotes[brokerSym];
+    if (!currentQuote) {
+      alert(`EXECUTION REJECTED: Broker quote for ${activeSymbol} is UNAVAILABLE.`);
+      return;
+    }
+    if (currentQuote.freshness === 'SESSION_CLOSED') {
+      alert(`EXECUTION REJECTED: Market session for ${activeSymbol} is closed. Order execution is locked.`);
+      return;
+    }
+    if (currentQuote.freshness === 'STALE' || currentQuote.isStale) {
+      alert(`EXECUTION REJECTED: Broker quote for ${activeSymbol} is STALE. Demo execution requires a verified FRESH broker quote.`);
+      return;
+    }
+
     // Launch Human Review & Authorization Modal
     setIsReviewModalOpen(true);
   };
@@ -221,6 +235,20 @@ export default function ExecutionPage() {
   const confirmAndExecuteOnDemo = async () => {
     if (telemetry.operatingMode !== 'DEMO_EXECUTION' || !isMt5Connected) {
       alert('EXECUTION REJECTED: Operating mode is READ_ONLY or MT5 is disconnected. Orders cannot be sent.');
+      return;
+    }
+
+    const currentQuote = telemetry.allQuotes[activeSymbol] || telemetry.allQuotes[brokerSym];
+    if (!currentQuote) {
+      alert(`EXECUTION REJECTED: Broker quote for ${activeSymbol} is UNAVAILABLE.`);
+      return;
+    }
+    if (currentQuote.freshness === 'SESSION_CLOSED') {
+      alert(`EXECUTION REJECTED: Market session for ${activeSymbol} is closed.`);
+      return;
+    }
+    if (currentQuote.freshness === 'STALE' || currentQuote.isStale) {
+      alert(`EXECUTION REJECTED: Broker quote for ${activeSymbol} is STALE.`);
       return;
     }
 

@@ -52,7 +52,7 @@ export const ExecutionControlCard: React.FC = () => {
           {isMt5Connected ? (
             <span className="text-[8px] bg-emerald-950/60 text-[#34D399] border border-emerald-500/40 px-1.5 py-0.2 rounded flex items-center space-x-1 font-mono font-bold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>{telemetry.operatingMode === 'DEMO_EXECUTION' ? 'EXNESS MT5 (DEMO EXECUTION)' : 'EXNESS MT5 (READ ONLY 🔒)'}</span>
+              <span>{`${telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER' ? telemetry.account.broker : 'MT5'} (${telemetry.operatingMode === 'DEMO_EXECUTION' ? 'DEMO EXECUTION' : 'READ ONLY 🔒'})`}</span>
             </span>
           ) : (
             <span className="text-[8px] bg-amber-950/60 text-[#FBBF24] border border-amber-500/40 px-1.5 py-0.2 rounded flex items-center space-x-1 font-mono font-bold">

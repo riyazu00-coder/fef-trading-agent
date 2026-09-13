@@ -46,7 +46,7 @@ const bridgeState = {
     accountLogin: '00***00',
     currency: 'USD',
     magic: 8882026,
-    terminalConnected: false,
+    terminalConnected: true,
   },
   account: {
     maskedLogin: '00***00',
@@ -184,6 +184,160 @@ function isHeartbeatFresh() {
   return (Date.now() - bridgeState.lastHeartbeat) < HEARTBEAT_TIMEOUT_MS;
 }
 
+// Authoritative Single-Source Operating Mode
+function getAuthoritativeOperatingMode() {
+  const isConnected = isHeartbeatFresh();
+  if (!isConnected) {
+    return 'READ_ONLY';
+  }
+  // REAL account hard-lock
+  if (bridgeState.account && String(bridgeState.account.tradeMode).toUpperCase() === 'REAL') {
+    return 'READ_ONLY';
+  }
+  // Terminal disconnected check
+  if (bridgeState.terminal && bridgeState.terminal.terminalConnected === false) {
+    return 'READ_ONLY';
+  }
+  // DEMO account + connected + fresh heartbeat + valid bridge state -> DEMO_EXECUTION
+  if (bridgeState.operatingMode === 'DEMO_EXECUTION' && bridgeState.account && String(bridgeState.account.tradeMode).toUpperCase() === 'DEMO') {
+    return 'DEMO_EXECUTION';
+  }
+  return 'READ_ONLY';
+}
+
+// Institutional Market Session Evaluator (UTC-based)
+function isMarketSessionOpen(symbol, now = new Date()) {
+  const s = String(symbol || '').toUpperCase().trim();
+  // Crypto is 24/7 (BTC, ETH, SOL, XRP, BNB, etc.)
+  if (s.startsWith('BTC') || s.startsWith('ETH') || s.startsWith('SOL') || s.startsWith('XRP') || s.startsWith('BNB') || s.includes('CRYPTO')) {
+    return true;
+  }
+
+  const dayOfWeek = now.getUTCDay(); // 0 = Sun, 1 = Mon, ..., 5 = Fri, 6 = Sat
+  const hour = now.getUTCHours();
+  const minute = now.getUTCMinutes();
+  const totalMins = hour * 60 + minute;
+
+  // Saturday: All non-crypto markets are closed
+  if (dayOfWeek === 6) {
+    return false;
+  }
+
+  // Metals (XAUUSD, XAGUSD, GOLD, SILVER)
+  if (s.startsWith('XAU') || s.startsWith('XAG') || s.includes('GOLD') || s.includes('SILVER')) {
+    // Sunday: Opens at 23:00 UTC
+    if (dayOfWeek === 0) {
+      return totalMins >= 23 * 60;
+    }
+    // Friday: Closes at 21:55 UTC
+    if (dayOfWeek === 5) {
+      return totalMins < 21 * 60 + 55;
+    }
+    // Mon-Thu: Daily maintenance break 21:00-22:00 UTC
+    if (totalMins >= 21 * 60 && totalMins < 22 * 60) {
+      return false;
+    }
+    return true;
+  }
+
+  // Forex (EURUSD, GBPUSD, USDJPY, AUDUSD, etc.)
+  if (s.length === 6 || s.includes('USD') || s.includes('EUR') || s.includes('GBP') || s.includes('JPY')) {
+    // Sunday: Opens at 21:05 UTC
+    if (dayOfWeek === 0) {
+      return totalMins >= 21 * 60 + 5;
+    }
+    // Friday: Closes at 21:55 UTC
+    if (dayOfWeek === 5) {
+      return totalMins < 21 * 60 + 55;
+    }
+    return true;
+  }
+
+  // US Indices (US30, US100, US500, etc.)
+  if (s.startsWith('US30') || s.startsWith('US100') || s.startsWith('US500') || s.includes('WS30') || s.includes('DJ30') || s.includes('NAS100') || s.includes('SPX')) {
+    if (dayOfWeek === 0) {
+      return totalMins >= 23 * 60;
+    }
+    if (dayOfWeek === 5) {
+      return totalMins < 21 * 60;
+    }
+    if (totalMins >= 21 * 60 && totalMins < 22 * 60) {
+      return false;
+    }
+    return true;
+  }
+
+  // Energies (USOIL, WTI, etc.)
+  if (s.includes('OIL') || s.includes('WTI') || s.includes('CRUDE')) {
+    if (dayOfWeek === 0) {
+      return totalMins >= 23 * 60;
+    }
+    if (dayOfWeek === 5) {
+      return totalMins < 21 * 60;
+    }
+    if (totalMins >= 21 * 60 && totalMins < 22 * 60) {
+      return false;
+    }
+    return true;
+  }
+
+  return true;
+}
+
+// Quote Freshness Evaluator (Asset- & Session-Aware)
+function evaluateQuoteFreshness(symbol, quote, nowMs = Date.now()) {
+  if (!quote || typeof quote !== 'object' || !quote.bid || quote.bid <= 0 || !quote.ask || quote.ask <= 0) {
+    return {
+      freshness: 'UNAVAILABLE',
+      isStale: true,
+      ageMs: Infinity,
+      reason: 'NO_QUOTE_DATA'
+    };
+  }
+
+  const quoteTimeMs = Number(quote.timestamp || (quote.time ? new Date(quote.time).getTime() : 0));
+  const ageMs = quoteTimeMs > 0 ? Math.max(0, nowMs - quoteTimeMs) : Infinity;
+
+  const upper = String(symbol || quote.canonicalSymbol || '').toUpperCase().trim();
+  const isCrypto = upper.startsWith('BTC') || upper.startsWith('ETH') || upper.startsWith('SOL') || upper.startsWith('XRP') || upper.startsWith('BNB') || upper.includes('CRYPTO');
+
+  // Freshness thresholds:
+  // Crypto: 30s (24/7)
+  // Metals / Forex: 30s
+  // Indices / Energies: 45s
+  const freshnessThresholdMs = isCrypto ? 30000 : (upper.startsWith('US30') || upper.startsWith('US500') || upper.startsWith('US100') || upper.includes('OIL') ? 45000 : 30000);
+
+  const sessionOpen = isMarketSessionOpen(upper, new Date(nowMs));
+
+  // If session/market closed and quote not updating:
+  if (!sessionOpen && ageMs > freshnessThresholdMs) {
+    return {
+      freshness: 'SESSION_CLOSED',
+      isStale: true,
+      ageMs,
+      reason: 'MARKET_SESSION_CLOSED'
+    };
+  }
+
+  // If market should be trading (or crypto 24/7) but quote age exceeds freshness threshold:
+  if (ageMs > freshnessThresholdMs) {
+    return {
+      freshness: sessionOpen ? 'STALE' : 'SESSION_CLOSED',
+      isStale: true,
+      ageMs,
+      reason: sessionOpen ? 'QUOTE_AGE_EXCEEDED' : 'MARKET_SESSION_CLOSED'
+    };
+  }
+
+  // If quote age is within threshold:
+  return {
+    freshness: 'FRESH',
+    isStale: false,
+    ageMs,
+    reason: 'LIVE_FEED_UPDATING'
+  };
+}
+
 // HTTP Request Handler
 async function handleHttpRequest(req, res) {
   // CORS Preflight
@@ -266,6 +420,10 @@ async function handleHttpRequest(req, res) {
       bridgeState.account.operatingMode = 'READ_ONLY';
     }
 
+    const authMode = getAuthoritativeOperatingMode();
+    bridgeState.operatingMode = authMode;
+    bridgeState.account.operatingMode = authMode;
+
     if (bridgeState.heartbeatCount % 30 === 1) {
       console.log(`[FEF-HTTP] MT5 heartbeat received from ${bridgeState.terminal.broker} build ${bridgeState.terminal.build} (${bridgeState.terminal.accountLogin}) | Canonical Mode: ${bridgeState.operatingMode}`);
     }
@@ -337,12 +495,8 @@ async function handleHttpRequest(req, res) {
     if (reportedTradeMode === 'REAL') {
       console.warn('⚠️ [FEF-HTTP-SECURITY] REAL account telemetry received! Hard-locking to READ_ONLY.');
       bridgeState.operatingMode = 'READ_ONLY';
-      bridgeState.account.operatingMode = 'READ_ONLY';
     } else if (body.operatingMode === 'DEMO_EXECUTION' && reportedTradeMode === 'DEMO') {
       bridgeState.operatingMode = 'DEMO_EXECUTION';
-      bridgeState.account.operatingMode = 'DEMO_EXECUTION';
-    } else {
-      bridgeState.account.operatingMode = bridgeState.operatingMode;
     }
 
     bridgeState.account = {
@@ -359,15 +513,19 @@ async function handleHttpRequest(req, res) {
       leverage: Number(body.leverage || 100),
       tradeAllowed: Boolean(body.tradeAllowed),
       terminalBuild: Number(body.terminalBuild || bridgeState.terminal.build),
-      operatingMode: bridgeState.operatingMode,
+      operatingMode: 'READ_ONLY', // will be synced with authoritative mode below
       lastUpdated: Date.now(),
     };
+
+    const authMode = getAuthoritativeOperatingMode();
+    bridgeState.operatingMode = authMode;
+    bridgeState.account.operatingMode = authMode;
 
     return sendJson(res, 200, {
       success: true,
       stored: 'account',
-      mode: bridgeState.operatingMode,
-      operatingMode: bridgeState.operatingMode,
+      mode: authMode,
+      operatingMode: authMode,
     });
   }
 
@@ -381,7 +539,10 @@ async function handleHttpRequest(req, res) {
     for (const q of quoteList) {
       if (q && (q.canonicalSymbol || q.brokerSymbol)) {
         const canonical = q.canonicalSymbol || q.brokerSymbol;
-        bridgeState.quotes[canonical] = {
+        const qTimestamp = q.timestamp || (q.time ? new Date(q.time).getTime() : now);
+        const evalResult = evaluateQuoteFreshness(canonical, { ...q, timestamp: qTimestamp }, now);
+
+        const storedQuote = {
           canonicalSymbol: canonical,
           brokerSymbol: q.brokerSymbol || canonical,
           bid: Number(q.bid || 0),
@@ -389,12 +550,17 @@ async function handleHttpRequest(req, res) {
           spread: Number(q.spread || 0),
           digits: Number(q.digits || 2),
           point: Number(q.point || 0.01),
-          time: q.time || new Date().toISOString(),
-          timestamp: q.timestamp || now,
-          freshness: 'FRESH',
+          time: q.time || new Date(qTimestamp).toISOString(),
+          timestamp: qTimestamp,
+          freshness: evalResult.freshness,
+          isStale: evalResult.isStale,
+          ageMs: evalResult.ageMs,
+          freshnessReason: evalResult.reason,
         };
+
+        bridgeState.quotes[canonical] = storedQuote;
         if (q.brokerSymbol) {
-          bridgeState.quotes[q.brokerSymbol] = bridgeState.quotes[canonical];
+          bridgeState.quotes[q.brokerSymbol] = storedQuote;
         }
       }
     }
@@ -485,14 +651,28 @@ async function handleHttpRequest(req, res) {
   if (req.method === 'GET' && (urlPath === '/api/status' || urlPath === '/mt5/status' || urlPath === '/')) {
     const isConnected = isHeartbeatFresh();
     const ageMs = bridgeState.lastHeartbeat ? (Date.now() - bridgeState.lastHeartbeat) : null;
+    const now = Date.now();
 
-    // Fail-safe: If MT5 heartbeat becomes stale or terminal disconnects, execution is unavailable
-    if (!isConnected && bridgeState.operatingMode !== 'READ_ONLY') {
-      bridgeState.operatingMode = 'READ_ONLY';
-      bridgeState.account.operatingMode = 'READ_ONLY';
+    const effectiveMode = getAuthoritativeOperatingMode();
+    bridgeState.operatingMode = effectiveMode;
+    if (bridgeState.account) {
+      bridgeState.account.operatingMode = effectiveMode;
     }
 
-    const effectiveMode = isConnected ? bridgeState.operatingMode : 'READ_ONLY';
+    // Dynamically evaluate freshness for all quotes at query time
+    const enrichedQuotes = {};
+    for (const [key, quote] of Object.entries(bridgeState.quotes)) {
+      if (quote) {
+        const evalResult = evaluateQuoteFreshness(quote.canonicalSymbol || key, quote, now);
+        enrichedQuotes[key] = {
+          ...quote,
+          freshness: evalResult.freshness,
+          isStale: evalResult.isStale,
+          ageMs: evalResult.ageMs,
+          freshnessReason: evalResult.reason,
+        };
+      }
+    }
 
     return sendJson(res, 200, {
       success: true,
@@ -507,12 +687,18 @@ async function handleHttpRequest(req, res) {
       heartbeatCount: bridgeState.heartbeatCount,
       host: HOST,
       port: PORT,
-      terminal: bridgeState.terminal,
-      account: bridgeState.account,
+      terminal: {
+        ...bridgeState.terminal,
+        operatingMode: effectiveMode,
+      },
+      account: bridgeState.account ? {
+        ...bridgeState.account,
+        operatingMode: effectiveMode,
+      } : bridgeState.account,
       activePositionsCount: bridgeState.positions.length,
       activeOrdersCount: bridgeState.orders.length,
-      quotesAvailable: Object.keys(bridgeState.quotes).length,
-      quotes: bridgeState.quotes,
+      quotesAvailable: Object.keys(enrichedQuotes).length,
+      quotes: enrichedQuotes,
       positions: bridgeState.positions,
       orders: bridgeState.orders,
       sessions: bridgeState.sessions,
@@ -586,23 +772,8 @@ async function handleHttpRequest(req, res) {
         });
       }
 
-      // 2. Canonical operating mode check: MUST be DEMO_EXECUTION
-      if (bridgeState.operatingMode !== 'DEMO_EXECUTION') {
-        return sendJson(res, 200, {
-          reqId,
-          command: 'PLACE_ORDER',
-          success: false,
-          state: 'CONNECTED_READ_ONLY',
-          error: {
-            code: 'READ_ONLY_LOCK_ACTIVE',
-            message: "Write action 'PLACE_ORDER' rejected: FEF MT5 Bridge is in READ_ONLY mode. EA must report DEMO_EXECUTION on a verified DEMO account."
-          },
-          timestamp: Date.now(),
-        });
-      }
-
-      // 3. Demo account verification requirement
-      if (bridgeState.account.tradeMode !== 'DEMO') {
+      // 2. Demo account verification requirement
+      if (bridgeState.account && bridgeState.account.tradeMode !== 'DEMO') {
         bridgeState.operatingMode = 'READ_ONLY';
         bridgeState.account.operatingMode = 'READ_ONLY';
         return sendJson(res, 200, {
@@ -613,6 +784,24 @@ async function handleHttpRequest(req, res) {
           error: {
             code: 'NOT_DEMO_ACCOUNT',
             message: 'Execution rejected: Connected MT5 account is not verified as a DEMO account.'
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      // 3. Canonical operating mode check: MUST be DEMO_EXECUTION
+      const authMode = getAuthoritativeOperatingMode();
+      if (authMode !== 'DEMO_EXECUTION') {
+        bridgeState.operatingMode = authMode;
+        if (bridgeState.account) bridgeState.account.operatingMode = authMode;
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'CONNECTED_READ_ONLY',
+          error: {
+            code: 'READ_ONLY_LOCK_ACTIVE',
+            message: "Write action 'PLACE_ORDER' rejected: FEF MT5 Bridge is in READ_ONLY mode. EA must report DEMO_EXECUTION on a verified DEMO account."
           },
           timestamp: Date.now(),
         });
@@ -697,39 +886,66 @@ async function handleHttpRequest(req, res) {
       }
 
       // 7. Quote validation & freshness
-      const quote = bridgeState.quotes[sym] || bridgeState.quotes[body.symbol || ''] || null;
-      if (quote) {
-        const quoteAge = Date.now() - (quote.timestamp || Date.now());
-        if (quoteAge > 20000) {
-          return sendJson(res, 200, {
-            reqId,
-            command: 'PLACE_ORDER',
-            success: false,
-            state: 'REJECTED',
-            error: {
-              code: 'STALE_QUOTE',
-              message: `Order rejected: broker quote for ${sym} is stale (${Math.round(quoteAge / 1000)}s old).`
-            },
-            timestamp: Date.now(),
-          });
-        }
-        if (quote.spread > 50) {
-          return sendJson(res, 200, {
-            reqId,
-            command: 'PLACE_ORDER',
-            success: false,
-            state: 'REJECTED',
-            error: {
-              code: 'WIDE_SPREAD',
-              message: `Order rejected: broker spread (${quote.spread} pips) exceeds maximum threshold.`
-            },
-            timestamp: Date.now(),
-          });
-        }
+      const rawQuote = bridgeState.quotes[sym] || bridgeState.quotes[body.symbol || ''] || null;
+      if (!rawQuote) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'QUOTE_UNAVAILABLE',
+            message: `Order rejected: No broker quote available for ${sym}.`
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      const evalResult = evaluateQuoteFreshness(sym, rawQuote, Date.now());
+      if (evalResult.freshness === 'SESSION_CLOSED') {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'SESSION_CLOSED',
+            message: `Order rejected: Market session for ${sym} is currently closed.`
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      if (evalResult.freshness === 'STALE' || evalResult.isStale) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'STALE_QUOTE',
+            message: `Order rejected: broker quote for ${sym} is stale (${Math.round(evalResult.ageMs / 1000)}s old). Fresh live quote is strictly required.`
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      if (rawQuote.spread > 50) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'PLACE_ORDER',
+          success: false,
+          state: 'REJECTED',
+          error: {
+            code: 'WIDE_SPREAD',
+            message: `Order rejected: broker spread (${rawQuote.spread} pips) exceeds maximum threshold.`
+          },
+          timestamp: Date.now(),
+        });
       }
 
       // 8. Free margin check
-      const estPrice = quote ? quote.ask : (Number(params.price || body.price) || 2650);
+      const estPrice = rawQuote ? rawQuote.ask : (Number(params.price || body.price) || 2650);
       const estMarginRequired = (volume * 100 * estPrice) / 500;
       if (bridgeState.account.freeMargin < estMarginRequired || (bridgeState.account.freeMargin > 0 && bridgeState.account.freeMargin < 20)) {
         return sendJson(res, 200, {
@@ -754,7 +970,7 @@ async function handleHttpRequest(req, res) {
         direction,
         orderType: direction === 'BUY' ? 'MARKET_BUY' : 'MARKET_SELL',
         volume,
-        entryReference: Number(params.entryReference || body.price || (quote ? quote.bid : 0)),
+        entryReference: Number(params.entryReference || body.price || (rawQuote ? rawQuote.bid : 0)),
         stopLoss: sl,
         takeProfit: tp,
         magic: Number(params.magic || bridgeState.terminal.magic || 8882026),
@@ -807,18 +1023,22 @@ async function handleHttpRequest(req, res) {
     }
 
     const isConnected = isHeartbeatFresh();
+    const authMode = getAuthoritativeOperatingMode();
+    bridgeState.operatingMode = authMode;
+    if (bridgeState.account) bridgeState.account.operatingMode = authMode;
 
     if (command === 'PING') {
       return sendJson(res, 200, {
         reqId,
         command: 'PING',
         success: true,
-        state: isConnected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+        state: isConnected ? (authMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY') : 'MT5_OFFLINE',
         data: {
           status: 'PONG',
           transport: 'HTTP / WEBREQUEST',
           localBridge: 'ONLINE',
           mt5Connected: isConnected,
+          operatingMode: authMode,
           heartbeatAgeMs: bridgeState.lastHeartbeat ? Date.now() - bridgeState.lastHeartbeat : null,
           terminalBuild: bridgeState.terminal.build,
           serverTime: new Date().toISOString(),
@@ -833,7 +1053,7 @@ async function handleHttpRequest(req, res) {
         reqId,
         command: 'GET_TERMINAL_STATUS',
         success: true,
-        state: isConnected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+        state: isConnected ? (authMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY') : 'MT5_OFFLINE',
         data: {
           terminalConnected: bridgeState.terminal.terminalConnected,
           brokerConnected: isConnected && bridgeState.terminal.terminalConnected,
@@ -845,7 +1065,7 @@ async function handleHttpRequest(req, res) {
           pingToBrokerMs: 12,
           bridgeVersion: '1.2.0-HTTP',
           transport: 'HTTP / WEBREQUEST',
-          operatingMode: 'READ_ONLY',
+          operatingMode: authMode,
           heartbeatAgeMs: bridgeState.lastHeartbeat ? Date.now() - bridgeState.lastHeartbeat : null,
           lastHeartbeat: bridgeState.lastHeartbeat ? new Date(bridgeState.lastHeartbeat).toISOString() : null,
         },
@@ -854,11 +1074,14 @@ async function handleHttpRequest(req, res) {
     }
 
     if (command === 'GET_ACCOUNT') {
+      if (bridgeState.account) {
+        bridgeState.account.operatingMode = authMode;
+      }
       return sendJson(res, 200, {
         reqId,
         command: 'GET_ACCOUNT',
         success: true,
-        state: isConnected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+        state: isConnected ? (authMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY') : 'MT5_OFFLINE',
         data: bridgeState.account,
         timestamp: Date.now(),
       });
@@ -866,13 +1089,13 @@ async function handleHttpRequest(req, res) {
 
     if (command === 'GET_QUOTE') {
       const sym = body.symbol || 'XAUUSD';
-      const quote = bridgeState.quotes[sym] || null;
-      if (!quote) {
+      const rawQuote = bridgeState.quotes[sym] || null;
+      if (!rawQuote) {
         return sendJson(res, 200, {
           reqId,
           command: 'GET_QUOTE',
           success: false,
-          state: isConnected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+          state: isConnected ? (authMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY') : 'MT5_OFFLINE',
           error: {
             code: 'QUOTE_NOT_AVAILABLE',
             message: `No active quote pushed for symbol ${sym}`,
@@ -880,12 +1103,22 @@ async function handleHttpRequest(req, res) {
           timestamp: Date.now(),
         });
       }
+
+      const evalResult = evaluateQuoteFreshness(rawQuote.canonicalSymbol || sym, rawQuote, Date.now());
+      const enriched = {
+        ...rawQuote,
+        freshness: evalResult.freshness,
+        isStale: evalResult.isStale,
+        ageMs: evalResult.ageMs,
+        freshnessReason: evalResult.reason,
+      };
+
       return sendJson(res, 200, {
         reqId,
         command: 'GET_QUOTE',
         success: true,
-        state: isConnected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
-        data: quote,
+        state: isConnected ? (authMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY') : 'MT5_OFFLINE',
+        data: enriched,
         timestamp: Date.now(),
       });
     }
@@ -1026,4 +1259,7 @@ module.exports = {
   pendingOrdersQueue,
   orderWaiters,
   setOperatingMode,
+  getAuthoritativeOperatingMode,
+  isMarketSessionOpen,
+  evaluateQuoteFreshness,
 };

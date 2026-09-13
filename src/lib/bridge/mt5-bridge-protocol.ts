@@ -174,7 +174,10 @@ export interface MT5AccountInfo {
   tradeAllowed: boolean;
   soCall: number;
   soStop: number;
+  operatingMode?: 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION';
 }
+
+export type QuoteFreshnessState = 'FRESH' | 'STALE' | 'SESSION_CLOSED' | 'UNAVAILABLE';
 
 export interface MT5QuoteData {
   canonicalSymbol: string; // e.g. "XAUUSD"
@@ -185,7 +188,11 @@ export interface MT5QuoteData {
   digits: number;
   point: number;
   time: string;
+  timestamp?: number;
   isStale: boolean;
+  freshness?: QuoteFreshnessState;
+  ageMs?: number;
+  freshnessReason?: string;
 }
 
 export interface MT5SymbolSpecification {

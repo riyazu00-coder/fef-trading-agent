@@ -25,6 +25,7 @@ export type QuoteMatchStatus =
   | 'NORMAL_BROKER_DIFFERENCE'
   | 'WIDE_SPREAD'
   | 'STALE_MT5_QUOTE'
+  | 'SESSION_CLOSED'
   | 'BROKER_UNAVAILABLE';
 
 export interface BrokerQuoteComparison {
@@ -57,6 +58,7 @@ export interface MT5AccountContext extends MT5AccountInfo {
   floatingPnl: number;
   floatingPnlPct: number;
   isDemo: boolean;
+  operatingMode: 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION';
 }
 
 export interface MT5ActiveSymbolTelemetry {
@@ -116,9 +118,14 @@ export function compareBrokerQuote(
     };
   }
 
-  const quoteTime = brokerQuote.time ? new Date(brokerQuote.time).getTime() : now;
-  const ageMs = now - (isNaN(quoteTime) ? now : quoteTime);
-  const isStale = ageMs > staleThresholdMs || Boolean(brokerQuote.isStale);
+  const quoteTime = brokerQuote.timestamp || (brokerQuote.time ? new Date(brokerQuote.time).getTime() : now);
+  const calculatedAge = now - (isNaN(quoteTime) ? now : quoteTime);
+  const ageMs = typeof brokerQuote.ageMs === 'number' ? brokerQuote.ageMs : calculatedAge;
+  const isStale = brokerQuote.freshness === 'SESSION_CLOSED'
+    ? true
+    : brokerQuote.freshness === 'STALE'
+      ? true
+      : (ageMs > staleThresholdMs || Boolean(brokerQuote.isStale));
 
   const brokerMid = (brokerQuote.bid + brokerQuote.ask) / 2;
   const pointDiff = Math.abs(publicPrice - brokerMid);
@@ -130,7 +137,10 @@ export function compareBrokerQuote(
   let status: QuoteMatchStatus = 'MATCHED';
   let statusLabel = 'VERIFIED MATCH';
 
-  if (isStale) {
+  if (brokerQuote.freshness === 'SESSION_CLOSED') {
+    status = 'SESSION_CLOSED';
+    statusLabel = 'SESSION CLOSED';
+  } else if (isStale) {
     status = 'STALE_MT5_QUOTE';
     statusLabel = 'STALE BROKER FEED';
   } else if (brokerQuote.spread > 50 || spreadPips > 5.0) {
@@ -166,7 +176,8 @@ export function compareBrokerQuote(
  */
 export function deriveAccountRiskContext(
   account: Partial<MT5AccountInfo> | null | undefined,
-  positions: MT5PositionItem[] = []
+  positions: MT5PositionItem[] = [],
+  effectiveOperatingMode?: 'READ_ONLY' | 'DEMO_EXECUTION'
 ): MT5AccountContext | null {
   if (!account || typeof account.balance !== 'number') {
     return null;
@@ -198,13 +209,25 @@ export function deriveAccountRiskContext(
     marginStressLevel = 'SAFE';
   }
 
+  const tradeMode = account.tradeMode === 'REAL' ? 'REAL' : 'DEMO';
+  const isDemo = tradeMode !== 'REAL';
+
+  let authoritativeOperatingMode: 'READ_ONLY' | 'DEMO_EXECUTION' = 'READ_ONLY';
+  if (!isDemo) {
+    authoritativeOperatingMode = 'READ_ONLY';
+  } else if (effectiveOperatingMode) {
+    authoritativeOperatingMode = effectiveOperatingMode === 'DEMO_EXECUTION' ? 'DEMO_EXECUTION' : 'READ_ONLY';
+  } else if (account.operatingMode === 'DEMO_EXECUTION') {
+    authoritativeOperatingMode = 'DEMO_EXECUTION';
+  }
+
   return {
     maskedLogin: account.maskedLogin || '00***00',
     company: account.company || (account as any).broker || 'UNKNOWN BROKER',
     broker: (account as any).broker || account.company || 'UNKNOWN BROKER',
     server: account.server || 'MT5 SERVER',
     currency: account.currency || 'USD',
-    tradeMode: account.tradeMode === 'REAL' ? 'REAL' : 'DEMO',
+    tradeMode,
     balance,
     equity,
     margin,
@@ -219,7 +242,8 @@ export function deriveAccountRiskContext(
     equityToBalanceRatio: Number(equityToBalanceRatio.toFixed(4)),
     floatingPnl: Number(floatingPnl.toFixed(2)),
     floatingPnlPct: Number(floatingPnlPct.toFixed(2)),
-    isDemo: account.tradeMode !== 'REAL'
+    isDemo,
+    operatingMode: authoritativeOperatingMode
   };
 }
 
