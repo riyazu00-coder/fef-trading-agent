@@ -3,6 +3,7 @@
 import React from 'react';
 import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
+import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
 import { LiveTickerStrip } from '@/components/cockpit/LiveTickerStrip';
 import { MarketOverviewCard } from '@/components/cockpit/MarketOverviewCard';
 import { EconomicEventsCard } from '@/components/cockpit/EconomicEventsCard';
@@ -36,10 +37,13 @@ export default function CockpitPage() {
         {/* 1. Global Navigation Bar */}
         <MasterTopNav />
 
-        {/* 2. Live Asset Ticker Strip */}
+        {/* 2. Market Category Filter Bar */}
+        <MarketCategoryFilterBar />
+
+        {/* 3. Full-Width Live Asset Ticker Strip */}
         <LiveTickerStrip />
 
-        {/* 3. Master 3-Column Cockpit Grid (Independent Column Flow) */}
+        {/* 4. Master 3-Column Cockpit Grid (Independent Column Flow) */}
         <main className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-start">
           {/* LEFT COLUMN (3 cols on lg) */}
           <section className="lg:col-span-3 space-y-2.5 flex flex-col">
