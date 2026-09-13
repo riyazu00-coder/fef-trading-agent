@@ -337,21 +337,14 @@ export const MasterTopNav: React.FC = () => {
             )}
           </button>
 
-          {/* User avatar + Ghost Cockpit status */}
-          <Link href="/settings" className="flex items-center space-x-2.5 pl-2 border-l border-white/10 hover:opacity-90 transition-opacity">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-600 to-blue-800 border border-cyan-400/40 flex items-center justify-center font-bold text-[10px] text-white shadow-sm">
+          {/* User avatar / Settings profile link */}
+          <Link
+            href="/settings"
+            className="flex items-center pl-2 border-l border-white/10 hover:opacity-90 transition-opacity cursor-pointer flex-shrink-0"
+            title="Settings & System Diagnostics"
+          >
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-600 to-blue-800 border border-cyan-400/40 flex items-center justify-center font-bold text-[10px] text-white shadow-sm hover:border-cyan-400 transition-colors">
               FEF
-            </div>
-            <div className="hidden sm:block text-right leading-tight">
-              <div className="flex items-center justify-end space-x-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[10px] font-bold text-white tracking-wide">
-                  GHOST GLASS COCKPIT
-                </span>
-              </div>
-              <p className="text-[7.5px] font-mono text-cyan-400 tracking-wider">
-                REAL-TIME • INTELLIGENCE • EXECUTION
-              </p>
             </div>
           </Link>
 

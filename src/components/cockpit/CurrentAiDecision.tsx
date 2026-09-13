@@ -10,6 +10,49 @@ export const CurrentAiDecision: React.FC = () => {
   const isBuy = assetProfile.setupDirection.includes('BUY');
   const isSell = assetProfile.setupDirection.includes('SELL');
 
+  const isMarketClosed = !assetProfile.tradeExecutable || assetProfile.sessionState?.tradeExecutable === false;
+  const actionability: string | undefined = assetProfile.actionabilityState;
+  const isActionable = actionability === 'ACTIONABLE' && !isMarketClosed;
+
+  // Determine button presentation state based on canonical actionability
+  let buttonLabel = status === 'APPROVED' ? 'APPROVED & READY' : 'Approve & Execute';
+  let buttonIcon = '✓';
+  let buttonStyle = 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)] cursor-pointer border-emerald-400/30';
+  let buttonTitle: string | undefined = undefined;
+  let supportingText: string | null = null;
+
+  if (isMarketClosed) {
+    buttonLabel = 'MARKET CLOSED';
+    buttonIcon = '🔒';
+    buttonStyle = 'bg-gray-900/80 text-gray-500 border-white/10 cursor-not-allowed opacity-80';
+    buttonTitle = 'Execution locked: market session is closed';
+    supportingText = 'Market closed • Revalidates at next open';
+  } else if (actionability === 'ANALYSIS ONLY') {
+    buttonLabel = 'ANALYSIS ONLY';
+    buttonIcon = '🔒';
+    buttonStyle = 'bg-cyan-950/40 text-cyan-400/70 border-cyan-500/20 cursor-not-allowed opacity-85';
+    buttonTitle = `Analysis only: Evidence Trust is ${assetProfile.evidenceTrust ?? 0}% (minimum 60% required)`;
+    supportingText = `Evidence Trust ${assetProfile.evidenceTrust ?? 0}% • 60% required`;
+  } else if (actionability === 'RESTRICTED') {
+    buttonLabel = 'RESTRICTED';
+    buttonIcon = '🔒';
+    buttonStyle = 'bg-rose-950/40 text-rose-400/70 border-rose-500/20 cursor-not-allowed opacity-85';
+    buttonTitle = 'Risk Guardian restricted: portfolio or volatility exposure limit';
+    supportingText = 'Risk Guardian locked • Exposure cap enforced';
+  } else if (actionability === 'INVALIDATED') {
+    buttonLabel = 'INVALIDATED';
+    buttonIcon = '🔒';
+    buttonStyle = 'bg-rose-950/40 text-rose-400/70 border-rose-500/20 cursor-not-allowed opacity-85';
+    buttonTitle = 'Technical invalidation price breached';
+    supportingText = 'Setup invalidated • Invalidation level reached';
+  } else if (!isActionable) {
+    buttonLabel = 'EXECUTION LOCKED';
+    buttonIcon = '🔒';
+    buttonStyle = 'bg-amber-950/40 text-amber-400/70 border-amber-500/20 cursor-not-allowed opacity-85';
+    buttonTitle = 'Execution locked: awaiting actionable setup';
+    supportingText = 'Awaiting verified actionable setup';
+  }
+
   return (
     <div className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-3">
       {/* Header */}
@@ -79,6 +122,11 @@ export const CurrentAiDecision: React.FC = () => {
               {!assetProfile.tradeExecutable && (
                 <span className="text-rose-400 font-mono font-bold text-[8.5px] border border-rose-500/30 px-1 rounded bg-rose-950/40">
                   REFERENCE ONLY
+                </span>
+              )}
+              {assetProfile.tradeExecutable && assetProfile.actionabilityState === 'ANALYSIS ONLY' && (
+                <span className="text-cyan-400 font-mono font-bold text-[8.5px] border border-cyan-500/40 px-1 rounded bg-cyan-950/40">
+                  ANALYSIS ONLY
                 </span>
               )}
             </div>
@@ -152,39 +200,41 @@ export const CurrentAiDecision: React.FC = () => {
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-1.5 pt-1 text-[9.5px]">
-        <button
-          onClick={() => assetProfile.tradeExecutable && setStatus('APPROVED')}
-          disabled={!assetProfile.tradeExecutable}
-          className={`flex-1 py-1.5 rounded-xl font-black transition-all flex items-center justify-center space-x-1 border ${
-            !assetProfile.tradeExecutable
-              ? 'bg-gray-900/80 text-gray-500 border-white/10 cursor-not-allowed opacity-80'
-              : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)] cursor-pointer border-emerald-400/30'
-          }`}
-          title={!assetProfile.tradeExecutable ? 'Execution locked while market is closed' : undefined}
-        >
-          <span>{!assetProfile.tradeExecutable ? '🔒' : '✓'}</span>
-          <span>
-            {!assetProfile.tradeExecutable
-              ? 'EXECUTION LOCKED'
-              : status === 'APPROVED'
-              ? 'APPROVED & READY'
-              : 'Approve & Execute'}
-          </span>
-        </button>
-        <button
-          onClick={() => alert(`Setup for ${activeSymbol}:\nEntry: ${assetProfile.entryZone[0]} - ${assetProfile.entryZone[1]}\nSL: ${assetProfile.stopLoss}\nTP: ${assetProfile.tp1}`)}
-          className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 transition-all cursor-pointer"
-        >
-          Modify
-        </button>
-        <button
-          onClick={() => setStatus('REJECTED')}
-          className="px-2.5 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-950/60 text-rose-400 border border-rose-500/40 transition-all flex items-center space-x-1 cursor-pointer"
-        >
-          <span>✕</span>
-          <span>{status === 'REJECTED' ? 'REJECTED' : 'Reject'}</span>
-        </button>
+      <div className="space-y-1.5 pt-1 text-[9.5px]">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={isActionable ? () => setStatus('APPROVED') : undefined}
+            disabled={!isActionable}
+            aria-disabled={!isActionable}
+            className={`flex-1 py-1.5 rounded-xl font-black transition-all flex items-center justify-center space-x-1 border ${buttonStyle}`}
+            title={buttonTitle}
+          >
+            <span>{buttonIcon}</span>
+            <span>{buttonLabel}</span>
+          </button>
+          <button
+            onClick={() => alert(`Setup for ${activeSymbol}:\nEntry: ${assetProfile.entryZone[0]} - ${assetProfile.entryZone[1]}\nSL: ${assetProfile.stopLoss}\nTP: ${assetProfile.tp1}`)}
+            className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 transition-all cursor-pointer"
+          >
+            Modify
+          </button>
+          <button
+            onClick={() => setStatus('REJECTED')}
+            className="px-2.5 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-950/60 text-rose-400 border border-rose-500/40 transition-all flex items-center space-x-1 cursor-pointer"
+          >
+            <span>✕</span>
+            <span>{status === 'REJECTED' ? 'REJECTED' : 'Reject'}</span>
+          </button>
+        </div>
+
+        {/* Compact supporting text for locked / analysis states */}
+        {!isActionable && supportingText && (
+          <div className="text-[8.5px] font-mono text-center flex items-center justify-center space-x-1 pt-0.5">
+            <span className={actionability === 'ANALYSIS ONLY' ? 'text-cyan-400 font-semibold' : 'text-gray-400'}>
+              {supportingText}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
