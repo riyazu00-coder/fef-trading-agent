@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { ChartAnalysisService, ChartAnalysisResponse } from '@/lib/services/chart-analysis-service';
+import { validateTradeBlueprint } from '@/lib/chart-analysis/blueprint-validator';
 
 export const ChartVisionAnalyzerCard: React.FC = () => {
   const router = useRouter();
@@ -16,6 +17,7 @@ export const ChartVisionAnalyzerCard: React.FC = () => {
   const [progressStep, setProgressStep] = useState<string>('');
   const [analysisResult, setAnalysisResult] = useState<ChartAnalysisResponse | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const validation = validateTradeBlueprint(analysisResult?.setup);
 
   // Sync with service on load
   useEffect(() => {
@@ -169,14 +171,16 @@ export const ChartVisionAnalyzerCard: React.FC = () => {
 
   const handleCalculatePosition = () => {
     if (!analysisResult) return;
-    const isSell = analysisResult.setup.state.includes('SELL');
+    const validation = validateTradeBlueprint(analysisResult.setup);
+    if (!validation.isValid) return;
+    const isSell = validation.direction === 'SELL';
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('fef_load_setup', {
           detail: {
             symbol: analysisResult.symbol,
             direction: isSell ? 'SELL' : 'BUY',
-            entryPrice: analysisResult.setup.entryLow,
+            entryPrice: isSell ? analysisResult.setup.entryHigh : analysisResult.setup.entryLow,
             stopLoss: analysisResult.setup.stopLoss,
             tp1: analysisResult.setup.tp1,
             tp2: analysisResult.setup.tp2,
@@ -329,12 +333,24 @@ export const ChartVisionAnalyzerCard: React.FC = () => {
             </div>
           )}
 
-          {/* Compact Blueprint Card */}
-          <div className="bg-black/40 border border-cyan-500/30 rounded-xl p-2.5 space-y-1.5 text-[9.5px]">
+          {/* Compact Blueprint Card & Validation */}
+          {!validation.isValid && (
+            <div className="bg-rose-950/40 border border-rose-500/50 rounded-xl p-2 text-[9px] text-rose-200 space-y-0.5">
+              <span className="font-bold text-rose-400 flex items-center space-x-1">
+                <span>⚠️</span>
+                <span>BLUEPRINT INCONSISTENT</span>
+              </span>
+              <p className="text-[8.5px] text-rose-300">
+                Direction and Entry / SL / TP geometry do not agree.
+              </p>
+            </div>
+          )}
+
+          <div className={`bg-black/40 border ${!validation.isValid ? 'border-rose-500/40' : 'border-cyan-500/30'} rounded-xl p-2.5 space-y-1.5 text-[9.5px]`}>
             <div className="flex justify-between items-center">
               <span className="text-gray-400">DIRECTION:</span>
-              <span className="font-bold text-emerald-400">
-                {analysisResult.setup.state} ({analysisResult.setup.confidence}%)
+              <span className={`font-bold ${validation.directionColorClass}`}>
+                {!validation.isValid ? 'BLUEPRINT INCONSISTENT' : `${analysisResult.setup.state} (${analysisResult.setup.confidence}%)`}
               </span>
             </div>
 
@@ -354,7 +370,7 @@ export const ChartVisionAnalyzerCard: React.FC = () => {
 
             <div className="flex justify-between items-center font-mono text-[9px]">
               <span className="text-gray-400">TP TARGETS:</span>
-              <span className="text-emerald-400">
+              <span className={validation.tpColorClasses.tp1}>
                 ${analysisResult.setup.tp1.toFixed(2)} | ${analysisResult.setup.tp2.toFixed(2)} | ${analysisResult.setup.tp3.toFixed(2)}
               </span>
             </div>
@@ -364,7 +380,12 @@ export const ChartVisionAnalyzerCard: React.FC = () => {
           <div className="flex flex-col space-y-1.5">
             <button
               onClick={handleCalculatePosition}
-              className="w-full bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-400/60 text-cyan-200 hover:text-white font-black py-1.5 rounded-xl text-[10px] tracking-wider transition-all shadow-[0_0_12px_rgba(0,240,255,0.25)] flex items-center justify-center space-x-1.5 cursor-pointer"
+              disabled={!validation.isValid}
+              className={`w-full font-black py-1.5 rounded-xl text-[10px] tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
+                validation.isValid
+                  ? 'bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-400/60 text-cyan-200 hover:text-white shadow-[0_0_12px_rgba(0,240,255,0.25)] cursor-pointer'
+                  : 'bg-gray-800/60 border border-gray-700/50 text-gray-400 cursor-not-allowed opacity-50'
+              }`}
             >
               <span>🧮 CALCULATE LOT SIZE</span>
               <span>&rarr;</span>

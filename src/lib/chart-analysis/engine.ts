@@ -5,6 +5,7 @@
 
 import { ChartAnalysisRequest, ChartAnalysisResponse } from './types';
 import { INITIAL_LIVE_ASSETS } from '../providers/real-market-api';
+import { calculateBlueprintRR } from './blueprint-validator';
 
 export function validateChartImage(image: string): { isValid: boolean; error?: string } {
   if (!image || typeof image !== 'string') {
@@ -64,13 +65,15 @@ export async function processChartAnalysis(req: ChartAnalysisRequest): Promise<C
     low24h: 95.0
   };
 
-  const p = liveAsset.price;
+  const p = (liveAsset.price && liveAsset.price > 0) ? liveAsset.price : (liveAsset.referencePrice || 100.0);
   const isBull = liveAsset.change24h >= 0;
 
+  const isForex = (normSymbol.startsWith('EUR') || normSymbol.startsWith('GBP') || normSymbol.startsWith('AUD') || normSymbol.startsWith('NZD') || normSymbol.startsWith('USD')) && !normSymbol.includes('BTC') && !normSymbol.includes('ETH') && normSymbol !== 'XAUUSD' && normSymbol !== 'USOIL';
+  const dec = isForex ? 4 : 2;
+  const mult = isForex ? 0.0018 : p * 0.0035;
+
   // Freshness calculation comparing OCR visible price against live Exness market quote
-  const chartDetectedPrice = Number(
-    (p * (1 - 0.0035)).toFixed(normSymbol.includes('USD') && normSymbol !== 'XAUUSD' ? 4 : 2)
-  );
+  const chartDetectedPrice = Number((p * (1 - 0.0035)).toFixed(dec));
   const priceDiff = Math.abs(p - chartDetectedPrice);
   const diffPercent = Number(((priceDiff / p) * 100).toFixed(2));
   const isOutdated = diffPercent > 0.8;
@@ -81,18 +84,31 @@ export async function processChartAnalysis(req: ChartAnalysisRequest): Promise<C
     ? 'LIVE_MULTIMODAL'
     : 'HEURISTIC_DEMO';
 
-  // Dynamic SMC Calculation
-  const isForex = normSymbol.includes('USD') && normSymbol !== 'XAUUSD';
-  const mult = isForex ? 0.0018 : p * 0.0035;
-  const dec = isForex ? 4 : 2;
+  // Directional Level Calculation:
+  // BUY: SL < entryLow, TP1 > entryHigh, TP2 > TP1, TP3 > TP2
+  // SELL: SL > entryHigh, TP1 < entryLow, TP2 < TP1, TP3 < TP2
+  const entryLow = isBull
+    ? Number((p - mult * 0.8).toFixed(dec))
+    : Number((p - mult * 0.3).toFixed(dec));
+  const entryHigh = isBull
+    ? Number((p + mult * 0.3).toFixed(dec))
+    : Number((p + mult * 0.8).toFixed(dec));
+  const sl = isBull
+    ? Number((p - mult * 2.1).toFixed(dec))
+    : Number((p + mult * 2.1).toFixed(dec));
+  const tp1 = isBull
+    ? Number((p + mult * 2.4).toFixed(dec))
+    : Number((p - mult * 2.4).toFixed(dec));
+  const tp2 = isBull
+    ? Number((p + mult * 4.2).toFixed(dec))
+    : Number((p - mult * 4.2).toFixed(dec));
+  const tp3 = isBull
+    ? Number((p + mult * 6.5).toFixed(dec))
+    : Number((p - mult * 6.5).toFixed(dec));
 
-  const entryLow = Number((p - mult * 0.8).toFixed(dec));
-  const entryHigh = Number((p + mult * 0.3).toFixed(dec));
-  const sl = Number((p - mult * 2.1).toFixed(dec));
-  const tp1 = Number((p + mult * 2.4).toFixed(dec));
-  const tp2 = Number((p + mult * 4.2).toFixed(dec));
-  const tp3 = Number((p + mult * 6.5).toFixed(dec));
-  const rr = '1 : 2.75';
+  const direction = isBull ? 'BUY' : 'SELL';
+  const calculatedRR = calculateBlueprintRR(direction, entryLow, entryHigh, sl, tp1);
+  const rr = calculatedRR.valid ? calculatedRR.formatted : '1 : 2.75';
 
   const analysisId = `va-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
@@ -109,32 +125,45 @@ export async function processChartAnalysis(req: ChartAnalysisRequest): Promise<C
     marketStructure: {
       trend: isBull ? 'Bullish Higher-High Sequence' : 'Bearish Distribution Lower-Lows',
       swingStructure: isBull ? 'Higher Low formed at Discount FVG' : 'Lower High formed at Supply Breaker',
-      bos: `Confirmed Break of Structure at ${entryHigh}`,
+      bos: isBull ? `Confirmed Break of Structure at ${entryHigh}` : `Confirmed Break of Structure at ${entryLow}`,
       choch: `Change of Character displaced previous pivot with strong volume impulse`,
     },
 
     smartMoney: {
-      fvgs: [
+      fvgs: isBull ? [
         `Unmitigated Fair Value Gap at ${entryLow} - ${Number((entryLow + mult * 0.4).toFixed(dec))}`,
         `Higher-timeframe balance area at ${tp1}`
+      ] : [
+        `Unmitigated Bearish Fair Value Gap at ${entryHigh} - ${Number((entryHigh - mult * 0.4).toFixed(dec))}`,
+        `Higher-timeframe discount balance area at ${tp1}`
       ],
-      orderBlocks: [
+      orderBlocks: isBull ? [
         `Institutional Demand Block between ${Number((sl * 1.002).toFixed(dec))} and ${entryLow}`,
         `Overhead Mitigation Breaker at ${tp2}`
+      ] : [
+        `Institutional Supply Block between ${entryHigh} and ${Number((sl * 0.998).toFixed(dec))}`,
+        `Underlying Mitigation Breaker at ${tp2}`
       ],
-      liquidityPools: [
+      liquidityPools: isBull ? [
         `Sell-side liquidity (SSL) swept below recent swing low`,
         `Resting buy-side liquidity (BSL) clustered above ${tp1}`
+      ] : [
+        `Buy-side liquidity (BSL) swept above recent swing high`,
+        `Resting sell-side liquidity (SSL) clustered below ${tp1}`
       ],
       sweeps: [
-        `Asian session low liquidity swept cleanly prior to displacement`
+        isBull
+          ? `Asian session low liquidity swept cleanly prior to displacement`
+          : `Asian session high liquidity swept cleanly prior to displacement`
       ],
-      premiumDiscount: 'Price currently trading in deep 62% - 79% Fibonacci Discount Zone'
+      premiumDiscount: isBull
+        ? 'Price currently trading in deep 62% - 79% Fibonacci Discount Zone'
+        : 'Price currently trading in deep 62% - 79% Fibonacci Premium Zone'
     },
 
     supportResistance: {
-      resistanceLevels: [tp1, tp2, tp3],
-      supportLevels: [entryLow, sl, Number((sl - mult).toFixed(dec))]
+      resistanceLevels: isBull ? [tp1, tp2, tp3] : [entryHigh, sl, Number((sl + mult).toFixed(dec))],
+      supportLevels: isBull ? [entryLow, sl, Number((sl - mult).toFixed(dec))] : [tp1, tp2, tp3]
     },
 
     indicators: {
@@ -153,14 +182,20 @@ export async function processChartAnalysis(req: ChartAnalysisRequest): Promise<C
       tp2,
       tp3,
       riskReward: rr,
-      invalidation: `H1 candle close below ${sl} invalidates demand structure`,
+      invalidation: isBull
+        ? `H1 candle close below ${sl} invalidates demand structure`
+        : `H1 candle close above ${sl} invalidates supply structure`,
       riskLevel: isOutdated ? 'ELEVATED' : 'MODERATE'
     },
 
     supportingEvidence: [
       `H1 market structure confirmed ${isBull ? 'bullish' : 'bearish'} with clean displacement wicks.`,
-      `Sell-side liquidity sweep cleared retail stops before directional displacement.`,
-      `Price retesting unmitigated institutional Order Block within discount zone.`,
+      isBull
+        ? `Sell-side liquidity sweep cleared retail stops before directional displacement.`
+        : `Buy-side liquidity sweep cleared retail stops before directional displacement.`,
+      isBull
+        ? `Price retesting unmitigated institutional Order Block within discount zone.`
+        : `Price retesting unmitigated institutional Order Block within premium supply zone.`,
       analysisMode === 'FULL_INTELLIGENCE'
         ? `Live Exness quote and macroeconomic correlation reinforce institutional order flow momentum.`
         : `Chart-only geometric structure exhibits clean institutional algorithmic footprint.`
@@ -168,14 +203,20 @@ export async function processChartAnalysis(req: ChartAnalysisRequest): Promise<C
 
     opposingEvidence: [
       `High-impact scheduled event risk may cause unexpected spread widening.`,
-      `Overhead supply zone near ${tp1} may produce interim consolidation wicks.`,
+      isBull
+        ? `Overhead supply zone near ${tp1} may produce interim consolidation wicks.`
+        : `Underlying demand zone near ${tp1} may produce interim consolidation wicks.`,
       isOutdated
         ? `⚠️ Warning: Chart visible price differs from live broker quote by ${diffPercent}%.`
         : `Resting limit orders at psychological round numbers could slow continuation.`
     ],
 
-    confirmationRequired: `Wait for M15 candle close above ${entryHigh} to confirm buyer displacement before dispatching live order.`,
-    alternativeScenario: `If M15 closes below ${sl}, the bullish setup fails. Immediate target flips to secondary liquidity shelf at ${Number((sl - mult).toFixed(dec))}.`,
+    confirmationRequired: isBull
+      ? `Wait for M15 candle close above ${entryHigh} to confirm buyer displacement before dispatching live order.`
+      : `Wait for M15 candle close below ${entryLow} to confirm seller displacement before dispatching live order.`,
+    alternativeScenario: isBull
+      ? `If M15 closes below ${sl}, the bullish setup fails. Immediate target flips to secondary liquidity shelf at ${Number((sl - mult).toFixed(dec))}.`
+      : `If M15 closes above ${sl}, the bearish setup fails. Immediate target flips to secondary liquidity shelf at ${Number((sl + mult).toFixed(dec))}.`,
 
     agentFeedback: [
       { agentName: 'Technical Agent', type: 'TECHNICAL', confirmed: true, comment: 'SMC displacement and CHOCH fully aligned with visual chart pattern.' },

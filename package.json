@@ -7,7 +7,7 @@
     "build": "rm -rf .next && next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node scripts/test-swarm-consistency.js && node scripts/test-mt5-bridge.js && node scripts/test-hub-animation.js && node scripts/test-market-session.js && node scripts/test-phase34-evidence-integrity.js && node scripts/test-phase35-demo-execution.js && node scripts/test-phase35-1-mode-consistency.js && node scripts/test-phase35-acceptance.js && npx tsx scripts/test-notifications.ts && npx tsx scripts/test-crypto-feed.ts"
+    "test": "node scripts/test-swarm-consistency.js && node scripts/test-mt5-bridge.js && node scripts/test-hub-animation.js && node scripts/test-market-session.js && node scripts/test-phase34-evidence-integrity.js && node scripts/test-phase35-demo-execution.js && node scripts/test-phase35-1-mode-consistency.js && node scripts/test-phase35-acceptance.js && ./node_modules/.bin/sucrase-node scripts/test-notifications.ts && ./node_modules/.bin/sucrase-node scripts/test-crypto-feed.ts && ./node_modules/.bin/sucrase-node scripts/test-blueprint-geometry.ts"
   },
   "dependencies": {
     "next": "13.5.6",

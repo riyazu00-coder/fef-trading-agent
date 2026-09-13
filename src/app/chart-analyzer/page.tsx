@@ -12,10 +12,11 @@ import {
   ChartAnalysisResponse,
   ChartAnalysisHistoryItem
 } from '@/lib/services/chart-analysis-service';
+import { validateTradeBlueprint } from '@/lib/chart-analysis/blueprint-validator';
 
 export default function ChartAnalyzerPage() {
   const router = useRouter();
-  const { activeSymbol, setActiveSymbol, activeAsset, timeframe, setTimeframe } = useActiveAsset();
+  const { activeSymbol, setActiveSymbol, activeAsset, timeframe, setTimeframe, assetProfile } = useActiveAsset();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -183,23 +184,28 @@ export default function ChartAnalyzerPage() {
     }
   };
 
+  const validation = validateTradeBlueprint(analysisResult?.setup);
+  const isMarketOpen = assetProfile?.tradeExecutable ?? true;
+  const isTrustApproved = (assetProfile?.evidenceTrust ?? 100) >= 60;
+  const canSendToExecution = Boolean(analysisResult && validation.isValid && isMarketOpen && isTrustApproved);
+  const canCalculatePosition = Boolean(analysisResult && validation.isValid);
+
   const handleTransferToExecution = () => {
-    if (analysisResult) {
-      setActiveSymbol(analysisResult.symbol);
-    }
+    if (!canSendToExecution || !analysisResult) return;
+    setActiveSymbol(analysisResult.symbol);
     router.push('/execution');
   };
 
   const handleCalculatePositionSize = () => {
-    if (!analysisResult) return;
-    const isSell = analysisResult.setup.state.includes('SELL');
+    if (!canCalculatePosition || !analysisResult) return;
+    const isSell = validation.direction === 'SELL';
     if (typeof window !== 'undefined') {
       window.sessionStorage.setItem(
         'fef_calc_pending_setup',
         JSON.stringify({
           symbol: analysisResult.symbol,
           direction: isSell ? 'SELL' : 'BUY',
-          entryPrice: analysisResult.setup.entryLow,
+          entryPrice: isSell ? analysisResult.setup.entryHigh : analysisResult.setup.entryLow,
           stopLoss: analysisResult.setup.stopLoss,
           tp1: analysisResult.setup.tp1,
           tp2: analysisResult.setup.tp2,
@@ -584,18 +590,35 @@ export default function ChartAnalyzerPage() {
 
           {/* RIGHT: FEF Trade Assessment & Blueprint (3 Cols) */}
           <div className="lg:col-span-3 space-y-4">
-            <div className="bg-[#080d19]/85 backdrop-blur-xl border border-cyan-500/40 rounded-2xl p-5 shadow-[0_8px_32px_0_rgba(6,182,212,0.2)] space-y-4">
+            <div className={`bg-[#080d19]/85 backdrop-blur-xl border ${analysisResult && !validation.isValid ? 'border-rose-500/50 shadow-[0_8px_32px_0_rgba(244,63,94,0.2)]' : 'border-cyan-500/40 shadow-[0_8px_32px_0_rgba(6,182,212,0.2)]'} rounded-2xl p-5 space-y-4`}>
               <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
                 <div className="flex items-center space-x-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className={`w-2.5 h-2.5 rounded-full ${validation.pulseDotClasses}`} />
                   <h3 className="text-xs font-black text-cyan-300 uppercase tracking-wider">
                     TRADE BLUEPRINT
                   </h3>
                 </div>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded font-bold">
-                  {analysisResult?.setup.state || 'ANALYZING...'}
+                <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${validation.badgeClasses}`}>
+                  {!analysisResult
+                    ? 'ANALYZING...'
+                    : !validation.isValid
+                    ? 'BLUEPRINT INCONSISTENT'
+                    : analysisResult.setup.state}
                 </span>
               </div>
+
+              {/* Warning Banner when Inconsistent */}
+              {analysisResult && !validation.isValid && (
+                <div className="bg-rose-950/40 border border-rose-500/50 rounded-xl p-2.5 text-xs text-rose-200 space-y-1">
+                  <div className="flex items-center space-x-1.5 font-bold text-rose-400">
+                    <span>⚠️</span>
+                    <span>BLUEPRINT INCONSISTENT</span>
+                  </div>
+                  <p className="text-[11px] text-rose-300/90 leading-tight">
+                    Direction and Entry / SL / TP geometry do not agree.
+                  </p>
+                </div>
+              )}
 
               {analysisResult && (
                 <div className="space-y-2 text-xs">
@@ -615,22 +638,24 @@ export default function ChartAnalyzerPage() {
 
                   <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 space-y-1">
                     <div className="flex justify-between text-[11px]">
-                      <span className="text-emerald-400 font-bold">TP 1:</span>
-                      <span className="font-bold text-emerald-400 font-mono">${analysisResult.setup.tp1.toFixed(2)}</span>
+                      <span className={`font-bold ${validation.tpColorClasses.tp1}`}>TP 1:</span>
+                      <span className={`font-bold font-mono ${validation.tpColorClasses.tp1}`}>${analysisResult.setup.tp1.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-[11px]">
-                      <span className="text-emerald-300">TP 2:</span>
-                      <span className="font-bold text-emerald-300 font-mono">${analysisResult.setup.tp2.toFixed(2)}</span>
+                      <span className={validation.tpColorClasses.tp2}>TP 2:</span>
+                      <span className={`font-bold font-mono ${validation.tpColorClasses.tp2}`}>${analysisResult.setup.tp2.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-[11px]">
-                      <span className="text-emerald-200">TP 3:</span>
-                      <span className="font-bold text-emerald-200 font-mono">${analysisResult.setup.tp3.toFixed(2)}</span>
+                      <span className={validation.tpColorClasses.tp3}>TP 3:</span>
+                      <span className={`font-bold font-mono ${validation.tpColorClasses.tp3}`}>${analysisResult.setup.tp3.toFixed(2)}</span>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between text-xs px-1">
                     <span className="text-gray-400">RISK / REWARD:</span>
-                    <span className="font-bold text-purple-300 font-mono">{analysisResult.setup.riskReward}</span>
+                    <span className={`font-bold font-mono ${!validation.isValid ? 'text-rose-400' : 'text-purple-300'}`}>
+                      {validation.rrRatio}
+                    </span>
                   </div>
 
                   <div className="bg-rose-950/20 border border-rose-500/30 p-2.5 rounded-xl text-[10px] text-rose-300">
@@ -644,7 +669,13 @@ export default function ChartAnalyzerPage() {
               <div className="space-y-2">
                 <button
                   onClick={handleCalculatePositionSize}
-                  className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-500 border border-cyan-400/50 text-white font-black py-2.5 rounded-xl text-xs tracking-wider transition-all shadow-[0_0_15px_rgba(0,240,255,0.3)] flex items-center justify-center space-x-1.5 cursor-pointer"
+                  disabled={!canCalculatePosition}
+                  className={`w-full border text-white font-black py-2.5 rounded-xl text-xs tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
+                    canCalculatePosition
+                      ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-500 border-cyan-400/50 shadow-[0_0_15px_rgba(0,240,255,0.3)] cursor-pointer'
+                      : 'bg-gray-800/60 border-gray-700/50 text-gray-400 cursor-not-allowed opacity-50'
+                  }`}
+                  title={!canCalculatePosition ? (validation.reason || 'Blueprint inconsistent') : undefined}
                 >
                   <span>🧮</span>
                   <span>CALCULATE POSITION SIZE &rarr;</span>
@@ -652,11 +683,40 @@ export default function ChartAnalyzerPage() {
 
                 <button
                   onClick={handleTransferToExecution}
-                  className="w-full bg-gradient-to-r from-emerald-500/30 via-cyan-500/30 to-purple-500/30 hover:from-emerald-500/40 hover:via-cyan-500/40 hover:to-purple-500/40 border border-emerald-500/50 text-white font-bold py-2.5 rounded-xl text-xs tracking-wider transition-all shadow-[0_0_15px_rgba(16,185,129,0.25)] flex items-center justify-center space-x-1.5 cursor-pointer"
+                  disabled={!canSendToExecution}
+                  className={`w-full border text-white font-bold py-2.5 rounded-xl text-xs tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
+                    canSendToExecution
+                      ? 'bg-gradient-to-r from-emerald-500/30 via-cyan-500/30 to-purple-500/30 hover:from-emerald-500/40 hover:via-cyan-500/40 hover:to-purple-500/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.25)] cursor-pointer'
+                      : 'bg-gray-800/60 border-gray-700/50 text-gray-400 cursor-not-allowed opacity-50'
+                  }`}
+                  title={
+                    !canSendToExecution
+                      ? !validation.isValid
+                        ? 'Disabled: Blueprint geometry is inconsistent'
+                        : !isMarketOpen
+                        ? 'Disabled: Market is currently closed'
+                        : !isTrustApproved
+                        ? `Disabled: Evidence Trust (${assetProfile?.evidenceTrust ?? 0}%) below 60%`
+                        : 'Setup unavailable'
+                      : undefined
+                  }
                 >
                   <span>⚡</span>
                   <span>SEND TO EXECUTION &rarr;</span>
                 </button>
+
+                {/* Subtext explanation when buttons are disabled */}
+                {analysisResult && (!canCalculatePosition || !canSendToExecution) && (
+                  <p className="text-[10px] text-center text-gray-400">
+                    {!validation.isValid
+                      ? '⚠️ Execution locked: Blueprint geometry is inconsistent.'
+                      : !isMarketOpen
+                      ? '🔒 Execution locked: Market session is currently closed.'
+                      : !isTrustApproved
+                      ? `🔒 Execution locked: Evidence Trust (${assetProfile?.evidenceTrust ?? 0}%) is below 60% requirement.`
+                      : ''}
+                  </p>
+                )}
               </div>
             </div>
           </div>
