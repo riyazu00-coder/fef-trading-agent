@@ -36,16 +36,30 @@ export interface RadarNotification {
   stopLoss?: number;
   tp1?: number;
   tp2?: number;
+  tp3?: number;
   eventType?: RadarAlertEventType;
   catalyst?: string;
   riskGuardianAllowed?: boolean;
+  evidenceTrust?: number;
+  actionabilityState?: string;
+  verifiedAgentCount?: number;
+  isDataLimited?: boolean;
+  isBootAlert?: boolean;
 }
 
 const STORAGE_KEY = 'fef_radar_notifications_v1';
 const DEDUPLICATION_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 // In-memory cache for state tracking
-const lastKnownStates: Map<string, { state: RadarOpportunityState; score: number; lastAlertMs: number }> = new Map();
+interface LastKnownStateEntry {
+  state: RadarOpportunityState;
+  score: number;
+  lastAlertMs: number;
+  actionabilityState?: string;
+  eventType?: RadarAlertEventType;
+}
+
+const lastKnownStates: Map<string, LastKnownStateEntry> = new Map();
 
 type NotificationListener = (notification: RadarNotification) => void;
 const listeners: Set<NotificationListener> = new Set();
@@ -60,12 +74,28 @@ export function subscribeRadarNotifications(listener: NotificationListener): () 
   };
 }
 
+let memoryStorage: RadarNotification[] | null = null;
+
 /**
- * Read stored notifications from localStorage safely
+ * Clear notification state cache (for controlled testing / simulation)
+ */
+export function clearRadarNotificationStateForTesting(): void {
+  lastKnownStates.clear();
+  listeners.clear();
+  memoryStorage = null;
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+  }
+}
+
+/**
+ * Read stored notifications from localStorage safely (with memory fallback)
  */
 export function getStoredNotifications(): RadarNotification[] {
   if (typeof window === 'undefined') {
-    return getInitialNotifications();
+    return memoryStorage || getInitialNotifications();
   }
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -77,7 +107,7 @@ export function getStoredNotifications(): RadarNotification[] {
     return JSON.parse(raw);
   } catch (e) {
     console.warn('Failed to read radar notifications from localStorage:', e);
-    return getInitialNotifications();
+    return memoryStorage || getInitialNotifications();
   }
 }
 
@@ -85,6 +115,7 @@ export function getStoredNotifications(): RadarNotification[] {
  * Save notifications back to storage
  */
 export function saveNotifications(items: RadarNotification[]): void {
+  memoryStorage = items.slice(0, 50);
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items.slice(0, 50)));
@@ -126,6 +157,8 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
         state: opp.state,
         score: opp.opportunityScore,
         lastAlertMs: now,
+        actionabilityState: opp.actionabilityState,
+        eventType: isOpportunityState ? 'TRADE_OPPORTUNITY_CONFIRMED' : 'SETUP_DEVELOPING'
       });
 
       // If high-conviction opportunity right on boot, create initial alert
@@ -154,9 +187,15 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
           stopLoss: opp.stopLoss,
           tp1: opp.tp1,
           tp2: opp.tp2,
+          tp3: opp.tp3,
           eventType: isOpportunityState ? 'TRADE_OPPORTUNITY_CONFIRMED' : 'SETUP_DEVELOPING',
           catalyst,
           riskGuardianAllowed: opp.riskLevel !== 'HIGH' && opp.tradeExecutable,
+          evidenceTrust: opp.evidenceTrust,
+          actionabilityState: opp.actionabilityState,
+          verifiedAgentCount: opp.verifiedAgentCount,
+          isDataLimited: opp.isDataLimited,
+          isBootAlert: true
         };
         newAlerts.push(notif);
       }
@@ -164,8 +203,14 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
     }
 
     const stateChanged = prev.state !== opp.state;
+    const actionabilityChanged = Boolean(
+      opp.actionabilityState && prev.actionabilityState && opp.actionabilityState !== prev.actionabilityState
+    );
     const scoreJumped = Math.abs(opp.opportunityScore - prev.score) >= 15;
     const cooldownExpired = now - prev.lastAlertMs > DEDUPLICATION_WINDOW_MS;
+
+    // Meaningful state transition (state change, or actionability change like ANALYSIS ONLY -> ACTIONABLE)
+    const isMeaningfulTransition = stateChanged || actionabilityChanged;
 
     // Classify event type
     let eventType: RadarAlertEventType | null = null;
@@ -173,10 +218,10 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
 
     const prevWasActionable = prev.state.includes('BUY') || prev.state.includes('SELL');
 
-    if (stateChanged) {
+    if (isMeaningfulTransition) {
       if (isOpportunityState && meetsThreshold) {
         eventType = 'TRADE_OPPORTUNITY_CONFIRMED';
-        priority = isStrong ? 'CRITICAL' : 'HIGH';
+        priority = (isStrong || opp.actionabilityState === 'ACTIONABLE') ? 'CRITICAL' : 'HIGH';
       } else if (isDevelopingClosed && meetsThreshold) {
         eventType = 'SETUP_DEVELOPING';
         priority = 'HIGH';
@@ -189,7 +234,7 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
       }
     } else if (cooldownExpired && isOpportunityState && meetsThreshold) {
       eventType = 'TRADE_OPPORTUNITY_CONFIRMED';
-      priority = isStrong ? 'CRITICAL' : 'HIGH';
+      priority = (isStrong || opp.actionabilityState === 'ACTIONABLE') ? 'CRITICAL' : 'HIGH';
     } else if (cooldownExpired && isDevelopingClosed && meetsThreshold) {
       eventType = 'SETUP_DEVELOPING';
       priority = 'HIGH';
@@ -201,6 +246,8 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
         state: opp.state,
         score: opp.opportunityScore,
         lastAlertMs: now,
+        actionabilityState: opp.actionabilityState,
+        eventType
       });
 
       const title = eventType === 'TRADE_OPPORTUNITY_CONFIRMED'
@@ -240,9 +287,15 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
         stopLoss: opp.stopLoss,
         tp1: opp.tp1,
         tp2: opp.tp2,
+        tp3: opp.tp3,
         eventType,
         catalyst,
         riskGuardianAllowed: opp.riskLevel !== 'HIGH' && opp.tradeExecutable,
+        evidenceTrust: opp.evidenceTrust,
+        actionabilityState: opp.actionabilityState,
+        verifiedAgentCount: opp.verifiedAgentCount,
+        isDataLimited: opp.isDataLimited,
+        isBootAlert: false
       };
       newAlerts.push(notif);
     }

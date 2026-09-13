@@ -59,6 +59,11 @@ export interface RadarOpportunityItem {
   catalysts: string[];
   invalidation: string;
   whyRankedReasons?: string[];
+  evidenceTrust?: number;
+  actionabilityState?: string;
+  verifiedAgentCount?: number;
+  feedStatus?: string;
+  isDataLimited?: boolean;
 }
 
 export interface AttentionQueueItem {
@@ -340,7 +345,12 @@ export function generateGlobalRadarIntelligence(
       regime: profile.regime,
       catalysts: profile.whyThisTrade,
       invalidation: profile.invalidation,
-      whyRankedReasons: whyReasons
+      whyRankedReasons: whyReasons,
+      evidenceTrust: profile.evidenceTrust,
+      actionabilityState: profile.actionabilityState,
+      verifiedAgentCount: profile.verifiedAgentCount,
+      feedStatus: liveAsset.feedStatus,
+      isDataLimited: liveAsset.feedStatus === 'DATA LIMITED' || liveAsset.feedStatus === 'DEMO' || liveAsset.feedStatus === 'OFFLINE'
     };
   });
 
