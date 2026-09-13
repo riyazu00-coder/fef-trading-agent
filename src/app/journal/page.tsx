@@ -63,7 +63,7 @@ const TRADE_HISTORY: HistoricalTrade[] = [
     postMortem: {
       thesis: 'Asian low swept cleanly at 4320 with instant displacement and bullish order block tap.',
       executionGrade: 'A+',
-      slippage: '0.02 points (Exness Zero Spread)',
+      slippage: '0.02 points (Raw Spread Account)',
       mistakes: ['Partial profit taken slightly early at TP1 instead of letting full 50% runner reach TP2.'],
       lessonsLearned: 'Trust H4 order flow momentum when DXY is breaking down into London close.'
     }

@@ -22,7 +22,7 @@ input int      InpHeartbeatSeconds  = 2;                           // Heartbeat 
 enum ENUM_FEF_OPERATING_MODE
 {
    MODE_READ_ONLY       = 0,  // READ_ONLY (Monitoring & Telemetry Only)
-   MODE_DEMO_EXECUTION  = 1   // DEMO_EXECUTION (Controlled Exness Demo Orders)
+   MODE_DEMO_EXECUTION  = 1   // DEMO_EXECUTION (Controlled MT5 Demo Orders)
 };
 
 input ENUM_FEF_OPERATING_MODE InpOperatingMode = MODE_DEMO_EXECUTION; // Operating Mode
@@ -267,7 +267,7 @@ string ResolveBrokerSymbol(string canonical)
 {
    if(SymbolSelect(canonical, true)) return canonical;
 
-   // Common broker suffix/prefix variants (Exness Standard, Raw, Zero, Mini)
+   // Common broker suffix/prefix variants (Standard, Raw, Zero, Mini, Pro, etc.)
    string candidates[];
    ArrayResize(candidates, 10);
    candidates[0] = canonical + "m";
@@ -532,7 +532,70 @@ void PushSymbolsAndSessions()
    }
    symJson += "]";
 
-   string json = "{\"symbols\":" + symJson + ",\"timestamp\":" + IntegerToString((long)TimeLocal() * 1000) + "}";
+   // Collect dynamic broker specifications for tracked canonical symbols
+   string specJson = "[";
+   int specCount = 0;
+
+   for(int i = 0; i < ArraySize(g_tracked_canonical); i++)
+   {
+      string canon = g_tracked_canonical[i];
+      string brokerSym = ResolveBrokerSymbol(canon);
+
+      if(SymbolSelect(brokerSym, true))
+      {
+         double minLot    = SymbolInfoDouble(brokerSym, SYMBOL_VOLUME_MIN);
+         double maxLot    = SymbolInfoDouble(brokerSym, SYMBOL_VOLUME_MAX);
+         double lotStep   = SymbolInfoDouble(brokerSym, SYMBOL_VOLUME_STEP);
+         double contract  = SymbolInfoDouble(brokerSym, SYMBOL_TRADE_CONTRACT_SIZE);
+         double tickVal   = SymbolInfoDouble(brokerSym, SYMBOL_TRADE_TICK_VALUE);
+         double tickValProfit = SymbolInfoDouble(brokerSym, SYMBOL_TRADE_TICK_VALUE_PROFIT);
+         double tickValLoss   = SymbolInfoDouble(brokerSym, SYMBOL_TRADE_TICK_VALUE_LOSS);
+         double tickSize  = SymbolInfoDouble(brokerSym, SYMBOL_TRADE_TICK_SIZE);
+         double point     = SymbolInfoDouble(brokerSym, SYMBOL_POINT);
+         int    digits    = (int)SymbolInfoInteger(brokerSym, SYMBOL_DIGITS);
+         int    stopsLvl  = (int)SymbolInfoInteger(brokerSym, SYMBOL_TRADE_STOPS_LEVEL);
+         int    freezeLvl = (int)SymbolInfoInteger(brokerSym, SYMBOL_TRADE_FREEZE_LEVEL);
+         ENUM_SYMBOL_TRADE_MODE sTradeMode = (ENUM_SYMBOL_TRADE_MODE)SymbolInfoInteger(brokerSym, SYMBOL_TRADE_MODE);
+         string sTradeModeStr = (sTradeMode == SYMBOL_TRADE_MODE_FULL) ? "FULL" : (sTradeMode == SYMBOL_TRADE_MODE_CLOSEONLY) ? "CLOSE_ONLY" : "DISABLED";
+         string curBase   = SymbolInfoString(brokerSym, SYMBOL_CURRENCY_BASE);
+         string curProfit = SymbolInfoString(brokerSym, SYMBOL_CURRENCY_PROFIT);
+         string curMargin = SymbolInfoString(brokerSym, SYMBOL_CURRENCY_MARGIN);
+         string desc      = JsonEscape(SymbolInfoString(brokerSym, SYMBOL_DESCRIPTION));
+         double bid       = SymbolInfoDouble(brokerSym, SYMBOL_BID);
+         double ask       = SymbolInfoDouble(brokerSym, SYMBOL_ASK);
+         int    spread    = (int)SymbolInfoInteger(brokerSym, SYMBOL_SPREAD);
+
+         if(specCount > 0) specJson += ",";
+         specJson += "{";
+         specJson += "\"canonicalSymbol\":\"" + canon + "\",";
+         specJson += "\"brokerSymbol\":\"" + brokerSym + "\",";
+         specJson += "\"description\":\"" + desc + "\",";
+         specJson += "\"digits\":" + IntegerToString(digits) + ",";
+         specJson += "\"point\":" + DoubleToString(point, digits) + ",";
+         specJson += "\"contractSize\":" + DoubleToString(contract, 2) + ",";
+         specJson += "\"minLot\":" + DoubleToString(minLot, 2) + ",";
+         specJson += "\"maxLot\":" + DoubleToString(maxLot, 2) + ",";
+         specJson += "\"lotStep\":" + DoubleToString(lotStep, 2) + ",";
+         specJson += "\"tickValue\":" + DoubleToString(tickVal, 4) + ",";
+         specJson += "\"tickValueProfit\":" + DoubleToString(tickValProfit, 4) + ",";
+         specJson += "\"tickValueLoss\":" + DoubleToString(tickValLoss, 4) + ",";
+         specJson += "\"tickSize\":" + DoubleToString(tickSize, digits) + ",";
+         specJson += "\"stopsLevel\":" + IntegerToString(stopsLvl) + ",";
+         specJson += "\"freezeLevel\":" + IntegerToString(freezeLvl) + ",";
+         specJson += "\"tradeMode\":\"" + sTradeModeStr + "\",";
+         specJson += "\"currencyBase\":\"" + curBase + "\",";
+         specJson += "\"currencyProfit\":\"" + curProfit + "\",";
+         specJson += "\"currencyMargin\":\"" + curMargin + "\",";
+         specJson += "\"bid\":" + DoubleToString(bid, digits) + ",";
+         specJson += "\"ask\":" + DoubleToString(ask, digits) + ",";
+         specJson += "\"spread\":" + IntegerToString(spread);
+         specJson += "}";
+         specCount++;
+      }
+   }
+   specJson += "]";
+
+   string json = "{\"symbols\":" + symJson + ",\"specs\":" + specJson + ",\"timestamp\":" + IntegerToString((long)TimeLocal() * 1000) + "}";
    string resp = "";
    PostJson("/mt5/symbols", json, resp);
 

@@ -147,7 +147,7 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, time
       const tp3 = Number((p + 52.0).toFixed(2));
 
       return {
-        name: 'Gold Spot / USD (Exness)',
+        name: 'Gold Spot / USD',
         category: 'METALS',
         regime: 'Bullish Expansion (London Liquidity Cleared)',
         session: 'London / NY Overlap',
@@ -211,7 +211,7 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, time
       const tp3 = Number((p + 2.90).toFixed(2));
 
       return {
-        name: 'Silver Spot / USD (Exness)',
+        name: 'Silver Spot / USD',
         category: 'METALS',
         regime: 'Bullish Outperformance (SMT Leader)',
         session: 'London / NY Overlap',
@@ -274,7 +274,7 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, time
       const tp3 = Number((p + 3.80).toFixed(2));
 
       return {
-        name: 'WTI Crude Oil / USD (Exness)',
+        name: 'WTI Crude Oil / USD',
         category: 'COMMODITY',
         regime: 'Intraday Consolidation (Post-Retracement Base)',
         session: 'London / NY Overlap',
@@ -337,7 +337,7 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, time
       const tp3 = Number((p + 0.0120).toFixed(4));
 
       return {
-        name: 'Euro / US Dollar (Exness)',
+        name: 'Euro / US Dollar',
         category: 'FOREX',
         regime: 'Bullish Pullback (London Liquidity Sweep)',
         session: 'London / NY Overlap',
@@ -400,7 +400,7 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, time
       const tp3 = Number((p - 2.20).toFixed(2));
 
       return {
-        name: 'US Dollar / Japanese Yen (Exness)',
+        name: 'US Dollar / Japanese Yen',
         category: 'FOREX',
         regime: 'Bearish Rejection (BoJ Intervention Ceiling)',
         session: 'Tokyo / London Overlap',
@@ -463,7 +463,7 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, time
       const tp3 = Number((p + 7200).toFixed(0));
 
       return {
-        name: 'Bitcoin / US Dollar (Exness)',
+        name: 'Bitcoin / US Dollar',
         category: 'CRYPTO',
         regime: 'Bullish Breakout Expansion (All-Time High Base)',
         session: '24/7 Global Interbank',

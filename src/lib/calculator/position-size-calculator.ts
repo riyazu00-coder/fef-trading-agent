@@ -397,6 +397,9 @@ export interface PositionSizeResult {
   blendedTotalRR: string;
   suggestedBreakEven: string;
   safetyLabel: string;
+  sizingSource: 'BROKER_SPEC' | 'STATIC_FALLBACK';
+  executionLocked?: boolean;
+  lockReason?: string;
 }
 
 /**
@@ -463,6 +466,7 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
       blendedTotalRR: 'N/A',
       suggestedBreakEven: 'N/A',
       safetyLabel,
+      sizingSource: input.brokerSpecOverride ? 'BROKER_SPEC' : 'STATIC_FALLBACK',
     };
   }
 
@@ -542,13 +546,28 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
 
   // Invariant verification: If rounding accidentally produces loss > riskAmount, step down
   if (safeLotSize * lossPerLotAtStop > riskAmount + 0.001) {
-    safeLotSize = Math.max(spec.minLot, Math.round((safeLotSize - spec.lotStep) * 1000) / 1000);
+    safeLotSize = Math.max(0, Math.round((safeLotSize - spec.lotStep) * 1000) / 1000);
   }
 
+  // Requirement 7:
+  // If the calculated safe lot size is smaller than the broker's minimum lot:
+  // do NOT round up if doing so exceeds permitted risk.
+  // Return: BELOW BROKER MINIMUM LOT / EXECUTION LOCKED
   const isBelowMinLot = safeLotSize < spec.minLot;
+  let executionLocked = false;
+  let lockReason: string | undefined = undefined;
+
   if (isBelowMinLot) {
-    safeLotSize = spec.minLot;
+    const lossAtMinLot = spec.minLot * lossPerLotAtStop;
+    if (lossAtMinLot > riskAmount + 0.001) {
+      safeLotSize = 0.00;
+      executionLocked = true;
+      lockReason = 'BELOW BROKER MINIMUM LOT\nEXECUTION LOCKED';
+    } else {
+      safeLotSize = spec.minLot;
+    }
   }
+
   if (safeLotSize > spec.maxLot) {
     safeLotSize = spec.maxLot;
   }
@@ -634,6 +653,9 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
     blendedTotalRR,
     suggestedBreakEven,
     safetyLabel,
+    sizingSource: input.brokerSpecOverride ? 'BROKER_SPEC' : 'STATIC_FALLBACK',
+    executionLocked,
+    lockReason,
   };
 }
 
@@ -672,5 +694,6 @@ function createInvalidResult(
     blendedTotalRR: 'N/A',
     suggestedBreakEven: 'N/A',
     safetyLabel,
+    sizingSource: input.brokerSpecOverride ? 'BROKER_SPEC' : 'STATIC_FALLBACK',
   };
 }

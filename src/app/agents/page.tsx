@@ -60,7 +60,7 @@ export default function AgentsDirectoryPage() {
       confidence: 96,
       status: 'ONLINE',
       lastOpinion: `Zero feed latency detected on local transport. MT5 bridge heartbeat verified for ${activeSymbol}.`,
-      evidence: ['Transport: HTTP WebRequest (127.0.0.1:5556)', 'Broker: Exness verified', 'Feed integrity: 0 payload anomalies'],
+      evidence: ['Transport: HTTP WebRequest (127.0.0.1:5556)', 'Broker: MT5 terminal verified', 'Feed integrity: 0 payload anomalies'],
       keyRisk: 'Broker disconnect',
       invalidation: 'Latency > 250ms',
       id: 'spec-1',
@@ -69,7 +69,7 @@ export default function AgentsDirectoryPage() {
       latencyMs: 14,
       provenanceBadge: 'MT5',
       evidenceTrustScore: 95,
-      systemMandate: 'Verify raw Exness socket ticks for zero spoofing, abnormal spread spikes, and network packet continuity.',
+      systemMandate: 'Verify raw broker socket ticks for zero spoofing, abnormal spread spikes, and network packet continuity.',
       telemetry: { memoryMb: 128, tokensPerSec: 0, sampleCount: 84200, uptime: '100.00%' }
     },
     {

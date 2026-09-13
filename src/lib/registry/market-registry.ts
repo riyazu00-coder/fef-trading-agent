@@ -51,7 +51,7 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     currency: 'USD',
     enabled: true,
     feedStatus: 'LIVE',
-    feedProvider: 'Exness / Gold-API Live',
+    feedProvider: 'MT5 / Gold-API Live',
     aliases: ['GOLD', 'XAU', 'GOLDUSD', 'SPOTGOLD'],
     description: 'Gold Spot price vs US Dollar (LBMA benchmark)',
     isPriority: true,
@@ -72,7 +72,7 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     currency: 'USD',
     enabled: true,
     feedStatus: 'LIVE',
-    feedProvider: 'Exness / Gold-API Live',
+    feedProvider: 'MT5 / Gold-API Live',
     aliases: ['SILVER', 'XAG', 'SILVERUSD'],
     description: 'Silver Spot price vs US Dollar (LBMA benchmark)',
     isPriority: true,
@@ -97,7 +97,7 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     currency: 'USD',
     enabled: true,
     feedStatus: 'LIVE',
-    feedProvider: 'Broker Index Feed (Exness / CME Proxy)',
+    feedProvider: 'Broker Index Feed (MT5 / CME Proxy)',
     aliases: ['NAS100', 'USTEC', 'NASDAQ', 'NASDAQ100', 'NDX', 'NQ'],
     description: 'Top 100 non-financial tech mega-cap companies listed on Nasdaq',
     isPriority: true,
@@ -118,7 +118,7 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     currency: 'USD',
     enabled: true,
     feedStatus: 'LIVE',
-    feedProvider: 'Broker Index Feed (Exness / CBOT Proxy)',
+    feedProvider: 'Broker Index Feed (MT5 / CBOT Proxy)',
     aliases: ['DOW', 'DOWJONES', 'DJI', 'DJ30', 'WALLSTREET30', 'YM'],
     description: '30 prominent blue-chip companies traded in the United States',
     isPriority: true,
@@ -139,7 +139,7 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     currency: 'USD',
     enabled: true,
     feedStatus: 'LIVE',
-    feedProvider: 'Broker Index Feed (Exness / CME Proxy)',
+    feedProvider: 'Broker Index Feed (MT5 / CME Proxy)',
     aliases: ['SPX', 'SP500', 'SPX500', 'ES'],
     description: 'Benchmark index tracking the stock performance of 500 large companies',
     isPriority: true,
@@ -227,7 +227,7 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     currency: 'USD',
     enabled: true,
     feedStatus: 'LIVE',
-    feedProvider: 'Exness Live Tick Feed',
+    feedProvider: 'MT5 Live Tick Feed',
     aliases: ['OIL', 'WTI', 'CRUDE', 'CL'],
     description: 'West Texas Intermediate Light Sweet Crude Oil',
     isPriority: true,
@@ -633,7 +633,7 @@ export function getMarketDefinition(query: string): MarketDefinition | null {
  */
 export function getMarketsByCategory(category: string): MarketDefinition[] {
   const all = Object.values(MARKET_REGISTRY);
-  if (!category || category === 'ALL' || category === 'EXNESS FEED') {
+  if (!category || category === 'ALL' || category === 'EXNESS FEED' || category === 'BROKER FEED' || category === 'MT5 FEED') {
     return all;
   }
   const normCat = category.toUpperCase();

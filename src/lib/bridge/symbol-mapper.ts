@@ -13,24 +13,24 @@ export interface BrokerSymbolCandidate {
 }
 
 export const CANONICAL_SYMBOL_MAPPINGS: Record<string, string[]> = {
-  XAUUSD: ['XAUUSD', 'XAUUSDm', 'XAUUSD.r', 'XAUUSD.a', 'XAUUSDc', 'GOLD', 'GOLDm', 'XAUUSD_i'],
-  XAGUSD: ['XAGUSD', 'XAGUSDm', 'XAGUSD.r', 'XAGUSD.a', 'XAGUSDc', 'SILVER', 'SILVERm'],
-  EURUSD: ['EURUSD', 'EURUSDm', 'EURUSD.r', 'EURUSD.a', 'EURUSDc', 'EURUSD_i'],
-  GBPUSD: ['GBPUSD', 'GBPUSDm', 'GBPUSD.r', 'GBPUSD.a', 'GBPUSDc', 'GBPUSD_i'],
-  USDJPY: ['USDJPY', 'USDJPYm', 'USDJPY.r', 'USDJPY.a', 'USDJPYc', 'USDJPY_i'],
-  GBPJPY: ['GBPJPY', 'GBPJPYm', 'GBPJPY.r', 'GBPJPY.a', 'GBPJPYc'],
-  AUDUSD: ['AUDUSD', 'AUDUSDm', 'AUDUSD.r', 'AUDUSD.a', 'AUDUSDc'],
-  NZDUSD: ['NZDUSD', 'NZDUSDm', 'NZDUSD.r', 'NZDUSD.a', 'NZDUSDc'],
-  USOIL: ['USOIL', 'USOILm', 'USOIL.r', 'USOIL.a', 'USOILc', 'WTI', 'WTICRUDE', 'CRUDE'],
-  US100: ['US100', 'US100m', 'USTEC', 'USTECm', 'USTEC.a', 'NAS100', 'NAS100m', 'NQ'],
-  US30: ['US30', 'US30m', 'US30.r', 'US30.a', 'DJ30', 'WS30', 'YM'],
-  US500: ['US500', 'US500m', 'US500.r', 'US500.a', 'SPX500', 'SP500', 'ES'],
-  BTCUSD: ['BTCUSD', 'BTCUSDm', 'BTCUSDT', 'BTCUSD.r', 'BTCUSD.a', 'BTCUSDc'],
-  ETHUSD: ['ETHUSD', 'ETHUSDm', 'ETHUSDT', 'ETHUSD.r', 'ETHUSD.a', 'ETHUSDc'],
-  SOLUSD: ['SOLUSD', 'SOLUSDm', 'SOLUSDT', 'SOLUSD.r', 'SOLUSD.a', 'SOLUSDc']
+  XAUUSD: ['XAUUSD', 'XAUUSDm', 'XAUUSD.r', 'XAUUSD.a', 'XAUUSDc', 'GOLD', 'GOLDm', 'XAUUSD_i', 'XAUUSD.pro'],
+  XAGUSD: ['XAGUSD', 'XAGUSDm', 'XAGUSD.r', 'XAGUSD.a', 'XAGUSDc', 'SILVER', 'SILVERm', 'XAGUSD.pro'],
+  EURUSD: ['EURUSD', 'EURUSDm', 'EURUSD.r', 'EURUSD.a', 'EURUSDc', 'EURUSD_i', 'EURUSD.pro'],
+  GBPUSD: ['GBPUSD', 'GBPUSDm', 'GBPUSD.r', 'GBPUSD.a', 'GBPUSDc', 'GBPUSD_i', 'GBPUSD.pro'],
+  USDJPY: ['USDJPY', 'USDJPYm', 'USDJPY.r', 'USDJPY.a', 'USDJPYc', 'USDJPY_i', 'USDJPY.pro'],
+  GBPJPY: ['GBPJPY', 'GBPJPYm', 'GBPJPY.r', 'GBPJPY.a', 'GBPJPYc', 'GBPJPY.pro'],
+  AUDUSD: ['AUDUSD', 'AUDUSDm', 'AUDUSD.r', 'AUDUSD.a', 'AUDUSDc', 'AUDUSD.pro'],
+  NZDUSD: ['NZDUSD', 'NZDUSDm', 'NZDUSD.r', 'NZDUSD.a', 'NZDUSDc', 'NZDUSD.pro'],
+  USOIL: ['USOIL', 'USOILm', 'USOIL.r', 'USOIL.a', 'USOILc', 'WTI', 'WTICRUDE', 'CRUDE', 'USOIL.pro'],
+  US100: ['US100', 'US100m', 'USTEC', 'USTECm', 'USTEC.a', 'NAS100', 'NAS100m', 'NQ', 'US100.pro'],
+  US30: ['US30', 'US30m', 'US30.r', 'US30.a', 'DJ30', 'WS30', 'YM', 'US30.pro'],
+  US500: ['US500', 'US500m', 'US500.r', 'US500.a', 'SPX500', 'SP500', 'ES', 'US500.pro'],
+  BTCUSD: ['BTCUSD', 'BTCUSDm', 'BTCUSDT', 'BTCUSD.r', 'BTCUSD.a', 'BTCUSDc', 'BTCUSD.pro'],
+  ETHUSD: ['ETHUSD', 'ETHUSDm', 'ETHUSDT', 'ETHUSD.r', 'ETHUSD.a', 'ETHUSDc', 'ETHUSD.pro'],
+  SOLUSD: ['SOLUSD', 'SOLUSDm', 'SOLUSDT', 'SOLUSD.r', 'SOLUSD.a', 'SOLUSDc', 'SOLUSD.pro']
 };
 
-class BrokerSymbolDirectory {
+export class BrokerSymbolDirectory {
   private canonicalToBroker: Map<string, string> = new Map();
   private brokerToCanonical: Map<string, string> = new Map();
   private specs: Map<string, MT5SymbolSpecification> = new Map();
@@ -61,10 +61,77 @@ class BrokerSymbolDirectory {
    * Register or update authoritative specifications for a broker symbol
    */
   public registerSpec(spec: MT5SymbolSpecification): void {
-    this.specs.set(spec.brokerSymbol, spec);
-    if (spec.canonicalSymbol) {
-      this.specs.set(spec.canonicalSymbol, spec);
+    const enrichedSpec: MT5SymbolSpecification = {
+      ...spec,
+      source: spec.source || 'BROKER'
+    };
+    this.specs.set(enrichedSpec.brokerSymbol, enrichedSpec);
+    if (enrichedSpec.canonicalSymbol) {
+      this.specs.set(enrichedSpec.canonicalSymbol, enrichedSpec);
     }
+  }
+
+  /**
+   * Resolve a canonical FEF ticker to the broker's specific symbol with validation
+   */
+  public resolveBrokerSymbolWithValidation(canonicalSymbol: string): {
+    brokerSymbol: string | null;
+    status: 'EXACT_MATCH' | 'ALIAS_MATCH' | 'AMBIGUOUS' | 'NOT_FOUND';
+    reason?: string;
+  } {
+    if (!this.isInitialized || this.availableBrokerSymbols.size === 0) {
+      const direct = this.toBrokerSymbol(canonicalSymbol);
+      return {
+        brokerSymbol: direct,
+        status: direct ? 'ALIAS_MATCH' : 'NOT_FOUND',
+        reason: direct ? 'Resolved from canonical static alias mapping' : 'Symbol not found in broker catalogue'
+      };
+    }
+
+    const aliases = CANONICAL_SYMBOL_MAPPINGS[canonicalSymbol] || [canonicalSymbol];
+    const presentMatches = aliases.filter(a => this.availableBrokerSymbols.has(a));
+
+    if (presentMatches.length === 1) {
+      return {
+        brokerSymbol: presentMatches[0],
+        status: presentMatches[0] === canonicalSymbol ? 'EXACT_MATCH' : 'ALIAS_MATCH'
+      };
+    }
+
+    if (presentMatches.length > 1) {
+      if (this.availableBrokerSymbols.has(canonicalSymbol)) {
+        return {
+          brokerSymbol: canonicalSymbol,
+          status: 'EXACT_MATCH'
+        };
+      }
+      return {
+        brokerSymbol: null,
+        status: 'AMBIGUOUS',
+        reason: `SYMBOL MAPPING REQUIRED: Multiple broker symbols found for ${canonicalSymbol} (${presentMatches.join(', ')}). Explicit mapping required.`
+      };
+    }
+
+    // Fallback prefix search
+    const prefixMatches = Array.from(this.availableBrokerSymbols).filter(b => b.startsWith(canonicalSymbol));
+    if (prefixMatches.length === 1) {
+      return {
+        brokerSymbol: prefixMatches[0],
+        status: 'ALIAS_MATCH'
+      };
+    } else if (prefixMatches.length > 1) {
+      return {
+        brokerSymbol: null,
+        status: 'AMBIGUOUS',
+        reason: `SYMBOL MAPPING REQUIRED: Ambiguous broker symbol candidates (${prefixMatches.join(', ')}). Explicit confirmation required.`
+      };
+    }
+
+    return {
+      brokerSymbol: null,
+      status: 'NOT_FOUND',
+      reason: `SYMBOL NOT FOUND: No compatible broker symbol discovered for ${canonicalSymbol}.`
+    };
   }
 
   /**

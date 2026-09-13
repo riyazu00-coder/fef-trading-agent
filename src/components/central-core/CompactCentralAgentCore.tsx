@@ -228,7 +228,7 @@ export function CompactCentralAgentCore({
             <span className="flex items-center space-x-1">
               <span>Spread:</span>
               <strong className="text-cyan-300">{spread}</strong>
-              <span className="text-[7.5px] text-amber-300 font-bold bg-amber-950/60 px-1 py-0.2 rounded border border-amber-500/30">EXNESS</span>
+              <span className="text-[7.5px] text-cyan-300 font-bold bg-cyan-950/60 px-1 py-0.2 rounded border border-cyan-500/30">MT5</span>
             </span>
             <span>Regime: <strong className="text-white font-bold">{marketRegime}</strong></span>
           </div>

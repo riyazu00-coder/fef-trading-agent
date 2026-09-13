@@ -150,7 +150,7 @@ export const FastTradeExecutionStation: React.FC<FastTradeExecutionStationProps>
         disabled={isDeploying}
         className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-black py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all shadow-[0_0_25px_rgba(16,185,129,0.5),inset_0_1px_1px_rgba(255,255,255,0.3)] flex items-center justify-center space-x-2 cursor-pointer active:scale-95 border border-emerald-400/50"
       >
-        <span className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">{isDeploying ? 'DEPLOYING BRACKET ORDER...' : `⚡ 1-CLICK DEPLOY ${ticket.direction} ORDER VIA EXNESS MT5`}</span>
+        <span className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">{isDeploying ? 'DEPLOYING BRACKET ORDER...' : `⚡ 1-CLICK DEPLOY ${ticket.direction} ORDER VIA MT5`}</span>
         <span className="text-[9.5px] bg-black/50 px-2 py-0.5 rounded font-mono font-normal border border-white/20">
           {ticket.recommendedLots} Lots • ${ticket.riskDollars} Risk
         </span>

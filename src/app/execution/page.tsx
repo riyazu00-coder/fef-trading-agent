@@ -298,8 +298,8 @@ export default function ExecutionPage() {
               riskAmount,
               executionMode: 'DEMO_MT5',
               tradeMode: 'DEMO',
-              broker: telemetry.account?.broker || 'Exness Technologies Ltd',
-              account: telemetry.account?.maskedLogin || 'DEMO-881920',
+              broker: telemetry.account?.broker || 'Connected MT5 Broker',
+              account: telemetry.account?.maskedLogin || 'DEMO-ACCOUNT',
               date: new Date().toISOString().replace('T', ' ').substring(0, 16) + ' UTC',
               timestamp: Date.now(),
               strategy: 'Multi-Agent Council Consensus Execution',
@@ -310,7 +310,7 @@ export default function ExecutionPage() {
                 marketState: assetProfile.sessionState?.marketState || 'OPEN',
                 sessionName: assetProfile.sessionState?.sessionName || 'LIVE',
                 tradeExecutable: assetProfile.tradeExecutable,
-                scheduleSource: assetProfile.sessionState?.scheduleSource || 'EXNESS TRADING SCHEDULE',
+                scheduleSource: assetProfile.sessionState?.scheduleSource || 'BROKER TRADING SCHEDULE',
               },
               councilSnapshot: {
                 confidence: assetProfile.confidence,
@@ -402,7 +402,7 @@ export default function ExecutionPage() {
                 {isMt5Connected ? (
                   <span className="text-[9px] bg-cyan-950/60 text-[#67E8F9] border border-cyan-500/40 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                    <span>{telemetry.operatingMode === 'DEMO_EXECUTION' ? 'EXNESS MT5 (DEMO EXECUTION)' : 'EXNESS MT5 (READ ONLY 🔒)'}</span>
+                    <span>{telemetry.operatingMode === 'DEMO_EXECUTION' ? `${telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER' ? telemetry.account.broker : 'MT5'} (DEMO EXECUTION)` : `${telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER' ? telemetry.account.broker : 'MT5'} (READ ONLY 🔒)`}</span>
                   </span>
                 ) : (
                   <span className="text-[9px] bg-amber-950/60 text-[#FBBF24] border border-amber-500/40 px-2 py-0.5 rounded font-mono font-bold">
@@ -874,7 +874,7 @@ export default function ExecutionPage() {
                     HUMAN REVIEW &amp; AUTHORIZATION GATE
                   </h3>
                   <span className="text-[10px] text-cyan-400">
-                    EXNESS MT5 CONTROLLED DEMO EXECUTION (20-POINT AUDIT)
+                    MT5 CONTROLLED DEMO EXECUTION (20-POINT AUDIT)
                   </span>
                 </div>
               </div>
@@ -885,7 +885,7 @@ export default function ExecutionPage() {
 
             {/* Guardrail Disclaimer */}
             <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-[10px] text-cyan-200">
-              ⚠️ <strong>MANDATORY HUMAN REVIEW:</strong> Review all 20 execution parameters below before authorizing dispatch. Live real accounts are strictly blocked. Order will be sent exclusively to Exness MT5 Demo.
+              ⚠️ <strong>MANDATORY HUMAN REVIEW:</strong> Review all 20 execution parameters below before authorizing dispatch. Live real accounts are strictly blocked. Order will be sent exclusively to connected MT5 Demo.
             </div>
 
             {/* 20-Field Audit Grid */}
@@ -960,12 +960,12 @@ export default function ExecutionPage() {
               {/* 14. ACCOUNT */}
               <div className="flex justify-between border-b border-white/5 pb-1">
                 <span className="text-gray-400">14. ACCOUNT:</span>
-                <span className="font-bold text-white">{telemetry.account?.maskedLogin || 'DEMO-881920'}</span>
+                <span className="font-bold text-white">{telemetry.account?.maskedLogin || 'DEMO-ACCOUNT'}</span>
               </div>
               {/* 15. BROKER */}
               <div className="flex justify-between border-b border-white/5 pb-1">
                 <span className="text-gray-400">15. BROKER:</span>
-                <span className="font-bold text-gray-200">{telemetry.account?.broker || 'Exness Technologies Ltd'}</span>
+                <span className="font-bold text-gray-200">{telemetry.account?.broker || 'Connected MT5 Broker'}</span>
               </div>
               {/* 16. SESSION STATUS */}
               <div className="flex justify-between border-b border-white/5 pb-1">

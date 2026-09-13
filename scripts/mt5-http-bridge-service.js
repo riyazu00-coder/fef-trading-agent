@@ -41,8 +41,8 @@ const bridgeState = {
   transport: 'HTTP / WEBREQUEST',
   terminal: {
     build: 0,
-    broker: 'Exness',
-    server: 'Exness-Real',
+    broker: 'UNKNOWN BROKER',
+    server: 'MT5 SERVER',
     accountLogin: '00***00',
     currency: 'USD',
     magic: 8882026,
@@ -50,8 +50,8 @@ const bridgeState = {
   },
   account: {
     maskedLogin: '00***00',
-    broker: 'Exness',
-    server: 'Exness-Real',
+    broker: 'UNKNOWN BROKER',
+    server: 'MT5 SERVER',
     currency: 'USD',
     tradeMode: 'DEMO',
     balance: 0,
@@ -69,6 +69,8 @@ const bridgeState = {
   positions: [],
   orders: [],
   symbols: [],
+  symbolSpecs: [],
+  specsBySymbol: {},
   sessions: {},
 };
 
@@ -446,13 +448,25 @@ async function handleHttpRequest(req, res) {
   }
 
   // =========================================================================
-  // 6. POST /mt5/symbols (From FEF_HTTP_Bridge.mq5)
+  // 6. POST /mt5/symbols or POST /mt5/symbol-specs (From FEF_HTTP_Bridge.mq5)
   // =========================================================================
-  if (req.method === 'POST' && urlPath === '/mt5/symbols') {
+  if (req.method === 'POST' && (urlPath === '/mt5/symbols' || urlPath === '/mt5/symbol-specs')) {
     if (Array.isArray(body.symbols)) {
       bridgeState.symbols = body.symbols;
     }
-    return sendJson(res, 200, { success: true, symbolsCount: bridgeState.symbols.length });
+    if (Array.isArray(body.specs)) {
+      bridgeState.symbolSpecs = body.specs;
+      if (!bridgeState.specsBySymbol) bridgeState.specsBySymbol = {};
+      body.specs.forEach(spec => {
+        if (spec.brokerSymbol) bridgeState.specsBySymbol[spec.brokerSymbol] = spec;
+        if (spec.canonicalSymbol) bridgeState.specsBySymbol[spec.canonicalSymbol] = spec;
+      });
+    }
+    return sendJson(res, 200, {
+      success: true,
+      symbolsCount: bridgeState.symbols.length,
+      specsCount: (bridgeState.symbolSpecs || []).length
+    });
   }
 
   // =========================================================================
@@ -503,6 +517,8 @@ async function handleHttpRequest(req, res) {
       orders: bridgeState.orders,
       sessions: bridgeState.sessions,
       symbols: bridgeState.symbols,
+      symbolSpecs: bridgeState.symbolSpecs || [],
+      specsBySymbol: bridgeState.specsBySymbol || {},
     });
   }
 
@@ -902,7 +918,24 @@ async function handleHttpRequest(req, res) {
         command: 'GET_SYMBOLS',
         success: true,
         state: isConnected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
-        data: { symbols: bridgeState.symbols },
+        data: {
+          symbols: bridgeState.symbols,
+          symbolSpecs: bridgeState.symbolSpecs || [],
+          specsBySymbol: bridgeState.specsBySymbol || {}
+        },
+        timestamp: Date.now(),
+      });
+    }
+
+    if (command === 'GET_SYMBOL_INFO') {
+      const sym = body.symbol || params.symbol || '';
+      const spec = bridgeState.specsBySymbol ? bridgeState.specsBySymbol[sym] : null;
+      return sendJson(res, 200, {
+        reqId,
+        command: 'GET_SYMBOL_INFO',
+        success: true,
+        state: isConnected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+        data: spec || null,
         timestamp: Date.now(),
       });
     }

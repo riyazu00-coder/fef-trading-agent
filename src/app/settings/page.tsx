@@ -348,7 +348,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-1 sm:col-span-2">
-                  <label className="text-gray-400 text-[10px]">EXNESS EXPERT ADVISOR MAGIC NUMBER</label>
+                  <label className="text-gray-400 text-[10px]">MT5 EXPERT ADVISOR MAGIC NUMBER</label>
                   <input
                     type="number"
                     value={magicNumber}
@@ -416,7 +416,7 @@ export default function SettingsPage() {
                       <div>
                         <span className="text-gray-400 block text-[9px]">BROKER / SERVER</span>
                         <span className="font-bold text-white">
-                          {mt5TestResult.account.broker || mt5TestResult.terminal?.brokerName || 'Exness'} ({mt5TestResult.account.server || mt5TestResult.terminal?.brokerServer || 'Real'})
+                          {mt5TestResult.account.broker || mt5TestResult.terminal?.brokerName || 'Connected Broker'} ({mt5TestResult.account.server || mt5TestResult.terminal?.brokerServer || 'MT5 Server'})
                         </span>
                       </div>
                       <div>
@@ -468,12 +468,12 @@ export default function SettingsPage() {
 
               {/* Providers Status Table */}
               <div className="space-y-2 text-xs">
-                {/* Exness Live Feed */}
+                {/* MT5 Live Feed */}
                 <div className="bg-black/40 border border-white/5 p-3 rounded-xl flex items-center justify-between">
                   <div>
-                    <span className="font-bold text-white block">Exness High-Speed Socket</span>
+                    <span className="font-bold text-white block">MT5 High-Speed Socket</span>
                     <span className="text-[10px] text-gray-500 font-mono">
-                      TOKEN: exn-real-••••••••••••••••382f
+                      TOKEN: mt5-real-••••••••••••••••382f
                     </span>
                   </div>
                   <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-bold">

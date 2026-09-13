@@ -299,10 +299,13 @@ async function main() {
 
     assert(calc.isValid);
     // Raw lot: 50 / (6 * 100) = 0.0833
-    // 0.0833 is below minLot 0.10 -> clamped to broker minLot 0.10 with isBelowMinLot flag
-    assert.strictEqual(calc.safeLotSize, 0.10);
+    // 0.0833 is below minLot 0.10. Clamping to 0.10 would risk $60 > $50 budget.
+    // In broker-agnostic architecture: do NOT round up to 0.10 if doing so exceeds permitted risk.
+    assert.strictEqual(calc.safeLotSize, 0.00);
     assert.strictEqual(calc.isBelowMinLot, true);
-    assert(calc.estimatedLossAtSL > 0);
+    assert.strictEqual(calc.executionLocked, true);
+    assert(calc.lockReason && calc.lockReason.includes('BELOW BROKER MINIMUM LOT'));
+    assert.strictEqual(calc.sizingSource, 'BROKER_SPEC');
   });
 
   // -------------------------------------------------------------------------

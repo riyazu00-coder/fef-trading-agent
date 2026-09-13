@@ -202,6 +202,7 @@ export interface MT5SymbolSpecification {
   tickSize: number;
   tradeMode: 'FULL' | 'CLOSE_ONLY' | 'DISABLED';
   pipSize?: number;
+  source?: 'BROKER' | 'STATIC' | string;
 }
 
 export interface MT5PositionItem {

@@ -109,7 +109,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                   {assetProfile.category}
                 </span>
                 <span className="text-[10px] bg-emerald-950/60 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded font-bold">
-                  EXNESS FEED VERIFIED
+                  BROKER FEED VERIFIED
                 </span>
               </div>
               <div className="text-xs text-gray-400 mt-1">{assetProfile.name}</div>

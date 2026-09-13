@@ -200,9 +200,9 @@ export function deriveAccountRiskContext(
 
   return {
     maskedLogin: account.maskedLogin || '00***00',
-    company: account.company || 'Exness',
-    broker: (account as any).broker || account.company || 'Exness',
-    server: account.server || 'Exness-Trial',
+    company: account.company || (account as any).broker || 'UNKNOWN BROKER',
+    broker: (account as any).broker || account.company || 'UNKNOWN BROKER',
+    server: account.server || 'MT5 SERVER',
     currency: account.currency || 'USD',
     tradeMode: account.tradeMode === 'REAL' ? 'REAL' : 'DEMO',
     balance,

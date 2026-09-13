@@ -46,10 +46,10 @@ export const MultiSymbolSelector: React.FC<MultiSymbolSelectorProps> = ({
         <div className="flex items-center space-x-2">
           <span className="text-amber-400 font-bold drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]">⚡</span>
           <span className="font-bold text-white uppercase tracking-wider drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
-            EXNESS MULTI-ASSET LIVE QUOTES
+            MULTI-ASSET LIVE QUOTES
           </span>
           <span className="text-amber-300/90 text-[9px] hidden md:inline drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] font-semibold">
-            (Exness Raw Spread Prices • Click to Switch Live Background Chart & Swarm)
+            (Live Broker & Market Feeds • Click to Switch Live Background Chart & Swarm)
           </span>
         </div>
 
@@ -69,7 +69,7 @@ export const MultiSymbolSelector: React.FC<MultiSymbolSelectorProps> = ({
             </button>
           ))}
           <span className="text-[8.5px] text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-400/50 font-bold ml-1 hidden sm:inline shadow-[0_0_8px_rgba(251,191,36,0.4)] backdrop-blur-sm">
-            ● EXNESS BROKER FEED
+            ● BROKER LIVE FEED
           </span>
         </div>
       </div>

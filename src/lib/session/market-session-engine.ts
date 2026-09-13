@@ -155,7 +155,7 @@ export function evaluateMarketSession(
       nextOpenCountdown: formatCountdown(minutesUntilOpen),
       nextCloseCountdown: formatCountdown(minutesUntilClose),
       isStaleQuote: false,
-      sessionName: brokerOverride.sessionName || (isOpen ? 'EXNESS BROKER SESSION' : 'BROKER CLOSED'),
+      sessionName: brokerOverride.sessionName || (isOpen ? 'BROKER SESSION' : 'BROKER CLOSED'),
       openedAt: isOpen ? 'Live' : 'Closed',
       closesAt: brokerOverride.closesUtc || 'Scheduled',
       nextOpenAt: brokerOverride.nextOpenUtc || 'Next Session',
