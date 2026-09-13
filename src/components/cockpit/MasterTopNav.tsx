@@ -10,17 +10,40 @@ import { getStoredNotifications, subscribeRadarNotifications } from '@/lib/radar
 import { BRAND_CONFIG } from '@/lib/config/support-config';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 import { evaluateMarketSession } from '@/lib/session/market-session-engine';
+import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 
 export const MasterTopNav: React.FC = () => {
   const pathname = usePathname();
   const { activeSymbol, activeAsset, assetProfile, allAssets } = useActiveAsset();
+  const { telemetry, isMt5Connected } = useMT5Telemetry();
   const [searchQuery, setSearchQuery] = useState('');
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (e.key === 'Escape') {
+        setShowAiModal(false);
+        setIsMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useEffect(() => {
     const updateUnread = () => {
@@ -203,28 +226,47 @@ export const MasterTopNav: React.FC = () => {
               <Link
                 key={tab.name}
                 href={tab.path}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all text-xs flex items-center space-x-1 ${
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all text-xs flex items-center space-x-1.5 ${
                   isActive
                     ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50 shadow-[0_0_12px_rgba(34,211,238,0.35)] font-bold'
                     : 'text-[#94A3B8] hover:text-[#CBD5E1] hover:bg-white/5'
                 }`}
               >
                 <span>{tab.name}</span>
+                {tab.path === '/execution' && (
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
+                        ? 'bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(16,185,129,0.8)]'
+                        : isMt5Connected
+                          ? 'bg-amber-400'
+                          : 'bg-slate-500'
+                    }`}
+                    title={
+                      telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
+                        ? 'MT5 Demo Execution Active'
+                        : isMt5Connected
+                          ? 'MT5 Read-Only'
+                          : 'MT5 Standby'
+                    }
+                  />
+                )}
               </Link>
             );
           })}
         </nav>
 
-        {/* Search Bar & Telemetry Avatar */}
-        <div className="flex items-center space-x-3">
+        {/* Search Bar, Telemetry Badges & Quick Action Controls */}
+        <div className="flex items-center space-x-2.5 sm:space-x-3">
           {/* Ask FEF AI Search Field */}
           <form onSubmit={handleSearchSubmit} className="relative hidden md:flex items-center">
             <input
+              ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Ask FEF AI anything... (e.g. Why gold is bullish?)"
-              className="bg-black/50 border border-white/10 focus:border-cyan-400/60 rounded-xl pl-8 pr-8 py-1.5 text-[11px] text-gray-200 placeholder-gray-500 w-56 focus:w-72 transition-all outline-none"
+              className="bg-black/50 border border-white/10 focus:border-cyan-400/60 rounded-xl pl-8 pr-8 py-1.5 text-[11px] text-gray-200 placeholder-gray-500 w-52 xl:w-64 focus:w-72 transition-all outline-none"
             />
             <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -232,6 +274,7 @@ export const MasterTopNav: React.FC = () => {
             <button
               type="submit"
               className="absolute right-2 px-1.5 py-0.2 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[9px] text-cyan-300 font-mono transition-colors"
+              title="Press / anywhere to search"
             >
               /
             </button>
@@ -245,10 +288,31 @@ export const MasterTopNav: React.FC = () => {
             className="hidden sm:inline-flex"
           />
 
+          {/* Canonical MT5 Telemetry Operating Mode Pill (Desktop) */}
+          {telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected ? (
+            <Link
+              href="/execution"
+              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9.5px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+              title="MT5 Demo Execution Active (Controlled Micro-Lot Sizing)"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="font-bold tracking-wider">DEMO EXECUTION</span>
+            </Link>
+          ) : (
+            <Link
+              href="/settings"
+              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-amber-950/40 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-amber-100 font-mono text-[9.5px] transition-all cursor-pointer shadow-[0_0_10px_rgba(245,158,11,0.15)]"
+              title={isMt5Connected ? 'MT5 Connected in Read-Only Mode' : 'MT5 Bridge Standby'}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${isMt5Connected ? 'bg-amber-400' : 'bg-slate-500'}`} />
+              <span className="font-bold tracking-wider">{isMt5Connected ? 'MT5 READ-ONLY 🔒' : 'MT5 STANDBY'}</span>
+            </Link>
+          )}
+
           {/* 24/7 Support Desk */}
           <button
             onClick={() => setIsSupportOpen(true)}
-            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white transition-all cursor-pointer font-mono text-[10px] shadow-[0_0_10px_rgba(0,240,255,0.15)]"
+            className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white transition-all cursor-pointer font-mono text-[10px] shadow-[0_0_10px_rgba(0,240,255,0.15)]"
             title="24/7 Institutional Support Desk"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -290,8 +354,128 @@ export const MasterTopNav: React.FC = () => {
               </p>
             </div>
           </Link>
+
+          {/* Mobile Hamburger Menu Toggle Button */}
+          <button
+            onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+            className="lg:hidden p-2 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-white transition-all cursor-pointer"
+            aria-label="Toggle Navigation Menu"
+            title="Toggle Navigation Menu"
+          >
+            {isMobileMenuOpen ? (
+              <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            )}
+          </button>
         </div>
       </header>
+
+      {/* Responsive Mobile Navigation Dropdown */}
+      {isMobileMenuOpen && (
+        <div className="lg:hidden w-full mt-2 ghost-glass-panel rounded-2xl p-4 border border-cyan-500/30 shadow-[0_12px_40px_rgba(0,0,0,0.85)] animate-in fade-in slide-in-from-top-2 duration-200 space-y-3 font-sans relative z-30">
+          {/* Mobile Navigation Tabs Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            {navTabs.map((tab) => {
+              const isRoot = pathname === '/' && tab.path === '/cockpit';
+              const isActive = pathname === tab.path || pathname.startsWith(tab.path + '/') || isRoot;
+              return (
+                <Link
+                  key={tab.name}
+                  href={tab.path}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all ${
+                    isActive
+                      ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50 shadow-[0_0_12px_rgba(34,211,238,0.3)]'
+                      : 'text-[#94A3B8] hover:text-[#CBD5E1] hover:bg-white/5 border border-transparent'
+                  }`}
+                >
+                  <span>{tab.name}</span>
+                  {tab.path === '/execution' && (
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
+                          ? 'bg-emerald-400 animate-pulse'
+                          : isMt5Connected
+                            ? 'bg-amber-400'
+                            : 'bg-slate-500'
+                      }`}
+                    />
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Mobile Search Field */}
+          <form onSubmit={handleSearchSubmit} className="relative flex items-center pt-1">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Ask FEF AI anything..."
+              className="w-full bg-black/60 border border-white/10 focus:border-cyan-400/60 rounded-xl pl-9 pr-12 py-2 text-xs text-gray-200 placeholder-gray-500 transition-all outline-none"
+            />
+            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <button
+              type="submit"
+              className="absolute right-2 px-2 py-0.5 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[10px] text-cyan-300 font-mono"
+            >
+              ASK
+            </button>
+          </form>
+
+          {/* Mobile Status Strip & Shortcuts */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10 text-xs font-mono">
+            {/* Live MT5 Status */}
+            {telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected ? (
+              <span className="inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>DEMO EXECUTION (ACTIVE)</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-amber-950/70 border border-amber-500/40 text-amber-300 text-[10px] font-bold">
+                <span className={`w-1.5 h-1.5 rounded-full ${isMt5Connected ? 'bg-amber-400' : 'bg-slate-500'}`} />
+                <span>{isMt5Connected ? 'EXNESS MT5 (READ ONLY 🔒)' : 'MT5 STANDBY'}</span>
+              </span>
+            )}
+
+            {/* Quick action buttons */}
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  setIsSupportOpen(true);
+                }}
+                className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>24/7 SUPPORT</span>
+              </button>
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  setIsDrawerOpen(true);
+                }}
+                className="px-2 py-1 rounded-lg bg-black/50 border border-white/10 text-gray-300 text-[10px] font-bold flex items-center space-x-1"
+              >
+                <span>RADAR</span>
+                {unreadCount > 0 && (
+                  <span className="px-1 rounded-full bg-cyan-400 text-black font-bold text-[9px]">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ask FEF AI Interactive Response Modal */}
       {showAiModal && (
