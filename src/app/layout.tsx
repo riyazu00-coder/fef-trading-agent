@@ -6,6 +6,10 @@ import { TradeOpportunityPopup } from '@/components/cockpit/TradeOpportunityPopu
 export const metadata = {
   title: 'FEF Trading Solutions | AI-Powered Market Intelligence Operating System',
   description: 'Multi-Asset Institutional AI Market Intelligence, Vision Technical Analysis, and Automated Risk Guardian for Exness Markets',
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
