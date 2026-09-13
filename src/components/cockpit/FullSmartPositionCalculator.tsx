@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import {
   calculatePositionSize,
   PositionSizeResult,
@@ -15,6 +16,11 @@ const STORAGE_KEY = 'fef_calc_preferences_v1';
 export const FullSmartPositionCalculator: React.FC = () => {
   const router = useRouter();
   const { activeSymbol, activeAsset, assetProfile } = useActiveAsset();
+  const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
+
+  // MT5 Source Toggles
+  const [accountSource, setAccountSource] = useState<'MANUAL' | 'MT5_VERIFIED'>('MANUAL');
+  const [specSource, setSpecSource] = useState<'REFERENCE' | 'MT5_VERIFIED'>('REFERENCE');
 
   // Primary user inputs
   const [capital, setCapital] = useState<number>(10000);
@@ -181,13 +187,37 @@ export const FullSmartPositionCalculator: React.FC = () => {
     setFlashNotice('No recent Chart Vision setup found. Upload or paste a chart first.');
   };
 
-  // Pull MT5 balance
+  // Pull MT5 balance or sync real account
   const handleUseMt5Balance = () => {
-    const simulatedLiveBalance = 10000.00;
-    setCapital(simulatedLiveBalance);
-    savePreferences(simulatedLiveBalance, riskPct);
-    setFlashNotice('Connected to paper/broker account balance: $10,000.00');
+    if (telemetry.account && isMt5Connected) {
+      const liveBalance = telemetry.account.freeMargin > 0 ? telemetry.account.freeMargin : telemetry.account.balance;
+      setCapital(liveBalance);
+      setAccountSource('MT5_VERIFIED');
+      savePreferences(liveBalance, riskPct);
+      setFlashNotice(`✓ Synced MT5 Account Fact: $${liveBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} (${telemetry.account.broker})`);
+    } else {
+      const simulatedLiveBalance = 10000.00;
+      setCapital(simulatedLiveBalance);
+      setAccountSource('MANUAL');
+      savePreferences(simulatedLiveBalance, riskPct);
+      setFlashNotice('Connected to paper/broker account balance: $10,000.00 (MT5 Standby)');
+    }
   };
+
+  // Optional broker contract spec override from MT5
+  const brokerSpecOverride = useMemo(() => {
+    if (specSource === 'MT5_VERIFIED' && activeTelemetry?.spec) {
+      return {
+        contractSize: activeTelemetry.spec.contractSize,
+        lotStep: activeTelemetry.spec.lotStep,
+        minLot: activeTelemetry.spec.minLot,
+        maxLot: activeTelemetry.spec.maxLot,
+        tickSize: activeTelemetry.spec.tickSize,
+        tickValue: activeTelemetry.spec.tickValue,
+      };
+    }
+    return undefined;
+  }, [specSource, activeTelemetry?.spec]);
 
   // Perform safe position calculation
   const calcResult: PositionSizeResult = useMemo(() => {
@@ -202,6 +232,7 @@ export const FullSmartPositionCalculator: React.FC = () => {
       tp2,
       tp3,
       riskGuardianMaxRiskPct: riskGuardianCap,
+      brokerSpecOverride,
       spreadBufferPips: useSpreadBuffer ? (spreadBufferPips + slippagePips) : 0,
       exitDistribution: {
         tp1Pct,
@@ -220,6 +251,7 @@ export const FullSmartPositionCalculator: React.FC = () => {
     tp2,
     tp3,
     riskGuardianCap,
+    brokerSpecOverride,
     useSpreadBuffer,
     spreadBufferPips,
     slippagePips,
@@ -302,9 +334,19 @@ export const FullSmartPositionCalculator: React.FC = () => {
               <span className={`text-[8.5px] font-bold px-2 py-0.5 rounded border font-mono ${riskBadge.color}`}>
                 {riskBadge.label}
               </span>
+              {!assetProfile.tradeExecutable && (
+                <span className="text-[8.5px] font-bold px-2 py-0.5 rounded border font-mono bg-amber-950/70 text-amber-300 border-amber-500/40">
+                  MARKET CLOSED — PLANNING ONLY
+                </span>
+              )}
             </div>
             <p className="text-[9px] font-sans text-[#94A3B8]">
               Institutional Contract Sizing • Risk-First Floor Rounding
+              {!assetProfile.tradeExecutable && (
+                <span suppressHydrationWarning className="text-rose-400 font-mono ml-2">
+                  (Execution locked until session opens in {assetProfile.sessionState?.nextOpenCountdown || 'scheduled'})
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -336,10 +378,14 @@ export const FullSmartPositionCalculator: React.FC = () => {
             <span className="text-gray-400">Account Capital ($)</span>
             <button
               onClick={handleUseMt5Balance}
-              className="text-[8.5px] text-cyan-400 hover:text-cyan-200 underline cursor-pointer"
+              className={`text-[8px] px-1.5 py-0.5 rounded font-bold transition-all cursor-pointer ${
+                accountSource === 'MT5_VERIFIED' && isMt5Connected
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'text-cyan-400 hover:text-cyan-200 underline'
+              }`}
               title="Sync with connected MT5 or paper balance"
             >
-              USE BALANCE
+              {accountSource === 'MT5_VERIFIED' && isMt5Connected ? 'MT5 FACT ✓' : 'SYNC MT5 FACT'}
             </button>
           </div>
           <input

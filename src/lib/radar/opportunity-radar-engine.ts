@@ -46,7 +46,9 @@ export interface RadarOpportunityItem {
   riskLevel: RadarRiskLevel;
   tradeExecutable: boolean;
   setupQuality: number;
+  executabilityScore: number; // 100 if open, 0 if closed
   marketState: string;
+  sessionCountdown?: string;
   entryZone: [number, number];
   stopLoss: number;
   tp1: number;
@@ -323,7 +325,9 @@ export function generateGlobalRadarIntelligence(
       opportunityScore: score,
       setupQuality,
       tradeExecutable,
+      executabilityScore: tradeExecutable ? 100 : 0,
       marketState,
+      sessionCountdown: profile.sessionState?.nextOpenCountdown,
       aiConfidence: profile.confidence,
       timeframe,
       riskLevel,
@@ -340,7 +344,8 @@ export function generateGlobalRadarIntelligence(
     };
   });
 
-  // Sort descending by Opportunity Score, breaking ties with AI Confidence
+  // Sort descending by Opportunity Score (Setup Quality), breaking ties with AI Confidence
+  // Note: Closed assets CAN rank high for setup quality, but NEVER rank as best immediately executable trade
   opportunities.sort((a, b) => {
     if (b.opportunityScore !== a.opportunityScore) {
       return b.opportunityScore - a.opportunityScore;
@@ -348,12 +353,14 @@ export function generateGlobalRadarIntelligence(
     return b.aiConfidence - a.aiConfidence;
   });
 
-  // Assign sequential ranks
+  // Assign sequential ranks based on setup quality
   opportunities.forEach((item, index) => {
     item.rank = index + 1;
   });
 
-  const topOpportunity = opportunities[0] || {
+  // Requirement: Closed assets can rank for setup quality but NEVER rank as best immediately executable trade
+  const topExecutableOpportunity = opportunities.find((o) => o.tradeExecutable);
+  const topOpportunity = topExecutableOpportunity || opportunities[0] || {
     rank: 1,
     symbol: 'XAUUSD',
     name: 'Gold Spot / USD',
@@ -364,6 +371,7 @@ export function generateGlobalRadarIntelligence(
     opportunityScore: 94,
     setupQuality: 94,
     tradeExecutable: true,
+    executabilityScore: 100,
     marketState: 'OPEN',
     aiConfidence: 89,
     timeframe: 'INTRADAY' as RadarTimeframeType,

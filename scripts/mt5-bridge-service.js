@@ -1,18 +1,25 @@
 /**
  * FEF TRADING SOLUTIONS — LOCAL MT5 BRIDGE SERVICE DAEMON
  * 
- * Runs a local TCP server on 127.0.0.1:5555 adhering to the exact FEF MT5 Bridge Protocol.
- * Used for development, CI/CD automated test verification, and local relay testing.
+ * Single authoritative TCP server binding 127.0.0.1:5555.
+ * Acts as the bidirectional relay between FEF Next.js Application and FEF_Bridge.mq5.
+ *
+ * Architecture:
+ * - Listens exclusively on 127.0.0.1 (Loopback). Never binds 0.0.0.0.
+ * - Accepts incoming persistent connection from FEF_Bridge.mq5 (Zero-DLL MQL5 Socket Client).
+ * - Relays incoming Next.js client commands to FEF_Bridge.mq5 and returns real MT5 terminal data.
+ * - Truthfully reports MT5_OFFLINE if FEF_Bridge EA is not connected.
+ * - Supports --mock flag for isolated CI/CD automated test verification.
  */
 
 const net = require('net');
 
 const PORT = parseInt(process.env.MT5_PORT || '5555', 10);
-const HOST = process.env.MT5_HOST || '127.0.0.1';
+const HOST = '127.0.0.1'; // STRICT LOOPBACK BINDING
 const VALID_TOKEN = process.env.FEF_BRIDGE_TOKEN || 'fef_local_bridge_token_v1';
 const MAGIC_NUMBER = 8882026;
 
-// Simulated authentic MT5 broker environment for testing
+// Reference mock data for CI/CD test suites or fallback simulation mode
 const MOCK_BROKER_DATA = {
   terminal: {
     terminalConnected: true,
@@ -23,7 +30,7 @@ const MOCK_BROKER_DATA = {
     tradeAllowed: true,
     tradeExpert: true,
     pingToBrokerMs: 8,
-    bridgeVersion: '1.0.0',
+    bridgeVersion: '1.1.0',
     operatingMode: 'READ_ONLY',
     lastHeartbeat: new Date().toTimeString().split(' ')[0]
   },
@@ -75,6 +82,20 @@ const MOCK_BROKER_DATA = {
       tickSize: 0.01,
       tradeMode: 'FULL'
     },
+    XAGUSDm: {
+      canonicalSymbol: 'XAGUSD',
+      brokerSymbol: 'XAGUSDm',
+      description: 'Silver vs US Dollar (Mini)',
+      digits: 3,
+      point: 0.001,
+      contractSize: 5000,
+      minLot: 0.01,
+      maxLot: 100,
+      lotStep: 0.01,
+      tickValue: 5.0,
+      tickSize: 0.001,
+      tradeMode: 'FULL'
+    },
     EURUSDm: {
       canonicalSymbol: 'EURUSD',
       brokerSymbol: 'EURUSDm',
@@ -106,6 +127,7 @@ const MOCK_BROKER_DATA = {
   },
   quotes: {
     XAUUSDm: { bid: 4342.15, ask: 4342.45, spread: 30, digits: 2, point: 0.01 },
+    XAGUSDm: { bid: 64.120, ask: 64.155, spread: 35, digits: 3, point: 0.001 },
     EURUSDm: { bid: 1.15985, ask: 1.16001, spread: 16, digits: 5, point: 0.00001 },
     USTECm: { bid: 21850.40, ask: 21851.60, spread: 120, digits: 2, point: 0.01 }
   },
@@ -125,10 +147,38 @@ const MOCK_BROKER_DATA = {
       comment: 'FEF Swarm Buy',
       openTime: '2026-09-12 13:42:10 UTC'
     }
-  ]
+  ],
+  pendingOrders: [
+    {
+      ticket: 94829910,
+      symbol: 'XAUUSDm',
+      type: 'BUY_LIMIT',
+      lots: 0.25,
+      price: 4320.00,
+      sl: 4305.00,
+      tp: 4360.00,
+      expiration: 'GTC',
+      magic: 8882026,
+      creationTime: '2026-09-12 14:00:00 UTC'
+    }
+  ],
+  sessions: {
+    XAUUSDm: {
+      brokerSymbol: 'XAUUSDm',
+      tradeMode: 'FULL',
+      sessionStart: '00:00:00',
+      sessionEnd: '23:59:59',
+      serverTime: new Date().toISOString(),
+      marketAvailable: true
+    }
+  }
 };
 
-function handleRequest(req) {
+let activeEaSocket = null;
+let lastEaHeartbeat = 0;
+let pendingRelayRequests = new Map();
+
+function handleMockRequest(req) {
   const { reqId = `req-${Date.now()}`, command, token, symbol } = req;
 
   // 1. Auth check
@@ -144,14 +194,14 @@ function handleRequest(req) {
   }
 
   // 2. Reject Execution commands in read-only mode
-  if (['PLACE_ORDER', 'MODIFY_ORDER', 'CANCEL_ORDER', 'CLOSE_POSITION', 'CLOSE_ALL'].includes(command)) {
+  if (['PLACE_ORDER', 'MODIFY_ORDER', 'CANCEL_ORDER', 'CLOSE_POSITION', 'CLOSE_ALL', 'DELETE_ORDER'].includes(command)) {
     return {
       reqId,
       command,
       success: false,
       state: 'CONNECTED_READ_ONLY',
       error: {
-        code: 'READ_ONLY_LOCK',
+        code: 'READ_ONLY_LOCK_ACTIVE',
         message: `Execution command '${command}' rejected: FEF MT5 Bridge is locked in READ_ONLY safety mode.`
       },
       timestamp: Date.now()
@@ -208,7 +258,7 @@ function handleRequest(req) {
     case 'GET_SYMBOL_INFO': {
       const sym = symbol || 'XAUUSDm';
       const spec = MOCK_BROKER_DATA.specs[sym] || {
-        canonicalSymbol: sym.replace('m', ''),
+        canonicalSymbol: sym.replace(/m|\.r|c|_i$/g, ''),
         brokerSymbol: sym,
         description: `${sym} Spot Rate`,
         digits: 2,
@@ -271,9 +321,29 @@ function handleRequest(req) {
         command,
         success: true,
         state: 'CONNECTED_READ_ONLY',
-        data: { orders: [] },
+        data: { orders: MOCK_BROKER_DATA.pendingOrders },
         timestamp: Date.now()
       };
+
+    case 'GET_BROKER_SESSIONS': {
+      const sym = symbol || 'XAUUSDm';
+      const sess = MOCK_BROKER_DATA.sessions[sym] || {
+        brokerSymbol: sym,
+        tradeMode: 'FULL',
+        sessionStart: '00:00:00',
+        sessionEnd: '23:59:59',
+        serverTime: new Date().toISOString(),
+        marketAvailable: true
+      };
+      return {
+        reqId,
+        command,
+        success: true,
+        state: 'CONNECTED_READ_ONLY',
+        data: sess,
+        timestamp: Date.now()
+      };
+    }
 
     default:
       return {
@@ -287,9 +357,18 @@ function handleRequest(req) {
   }
 }
 
-function createBridgeServer(port = PORT, host = HOST) {
+/**
+ * Creates the TCP Bridge Server
+ * @param {number} port
+ * @param {string} host
+ * @param {boolean} forceMockMode - if true, handles requests locally without waiting for MT5
+ */
+function createBridgeServer(port = PORT, host = HOST, forceMockMode = false) {
+  const isMock = forceMockMode || process.argv.includes('--mock') || process.env.FEF_BRIDGE_MOCK === 'true';
+
   const server = net.createServer((socket) => {
     let buffer = '';
+    let isThisSocketEa = false;
 
     socket.on('data', (chunk) => {
       buffer += chunk.toString('utf8');
@@ -300,9 +379,109 @@ function createBridgeServer(port = PORT, host = HOST) {
           const trimmed = line.trim();
           if (trimmed.length > 0) {
             try {
-              const req = JSON.parse(trimmed);
-              const resp = handleRequest(req);
-              socket.write(JSON.stringify(resp) + '\n', 'utf8');
+              const msg = JSON.parse(trimmed);
+
+              // 1. Handshake from FEF_Bridge.mq5
+              if (msg.command === 'EA_CONNECTED') {
+                isThisSocketEa = true;
+                activeEaSocket = socket;
+                lastEaHeartbeat = Date.now();
+                console.log(`✓ MT5 EA Connected! Account: ${msg.account} | Build: ${msg.build}`);
+                continue;
+              }
+
+              // 2. Incoming response from FEF_Bridge.mq5 for a pending relay request
+              if (isThisSocketEa && msg.reqId && pendingRelayRequests.has(msg.reqId)) {
+                const pending = pendingRelayRequests.get(msg.reqId);
+                pendingRelayRequests.delete(msg.reqId);
+                clearTimeout(pending.timer);
+                lastEaHeartbeat = Date.now();
+                pending.clientSocket.write(JSON.stringify(msg) + '\n', 'utf8');
+                continue;
+              }
+
+              // 3. Incoming command from Next.js / API Client
+              const command = (msg.command || '').toUpperCase();
+
+              // Safety Gate: Reject write commands immediately
+              if (['PLACE_ORDER', 'MODIFY_ORDER', 'CANCEL_ORDER', 'CLOSE_POSITION', 'CLOSE_ALL', 'DELETE_ORDER'].includes(command)) {
+                socket.write(
+                  JSON.stringify({
+                    reqId: msg.reqId || 'req-0',
+                    command,
+                    success: false,
+                    state: 'CONNECTED_READ_ONLY',
+                    error: {
+                      code: 'READ_ONLY_LOCK_ACTIVE',
+                      message: `Execution command '${command}' rejected: FEF MT5 Bridge is locked in READ_ONLY safety mode.`
+                    },
+                    timestamp: Date.now()
+                  }) + '\n',
+                  'utf8'
+                );
+                continue;
+              }
+
+              // Auth check
+              if (msg.token !== VALID_TOKEN) {
+                socket.write(
+                  JSON.stringify({
+                    reqId: msg.reqId || 'req-0',
+                    command,
+                    success: false,
+                    state: 'AUTH_FAILED',
+                    error: { code: 'AUTH_FAILED', message: 'Invalid or missing authentication token.' },
+                    timestamp: Date.now()
+                  }) + '\n',
+                  'utf8'
+                );
+                continue;
+              }
+
+              // Check if real MT5 EA is connected
+              const isEaAlive = activeEaSocket && !activeEaSocket.destroyed && (Date.now() - lastEaHeartbeat < 30000);
+
+              if (isEaAlive) {
+                // Relay request to real MT5 EA
+                const reqId = msg.reqId || `req-${Date.now()}`;
+                const timer = setTimeout(() => {
+                  pendingRelayRequests.delete(reqId);
+                  socket.write(
+                    JSON.stringify({
+                      reqId,
+                      command,
+                      success: false,
+                      state: 'TIMEOUT',
+                      error: { code: 'EA_RESPONSE_TIMEOUT', message: 'Timeout waiting for response from FEF_Bridge.mq5.' },
+                      timestamp: Date.now()
+                    }) + '\n',
+                    'utf8'
+                  );
+                }, 3000);
+
+                pendingRelayRequests.set(reqId, { clientSocket: socket, timer });
+                activeEaSocket.write(JSON.stringify(msg) + '\n', 'utf8');
+              } else if (isMock) {
+                // CI/CD or Mock Mode
+                const resp = handleMockRequest(msg);
+                socket.write(JSON.stringify(resp) + '\n', 'utf8');
+              } else {
+                // Real Mode but EA not connected -> Truthful offline error!
+                socket.write(
+                  JSON.stringify({
+                    reqId: msg.reqId || 'req-0',
+                    command,
+                    success: false,
+                    state: 'MT5_OFFLINE',
+                    error: {
+                      code: 'MT5_OFFLINE',
+                      message: 'FEF Bridge daemon is listening on 127.0.0.1:5555, but FEF_Bridge.mq5 is not connected in MetaTrader 5. Attach the EA in MT5 to enable live telemetry.'
+                    },
+                    timestamp: Date.now()
+                  }) + '\n',
+                  'utf8'
+                );
+              }
             } catch (err) {
               socket.write(
                 JSON.stringify({
@@ -321,6 +500,13 @@ function createBridgeServer(port = PORT, host = HOST) {
       }
     });
 
+    socket.on('close', () => {
+      if (socket === activeEaSocket) {
+        console.log('⚠ MT5 EA disconnected from Bridge daemon.');
+        activeEaSocket = null;
+      }
+    });
+
     socket.on('error', () => {});
   });
 
@@ -329,21 +515,24 @@ function createBridgeServer(port = PORT, host = HOST) {
 
 // Start standalone daemon if run directly via CLI
 if (require.main === module) {
-  const server = createBridgeServer();
+  const isMock = process.argv.includes('--mock') || process.env.FEF_BRIDGE_MOCK === 'true';
+  const server = createBridgeServer(PORT, HOST, isMock);
   server.listen(PORT, HOST, () => {
     console.log(`================================================================`);
     console.log(`FEF MT5 BRIDGE DAEMON ONLINE`);
-    console.log(`Listening: ${HOST}:${PORT}`);
+    console.log(`Listening strictly on: ${HOST}:${PORT} (Loopback Only)`);
     console.log(`Magic Number: ${MAGIC_NUMBER}`);
     console.log(`Auth Token: ${VALID_TOKEN ? 'PROTECTED' : 'OPEN'}`);
-    console.log(`Operating Mode: READ_ONLY (Execution blocked)`);
+    console.log(`Operating Mode: READ_ONLY (Execution strictly blocked)`);
+    console.log(`Status: ${isMock ? 'MOCK / SIMULATION MODE' : 'WAITING FOR FEF_BRIDGE.MQ5'}`);
     console.log(`================================================================`);
   });
 }
 
 module.exports = {
   createBridgeServer,
-  handleRequest,
+  handleRequest: handleMockRequest,
+  handleMockRequest,
   MOCK_BROKER_DATA,
   PORT,
   HOST,

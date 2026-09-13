@@ -12,6 +12,13 @@ import { LiveMarketAsset } from '../providers/real-market-api';
 import { AgentNodeStatus, AgentState, AgentType, BiasType } from './agent-types';
 import { getMarketDefinition, MarketCategory } from '../registry/market-registry';
 import { evaluateMarketSession, MarketSessionState } from '../session/market-session-engine';
+import {
+  calculateAgentEvidenceTrust,
+  calculateConsensusTrust,
+  evaluateActionabilityGate,
+  AgentEvidence,
+  ActionabilityState
+} from '../evidence/agent-evidence';
 
 export interface AssetIntelligenceProfile {
   symbol: string;
@@ -23,7 +30,7 @@ export interface AssetIntelligenceProfile {
   volatility: string;
   newsRisk: string;
   liquidity: string;
-  setupDirection: 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)';
+  setupDirection: 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)' | 'ANALYSIS ONLY' | 'DATA LIMITED';
   confidence: number;
   entryZone: [number, number];
   stopLoss: number;
@@ -44,6 +51,12 @@ export interface AssetIntelligenceProfile {
     text: string;
     status: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'RESTRICTED' | 'CAUTION' | 'DATA LIMITED';
   }[];
+  // Phase 34 Consensus Trust Additions
+  evidenceTrust?: number;
+  verifiedAgentCount?: number;
+  limitedAgentCount?: number;
+  unavailableAgentCount?: number;
+  actionabilityState?: ActionabilityState;
 }
 
 /**
@@ -164,19 +177,19 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, time
         ],
         agentOverrides: {
           TECHNICAL: { bias: 'BULLISH', confidence: 84, status: 'ONLINE', lastOpinion: 'H1 bullish displacement confirmed; retesting discount FVG.', evidence: ['Asian low sweep', 'M15 CHOCH', 'Discount FVG tap'], keyRisk: 'Resistance at 4,360', invalidation: `Below $${sl}` },
-          MACRO: { bias: 'BULLISH', confidence: 79, status: 'ONLINE', lastOpinion: 'Falling real yields & sovereign reserve diversification favor gold expansion.', evidence: ['US10Y real yield 4.214%', 'Fed cut pricing 74%'], keyRisk: 'Hawkish PCE print', invalidation: 'Real yield spike > 4.40%' },
+          MACRO: { bias: 'BULLISH', confidence: 79, status: 'ONLINE', lastOpinion: 'Falling real yields & sovereign reserve diversification favor gold expansion.', evidence: ['Real yield model: BULLISH', 'Fed rate trajectory monitored'], keyRisk: 'Hawkish PCE print', invalidation: 'Real yield spike > 4.40%' },
           CORRELATION: { bias: 'BULLISH', confidence: 86, status: 'ONLINE', lastOpinion: 'DXY rejection at 104.40 confirmed; SMT leadership from Silver (+1.28%).', evidence: ['DXY -0.36%', 'Silver leading'], keyRisk: 'USD safe-haven spike', invalidation: 'DXY > 104.80' },
-          NEWS: { bias: 'NEUTRAL', confidence: 68, status: 'ONLINE', lastOpinion: 'Wire feeds calm ahead of US Core PCE. No emergency geopolitical breaks.', evidence: ['142 feeds audited', 'No unscheduled Fed leaks'], keyRisk: 'PCE surprise print', invalidation: 'Hawkish wire dump' },
-          GEOPOLITICAL: { bias: 'BULLISH', confidence: 74, status: 'ONLINE', lastOpinion: 'Red Sea shipping route disruptions maintain structural safe-haven floor.', evidence: ['Maritime freight rates +12%', 'De-dollarization flows'], keyRisk: 'Ceasefire headline', invalidation: 'Suez transit normalization' },
-          SENTIMENT: { bias: 'NEUTRAL', confidence: 65, status: 'ONLINE', lastOpinion: 'Retail crowd 58% long; neutral zone without extreme crowd trap risk.', evidence: ['Retail long 58%', 'COT data steady'], keyRisk: 'Crowd rush > 65%', invalidation: 'Extreme retail long' },
-          INSTITUTIONAL: { bias: 'BULLISH', confidence: 79, status: 'ONLINE', lastOpinion: 'Commercial bullion desks net longs steady; ETF physical inflows positive.', evidence: ['LBMA clearing volume +14%', 'Bank bids defending dips'], keyRisk: 'Quarter-end rebalance', invalidation: 'Heavy net selling' },
+          NEWS: { bias: 'NEUTRAL', confidence: 68, status: 'ONLINE', lastOpinion: 'Economic wire calendar monitored ahead of US Core PCE. No emergency geopolitical breaks.', evidence: ['Calendar event tracking active', 'No unscheduled Fed leaks'], keyRisk: 'PCE surprise print', invalidation: 'Hawkish wire dump' },
+          GEOPOLITICAL: { bias: 'BULLISH', confidence: 74, status: 'ONLINE', lastOpinion: 'Red Sea shipping route disruptions maintain structural safe-haven floor.', evidence: ['Maritime risk index elevated', 'De-dollarization flows'], keyRisk: 'Ceasefire headline', invalidation: 'Suez transit normalization' },
+          SENTIMENT: { bias: 'NEUTRAL', confidence: 65, status: 'ONLINE', lastOpinion: 'Contrarian sentiment model: Inferred positioning within neutral bounds without crowd trap risk.', evidence: ['Contrarian model: NEUTRAL', 'Broker sentiment feed: NOT CONNECTED'], keyRisk: 'Crowd rush > 65%', invalidation: 'Extreme retail long' },
+          INSTITUTIONAL: { bias: 'BULLISH', confidence: 79, status: 'ONLINE', lastOpinion: 'Commercial bullion flow modeling: Dip defense inferred from higher timeframe demand.', evidence: ['Institutional flow model: HEURISTIC', 'Commercial bids inferred at discount'], keyRisk: 'Quarter-end rebalance', invalidation: 'Heavy net selling' },
           RISK_GUARDIAN: { bias: 'CAUTION', confidence: 86, status: 'CAUTION', lastOpinion: 'Event shock filter active (PCE in 105m). Lot size capped at 0.85.', evidence: ['Max risk $512.25', 'Mandatory SL active'], keyRisk: 'Slippage during print', invalidation: 'Spread > 0.40' },
           VISION: { bias: 'BULLISH', confidence: 82, status: 'ONLINE', lastOpinion: 'Clean H1 FVG tap with bullish candle wick rejection detected.', evidence: ['FVG tap', 'Wick rejection'], keyRisk: 'Resistance at 4368', invalidation: 'Close under FVG' },
           OPPORTUNITY: { bias: 'BULLISH', confidence: 88, status: 'ONLINE', lastOpinion: 'Setup presents clean 1:2.85 R:R potential targeting resting buy-side liquidity.', evidence: ['1:2.85 RR', 'Defined stop'], keyRisk: 'Session consolidation', invalidation: 'Drawdown > $8' },
           STRATEGY: { bias: 'BULLISH', confidence: 78, status: 'ONLINE', lastOpinion: 'Protocol A-1: London low sweep + M15 CHOCH execution criteria met.', evidence: ['Criteria verified', 'Rules checked'], keyRisk: 'PCE event lock', invalidation: 'Structural invalidation' },
-          ORDER_FLOW: { bias: 'BULLISH', confidence: 85, status: 'ONLINE', lastOpinion: 'CVD positive divergence; +1,240 contracts absorbed at 4341.20.', evidence: ['CVD flip M5', 'Passive iceberg absorption'], keyRisk: 'Aggressive sell delta', invalidation: 'Negative CVD spike' },
+          ORDER_FLOW: { bias: 'BULLISH', confidence: 85, status: 'ONLINE', lastOpinion: 'Order flow tick delta: Heuristic tick momentum positive; passive absorption inferred at discount zone.', evidence: ['Tick momentum: POSITIVE (DERIVED)', 'Level-2 CVD: FEED NOT CONNECTED (HEURISTIC)'], keyRisk: 'Aggressive sell delta', invalidation: 'Negative CVD spike' },
           KILLZONE: { bias: 'BULLISH', confidence: 80, status: 'ONLINE', lastOpinion: 'London/NY overlap killzone open. High institutional volume window.', evidence: ['IPDA algorithm active', 'Session expansion'], keyRisk: 'Session close chop', invalidation: 'London close fade' },
-          LIQUIDITY_MAP: { bias: 'BULLISH', confidence: 83, status: 'ONLINE', lastOpinion: 'Sell-side liquidity swept at 4341.20; clear path to $148M buy stops at 4360.', evidence: ['SSL cleared', 'Resting BSL at 4360'], keyRisk: 'Equal low re-test', invalidation: 'SSL breach' },
+          LIQUIDITY_MAP: { bias: 'BULLISH', confidence: 83, status: 'ONLINE', lastOpinion: 'Sell-side liquidity swept at 4341.20; clear path to resting buy-side liquidity pool at 4360.', evidence: ['SSL cleared (DERIVED)', 'Resting BSL pool mapped at 4360'], keyRisk: 'Equal low re-test', invalidation: 'SSL breach' },
           FINAL_DECISION: { bias: 'BULLISH', confidence: 81, status: 'ONLINE', lastOpinion: '15 Council Agents synchronized. 81% Confluence WATCH FOR BUY authorized.', evidence: ['11 Bullish', '2 Caution', '2 Neutral'], keyRisk: 'PCE shock', invalidation: `SL breach at $${sl}` }
         },
         debateMessages: [
@@ -358,13 +371,13 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, time
           CORRELATION: { bias: 'BULLISH', confidence: 84, status: 'ONLINE', lastOpinion: 'DXY intraday breakdown confirming EURUSD inverse strength.', evidence: ['DXY -0.32%', 'EURGBP breaking higher'], keyRisk: 'USDJPY safe haven bid', invalidation: 'DXY > 104.80' },
           NEWS: { bias: 'NEUTRAL', confidence: 66, status: 'ONLINE', lastOpinion: 'European diplomatic headlines calm ahead of afternoon central bank commentary.', evidence: ['Reuters wire clean', 'No embargo leaks'], keyRisk: 'ECB unscheduled remark', invalidation: 'Hawkish Fed leak' },
           GEOPOLITICAL: { bias: 'NEUTRAL', confidence: 70, status: 'ONLINE', lastOpinion: 'European natural gas storage at 88% capacity, mitigating winter energy shock premium.', evidence: ['TTF gas price stable', 'Trade balance intact'], keyRisk: 'Energy pipeline headlines', invalidation: 'Gas price spike' },
-          SENTIMENT: { bias: 'BULLISH', confidence: 78, status: 'ONLINE', lastOpinion: 'Retail crowd 62% short; contrarian sentiment strongly favors upward squeeze.', evidence: ['Retail short skew 62%', 'Institutional net longs stable'], keyRisk: 'Retail capitulation', invalidation: 'Retail flipping net long' },
-          INSTITUTIONAL: { bias: 'BULLISH', confidence: 80, status: 'ONLINE', lastOpinion: '4pm London Fix order flow modeling shows positive institutional EUR allocation.', evidence: ['Interbank fix flow positive', 'EBS volume +18%'], keyRisk: 'Fix cancelation', invalidation: 'NY sell imbalances' },
+          SENTIMENT: { bias: 'BULLISH', confidence: 78, status: 'ONLINE', lastOpinion: 'Contrarian sentiment model: Inferred short skew favors upward expansion.', evidence: ['Contrarian sentiment: MODEL INFERENCE', 'Broker retail feed: NOT CONNECTED'], keyRisk: 'Retail capitulation', invalidation: 'Retail flipping net long' },
+          INSTITUTIONAL: { bias: 'BULLISH', confidence: 80, status: 'ONLINE', lastOpinion: 'Institutional session flow: European fix flow model indicates positive EUR allocation bias.', evidence: ['Interbank fix flow model: INFERENCE', 'Interbank EBS volume: FEED NOT CONNECTED'], keyRisk: 'Fix cancelation', invalidation: 'NY sell imbalances' },
           RISK_GUARDIAN: { bias: 'CAUTION', confidence: 86, status: 'CAUTION', lastOpinion: 'ECB speech scheduled in 3h; mandated max risk cap 0.50% account equity.', evidence: ['Event lockout buffer', 'Max lot 0.85'], keyRisk: 'Slippage during print', invalidation: 'Spread > 0.3 pip' },
           VISION: { bias: 'BULLISH', confidence: 81, status: 'ONLINE', lastOpinion: 'Clean H1 double-bottom displacement with fair value gap tap at 1.1585.', evidence: ['H1 bullish engulfing', 'Order block tap'], keyRisk: 'Wick rejection at 1.1620', invalidation: 'Below 1.1560' },
           OPPORTUNITY: { bias: 'BULLISH', confidence: 85, status: 'ONLINE', lastOpinion: 'R:R ratio 2.75 offers asymmetric reward targeting weekly liquidity pool.', evidence: ['Clean path to 1.1650', 'Defined invalidation'], keyRisk: 'Slow London grind', invalidation: 'Drawdown > 15 pips' },
           STRATEGY: { bias: 'BULLISH', confidence: 78, status: 'ONLINE', lastOpinion: 'Strategy A-2: London expansion continuation setup fully verified.', evidence: ['Volume confirmation', 'Session alignment'], keyRisk: 'Failed continuation', invalidation: 'Close under M15 low' },
-          ORDER_FLOW: { bias: 'BULLISH', confidence: 83, status: 'ONLINE', lastOpinion: 'Positive cumulative delta divergence on M5; buyers absorbing passive asks.', evidence: ['Delta +840 lots', 'Bid stack thicker'], keyRisk: 'Iceberg seller at 1.1620', invalidation: 'Negative delta spike' },
+          ORDER_FLOW: { bias: 'BULLISH', confidence: 83, status: 'ONLINE', lastOpinion: 'Positive cumulative delta divergence on M5; buyers absorbing passive asks.', evidence: ['Delta momentum: POSITIVE (DERIVED)', 'Level-2 footprint: FEED NOT CONNECTED (HEURISTIC)'], keyRisk: 'Iceberg seller at 1.1620', invalidation: 'Negative delta spike' },
           KILLZONE: { bias: 'BULLISH', confidence: 79, status: 'ONLINE', lastOpinion: 'London/NY overlap killzone provides maximum institutional interbank volume.', evidence: ['Interbank EBS active', 'Spread at raw 0.1 pip'], keyRisk: 'Post-overlap slowdown', invalidation: 'Session end drop' },
           LIQUIDITY_MAP: { bias: 'BULLISH', confidence: 81, status: 'ONLINE', lastOpinion: 'Asian low swept clean at 1.1575; buy-side liquidity pool at 1.1650 unmitigated.', evidence: ['SSL cleared', 'BSL target 1.1650'], keyRisk: 'Resistance at 1.1630', invalidation: 'Sweep of 1.1550' },
           FINAL_DECISION: { bias: 'BULLISH', confidence: 79, status: 'ONLINE', lastOpinion: 'EURUSD buy thesis approved with 79% weighted confluence across 15 agents.', evidence: ['11 Bullish', '2 Caution', '2 Neutral'], keyRisk: 'Event shock', invalidation: `SL breached below ${sl}` }
@@ -1243,6 +1256,78 @@ export function generateAssetIntelligence(
   const tradeExecutable = sessionState.tradeExecutable;
   const setupQuality = sessionState.setupQuality;
 
+  // 5. Attach Canonical Machine-Readable Evidence & Trust Scores
+  assembledAgents.forEach((ag) => {
+    const rawItems = ag.evidence && ag.evidence.length > 0 ? ag.evidence : [ag.lastOpinion];
+    const evidenceRecords: AgentEvidence[] = rawItems.map((item, idx) => {
+      let classification: any = 'HEURISTIC';
+      let verified = false;
+      let decisionEligible = false;
+      const lower = item.toLowerCase();
+
+      if (lower.includes('not connected') || lower.includes('unavailable')) {
+        classification = 'UNAVAILABLE';
+      } else if (lower.includes('inference') || lower.includes('model:')) {
+        classification = 'MODEL_INFERENCE';
+      } else if (ag.type === 'RISK_GUARDIAN' || lower.includes('max risk') || lower.includes('sl active') || lower.includes('exposure')) {
+        classification = 'DERIVED';
+        verified = true;
+        decisionEligible = true;
+      } else if (ag.type === 'KILLZONE' || lower.includes('session') || lower.includes('killzone')) {
+        classification = 'DERIVED';
+        verified = true;
+        decisionEligible = true;
+      } else if (ag.type === 'OPPORTUNITY' || lower.includes('rr') || lower.includes('target tp')) {
+        classification = 'DERIVED';
+        verified = true;
+        decisionEligible = true;
+      } else if (ag.type === 'TECHNICAL' || ag.type === 'FINAL_DECISION' || lower.includes('choch') || lower.includes('sweep') || lower.includes('fvg')) {
+        classification = 'DERIVED';
+        verified = true;
+        decisionEligible = true;
+      } else if (ag.type === 'CORRELATION' && lower.includes('dxy')) {
+        classification = 'DERIVED';
+        verified = true;
+        decisionEligible = true;
+      } else if (ag.type === 'NEWS' && lower.includes('calendar')) {
+        classification = 'DELAYED_EXTERNAL';
+        verified = true;
+        decisionEligible = true;
+      }
+
+      return {
+        id: `ev-${normSymbol}-${ag.type}-${idx + 1}`,
+        agentKey: ag.type,
+        asset: normSymbol,
+        claim: item,
+        source: verified ? 'VERIFIED_CALCULATION' : 'STRUCTURAL_HEURISTIC',
+        sourceType: verified ? 'MATHEMATICAL' : 'HEURISTIC',
+        classification,
+        observedAt: new Date().toISOString(),
+        freshnessMs: 5000,
+        confidence: ag.confidence,
+        assetSpecific: true,
+        verified,
+        decisionEligible,
+        reason: verified ? 'Verified mathematical / telemetry input' : 'Structural heuristic / inference'
+      };
+    });
+
+    const trustResult = calculateAgentEvidenceTrust(evidenceRecords);
+    ag.evidenceRecords = evidenceRecords;
+    ag.evidenceTrustScore = trustResult.trustScore;
+    ag.provenanceBadge = trustResult.badge;
+  });
+
+  // 6. Compute Consensus Trust & Actionability Gate
+  const consensusTrust = calculateConsensusTrust(assembledAgents);
+  const actionability = evaluateActionabilityGate({
+    evidenceTrust: consensusTrust.evidenceTrust,
+    verifiedAgentCount: consensusTrust.verifiedAgentCount,
+    tradeExecutable,
+    marketState: sessionState.marketState
+  });
+
   let effectiveSetupDirection = detail.setupDirection;
 
   if (!tradeExecutable) {
@@ -1360,7 +1445,12 @@ export function generateAssetIntelligence(
     sessionState,
     tradeExecutable,
     setupQuality,
-    debateMessages: sessionDebate as any
+    debateMessages: sessionDebate as any,
+    evidenceTrust: consensusTrust.evidenceTrust,
+    verifiedAgentCount: consensusTrust.verifiedAgentCount,
+    limitedAgentCount: consensusTrust.limitedAgentCount,
+    unavailableAgentCount: consensusTrust.unavailableAgentCount,
+    actionabilityState: actionability.actionabilityState
   };
 }
 

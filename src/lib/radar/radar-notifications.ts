@@ -11,6 +11,7 @@ import { RadarOpportunityItem, RadarOpportunityState } from './opportunity-radar
 
 export type RadarAlertEventType =
   | 'TRADE_OPPORTUNITY_CONFIRMED'
+  | 'SETUP_DEVELOPING'
   | 'SETUP_INVALIDATED'
   | 'RISK_RESTRICTED';
 
@@ -29,6 +30,8 @@ export interface RadarNotification {
   category?: string;
   confidence?: number;
   rr?: string;
+  tradeExecutable?: boolean;
+  marketState?: string;
   entryZone?: [number, number];
   stopLoss?: number;
   tp1?: number;
@@ -111,7 +114,8 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
     const prev = lastKnownStates.get(opp.symbol);
 
     // Only actionable opportunities if state is BUY or SELL (closed markets produce MONITOR NEXT OPEN / PRE-OPEN WATCH)
-    const isOpportunityState = opp.state.includes('BUY') || opp.state.includes('SELL');
+    const isOpportunityState = opp.tradeExecutable && (opp.state.includes('BUY') || opp.state.includes('SELL'));
+    const isDevelopingClosed = !opp.tradeExecutable && (opp.state === 'MONITOR NEXT OPEN' || opp.state === 'PRE-OPEN WATCH' || opp.state === 'WAIT (MARKET CLOSED)') && opp.opportunityScore >= 75;
     const isStrong = opp.state.includes('STRONG');
     const meetsThreshold = opp.opportunityScore >= 75 && opp.aiConfidence >= 78;
     const catalyst = opp.catalysts?.[0] || 'Multi-agent structural alignment confirmed across HTF & LTF.';
@@ -124,15 +128,19 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
         lastAlertMs: now,
       });
 
-      // If high-conviction opportunity right on boot, create initial trade confirmed alert
-      if (isOpportunityState && meetsThreshold) {
+      // If high-conviction opportunity right on boot, create initial alert
+      if ((isOpportunityState || isDevelopingClosed) && meetsThreshold) {
         const notif: RadarNotification = {
           id: `radar-boot-${opp.symbol}-${now}`,
           symbol: opp.symbol,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           createdTimeMs: now,
-          title: `${opp.symbol} — ${opp.state}`,
-          message: `${catalyst} Score: ${opp.opportunityScore}/100, AI Conviction: ${opp.aiConfidence}%, RR: ${opp.rr}. Entry: ${opp.entryZone[0]} - ${opp.entryZone[1]}.`,
+          title: isOpportunityState
+            ? `${opp.symbol} — ${opp.state}`
+            : `${opp.symbol} — SETUP DEVELOPING (MARKET CLOSED)`,
+          message: isOpportunityState
+            ? `${catalyst} Score: ${opp.opportunityScore}/100, AI Conviction: ${opp.aiConfidence}%, RR: ${opp.rr}. Entry: ${opp.entryZone[0]} - ${opp.entryZone[1]}.`
+            : `${catalyst} Setup Quality: ${opp.opportunityScore}/100. Market is closed (${opp.marketState}). Next open: ${opp.sessionCountdown || 'scheduled'}. Orders locked; revalidation required at next open.`,
           newState: opp.state,
           score: opp.opportunityScore,
           read: false,
@@ -140,13 +148,15 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
           category: opp.category,
           confidence: opp.aiConfidence,
           rr: opp.rr,
+          tradeExecutable: opp.tradeExecutable,
+          marketState: opp.marketState,
           entryZone: opp.entryZone,
           stopLoss: opp.stopLoss,
           tp1: opp.tp1,
           tp2: opp.tp2,
-          eventType: 'TRADE_OPPORTUNITY_CONFIRMED',
+          eventType: isOpportunityState ? 'TRADE_OPPORTUNITY_CONFIRMED' : 'SETUP_DEVELOPING',
           catalyst,
-          riskGuardianAllowed: opp.riskLevel !== 'HIGH',
+          riskGuardianAllowed: opp.riskLevel !== 'HIGH' && opp.tradeExecutable,
         };
         newAlerts.push(notif);
       }
@@ -167,6 +177,9 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
       if (isOpportunityState && meetsThreshold) {
         eventType = 'TRADE_OPPORTUNITY_CONFIRMED';
         priority = isStrong ? 'CRITICAL' : 'HIGH';
+      } else if (isDevelopingClosed && meetsThreshold) {
+        eventType = 'SETUP_DEVELOPING';
+        priority = 'HIGH';
       } else if (prevWasActionable && (opp.state === 'NO TRADE' || opp.state === 'WAIT')) {
         eventType = 'SETUP_INVALIDATED';
         priority = 'HIGH';
@@ -177,6 +190,9 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
     } else if (cooldownExpired && isOpportunityState && meetsThreshold) {
       eventType = 'TRADE_OPPORTUNITY_CONFIRMED';
       priority = isStrong ? 'CRITICAL' : 'HIGH';
+    } else if (cooldownExpired && isDevelopingClosed && meetsThreshold) {
+      eventType = 'SETUP_DEVELOPING';
+      priority = 'HIGH';
     }
 
     // Trigger alert only when transition occurred or cooldown refreshed an actionable trade
@@ -189,12 +205,16 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
 
       const title = eventType === 'TRADE_OPPORTUNITY_CONFIRMED'
         ? `${opp.symbol} — ${opp.state}`
+        : eventType === 'SETUP_DEVELOPING'
+        ? `${opp.symbol} — SETUP DEVELOPING (MARKET CLOSED)`
         : eventType === 'SETUP_INVALIDATED'
         ? `${opp.symbol} — Setup Invalidated`
         : `${opp.symbol} — Risk Guardian Restricted`;
 
       const message = eventType === 'TRADE_OPPORTUNITY_CONFIRMED'
         ? `${catalyst} Score: ${opp.opportunityScore}/100, AI Conviction: ${opp.aiConfidence}%, Target 1: ${opp.tp1}.`
+        : eventType === 'SETUP_DEVELOPING'
+        ? `${catalyst} Setup Quality: ${opp.opportunityScore}/100. Market closed (${opp.marketState}). Next open: ${opp.sessionCountdown || 'scheduled'}. Revalidation required at next open.`
         : eventType === 'SETUP_INVALIDATED'
         ? `Setup invalidated: Price moved beyond structural boundaries. Swarm reassessing orderflow.`
         : `Volatility spike / event buffer reached. Risk Guardian has paused execution.`;
@@ -214,15 +234,16 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
         category: opp.category,
         confidence: opp.aiConfidence,
         rr: opp.rr,
+        tradeExecutable: opp.tradeExecutable,
+        marketState: opp.marketState,
         entryZone: opp.entryZone,
         stopLoss: opp.stopLoss,
         tp1: opp.tp1,
         tp2: opp.tp2,
         eventType,
         catalyst,
-        riskGuardianAllowed: opp.riskLevel !== 'HIGH',
+        riskGuardianAllowed: opp.riskLevel !== 'HIGH' && opp.tradeExecutable,
       };
-
       newAlerts.push(notif);
     }
   }

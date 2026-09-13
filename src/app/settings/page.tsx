@@ -18,15 +18,19 @@ export default function SettingsPage() {
 
   // MT5 Settings
   const [mt5Host, setMt5Host] = useState<string>('127.0.0.1');
-  const [mt5Port, setMt5Port] = useState<number>(5555);
+  const [mt5Port, setMt5Port] = useState<number>(5556);
   const [magicNumber, setMagicNumber] = useState<number>(8882026);
   const [testingMt5, setTestingMt5] = useState<boolean>(false);
   const [mt5TestResult, setMt5TestResult] = useState<{
     success: boolean;
+    localBridgeOnline: boolean;
+    mt5Connected: boolean;
     message: string;
     terminal?: any;
     account?: any;
     latencyMs?: number;
+    heartbeatAgeMs?: number | null;
+    transport?: string;
   } | null>(null);
 
   // UI Audio & Appearance
@@ -46,15 +50,51 @@ export default function SettingsPage() {
         body: JSON.stringify({ host: mt5Host, port: mt5Port })
       });
 
-      // Execute genuine socket PING
+      // Query detailed HTTP bridge status
+      const statusRes = await fetch('/api/bridge/mt5?action=STATUS');
+      const statusData = await statusRes.json();
+
+      if (statusData && statusData.localBridge === 'ONLINE') {
+        const mt5Online = Boolean(statusData.mt5Connected);
+        setMt5TestResult({
+          success: mt5Online,
+          localBridgeOnline: true,
+          mt5Connected: mt5Online,
+          message: mt5Online
+            ? `✓ Connected: Local HTTP Bridge & MetaTrader 5 live (Heartbeat: ${statusData.heartbeatAgeMs ? (statusData.heartbeatAgeMs / 1000).toFixed(1) + 's' : '<1s'})`
+            : `⚠ Local HTTP Bridge is ONLINE (127.0.0.1:${mt5Port}), but FEF_HTTP_Bridge.mq5 is not connected yet in MT5.`,
+          terminal: statusData.terminal,
+          account: statusData.account,
+          latencyMs: statusData.localBridgeLatencyMs || 5,
+          heartbeatAgeMs: statusData.heartbeatAgeMs,
+          transport: statusData.transport || 'HTTP / WEBREQUEST'
+        });
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({
+            connected: mt5Online,
+            state: statusData.state,
+            transport: statusData.transport || 'HTTP / WEBREQUEST',
+            terminal: statusData.terminal,
+            account: statusData.account,
+            latencyMs: statusData.localBridgeLatencyMs || 5,
+            timestamp: Date.now()
+          }));
+        }
+        return;
+      }
+
+      // If HTTP bridge service is offline, fallback to standard PING
       const pingRes = await fetch('/api/bridge/mt5?action=PING');
       const pingData = await pingRes.json();
 
       if (!pingData.success) {
         setMt5TestResult({
           success: false,
-          message: pingData.error?.message || 'Failed to connect to MT5 Bridge socket on ' + mt5Host + ':' + mt5Port,
-          latencyMs: pingData.latencyMs
+          localBridgeOnline: false,
+          mt5Connected: false,
+          message: pingData.error?.message || 'Failed to connect to MT5 Bridge on ' + mt5Host + ':' + mt5Port,
+          latencyMs: pingData.latencyMs,
+          transport: pingData.transport || 'HTTP / WEBREQUEST'
         });
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({ connected: false, state: pingData.state }));
@@ -63,26 +103,29 @@ export default function SettingsPage() {
       }
 
       // Fetch authentic terminal status & account
-      const [statusRes, accountRes] = await Promise.all([
+      const [statusRes2, accountRes] = await Promise.all([
         fetch('/api/bridge/mt5?action=GET_TERMINAL_STATUS'),
         fetch('/api/bridge/mt5?action=GET_ACCOUNT')
       ]);
-      const statusData = await statusRes.json();
+      const termData = await statusRes2.json();
       const accountData = await accountRes.json();
 
       setMt5TestResult({
         success: true,
-        message: `✓ MT5 Bridge handshake verified: Latency ${pingData.latencyMs || 8}ms`,
-        terminal: statusData.data,
+        localBridgeOnline: true,
+        mt5Connected: true,
+        message: `✓ Bridge handshake verified: Latency ${pingData.latencyMs || 8}ms`,
+        terminal: termData.data,
         account: accountData.data,
-        latencyMs: pingData.latencyMs || 8
+        latencyMs: pingData.latencyMs || 8,
+        transport: pingData.transport || 'HTTP / WEBREQUEST'
       });
 
       if (typeof window !== 'undefined') {
         window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({
           connected: true,
           state: 'CONNECTED_READ_ONLY',
-          terminal: statusData.data,
+          terminal: termData.data,
           account: accountData.data,
           latencyMs: pingData.latencyMs || 8,
           timestamp: Date.now()
@@ -91,7 +134,9 @@ export default function SettingsPage() {
     } catch (err: any) {
       setMt5TestResult({
         success: false,
-        message: 'Socket communication error: ' + (err.message || 'Bridge request failed')
+        localBridgeOnline: false,
+        mt5Connected: false,
+        message: 'Bridge communication error: ' + (err.message || 'Bridge request failed')
       });
       if (typeof window !== 'undefined') {
         window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({ connected: false, state: 'BRIDGE_OFFLINE' }));
@@ -251,12 +296,17 @@ export default function SettingsPage() {
                 <div className="flex items-center space-x-2">
                   <span className="text-cyan-400">🔌</span>
                   <h2 className="text-xs font-black text-white uppercase tracking-wider">
-                    MT5 ZEROMQ / REST BRIDGE CONFIGURATION
+                    MT5 HTTP / WEBREQUEST BRIDGE CONFIGURATION
                   </h2>
                 </div>
-                <span className="text-[9px] bg-cyan-950 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded">
-                  PORT {mt5Port}
-                </span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-[9px] bg-amber-950/60 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded font-mono font-bold">
+                    READ-ONLY LOCKED 🔒
+                  </span>
+                  <span className="text-[9px] bg-cyan-950 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-mono">
+                    PORT {mt5Port}
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -270,7 +320,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-gray-400 text-[10px]">SOCKET PORT</label>
+                  <label className="text-gray-400 text-[10px]">HTTP BRIDGE PORT</label>
                   <input
                     type="number"
                     value={mt5Port}
@@ -294,7 +344,7 @@ export default function SettingsPage() {
                 disabled={testingMt5}
                 className="w-full bg-white/5 hover:bg-white/10 border border-white/15 text-cyan-300 font-bold py-2.5 rounded-xl text-xs tracking-wider transition-all disabled:opacity-50"
               >
-                {testingMt5 ? 'TESTING HANDSHAKE...' : 'TEST SOCKET CONNECTION & PING'}
+                {testingMt5 ? 'CHECKING TELEMETRY...' : 'TEST BRIDGE & MT5 TELEMETRY'}
               </button>
 
               {mt5TestResult && (
@@ -302,16 +352,44 @@ export default function SettingsPage() {
                   className={`text-xs font-mono p-3 rounded-xl border space-y-2 ${
                     mt5TestResult.success
                       ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                      : mt5TestResult.localBridgeOnline
+                      ? 'bg-amber-950/30 border-amber-500/40 text-amber-300'
                       : 'bg-rose-950/30 border-rose-500/40 text-rose-300'
                   }`}
                 >
                   <div className="flex items-center justify-between font-bold">
                     <span>{mt5TestResult.message}</span>
-                    {mt5TestResult.latencyMs && (
-                      <span className="text-[10px] bg-black/40 px-2 py-0.5 rounded border border-white/10 text-cyan-300">
-                        PING: {mt5TestResult.latencyMs}ms
+                    <span className="text-[10px] bg-black/40 px-2 py-0.5 rounded border border-white/10 text-cyan-300">
+                      {mt5TestResult.transport || 'HTTP / WEBREQUEST'}
+                    </span>
+                  </div>
+
+                  {/* Truthful Diagnostic Metrics */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/10 text-[10px]">
+                    <div className="bg-black/40 p-2 rounded border border-white/5">
+                      <span className="text-gray-400 block text-[8.5px]">LOCAL BRIDGE</span>
+                      <span className={`font-bold ${mt5TestResult.localBridgeOnline ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {mt5TestResult.localBridgeOnline ? 'ONLINE' : 'OFFLINE'} ({mt5TestResult.latencyMs || 0}ms)
                       </span>
-                    )}
+                    </div>
+                    <div className="bg-black/40 p-2 rounded border border-white/5">
+                      <span className="text-gray-400 block text-[8.5px]">MT5 TERMINAL</span>
+                      <span className={`font-bold ${mt5TestResult.mt5Connected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {mt5TestResult.mt5Connected ? 'CONNECTED' : 'WAITING'}
+                      </span>
+                    </div>
+                    <div className="bg-black/40 p-2 rounded border border-white/5">
+                      <span className="text-gray-400 block text-[8.5px]">HEARTBEAT AGE</span>
+                      <span className="font-bold text-cyan-300">
+                        {mt5TestResult.heartbeatAgeMs != null ? `${(mt5TestResult.heartbeatAgeMs / 1000).toFixed(1)}s ago` : 'NONE'}
+                      </span>
+                    </div>
+                    <div className="bg-black/40 p-2 rounded border border-white/5">
+                      <span className="text-gray-400 block text-[8.5px]">OPERATING MODE</span>
+                      <span className="font-bold text-amber-300">
+                        READ-ONLY 🔒
+                      </span>
+                    </div>
                   </div>
 
                   {mt5TestResult.success && mt5TestResult.account && (
@@ -319,33 +397,33 @@ export default function SettingsPage() {
                       <div>
                         <span className="text-gray-400 block text-[9px]">BROKER / SERVER</span>
                         <span className="font-bold text-white">
-                          {mt5TestResult.account.company} ({mt5TestResult.account.server})
+                          {mt5TestResult.account.broker || mt5TestResult.terminal?.brokerName || 'Exness'} ({mt5TestResult.account.server || mt5TestResult.terminal?.brokerServer || 'Real'})
                         </span>
                       </div>
                       <div>
                         <span className="text-gray-400 block text-[9px]">MASKED ACCOUNT</span>
                         <span className="font-bold text-cyan-400">
-                          #{mt5TestResult.account.maskedLogin} ({mt5TestResult.account.tradeMode})
+                          #{mt5TestResult.account.maskedLogin} ({mt5TestResult.account.tradeMode || 'DEMO'})
                         </span>
                       </div>
                       <div>
                         <span className="text-gray-400 block text-[9px]">BALANCE / EQUITY</span>
                         <span className="font-bold text-emerald-400">
-                          ${Number(mt5TestResult.account.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })} / ${Number(mt5TestResult.account.equity).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          ${Number(mt5TestResult.account.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} / ${Number(mt5TestResult.account.equity || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </span>
                       </div>
                       <div>
                         <span className="text-gray-400 block text-[9px]">FREE MARGIN / LEVERAGE</span>
                         <span className="font-bold text-white">
-                          ${Number(mt5TestResult.account.freeMargin).toLocaleString('en-US', { minimumFractionDigits: 2 })} (1:{mt5TestResult.account.leverage})
+                          ${Number(mt5TestResult.account.freeMargin || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} (1:{mt5TestResult.account.leverage || 100})
                         </span>
                       </div>
                     </div>
                   )}
 
                   {!mt5TestResult.success && (
-                    <p className="text-[10px] text-gray-400 pt-1 border-t border-rose-500/20">
-                      Tip: Open MetaTrader 5, verify that <code className="text-cyan-300 font-mono">FEF_Bridge.mq5</code> is attached to any chart with "Allow Algo Trading" enabled, and confirm port 5555 is unblocked.
+                    <p className="text-[10px] text-gray-400 pt-1 border-t border-white/10">
+                      Tip: Open MetaTrader 5, verify that <code className="text-cyan-300 font-mono">FEF_HTTP_Bridge.mq5</code> is attached to any chart and ensure <code className="text-cyan-300 font-mono">http://127.0.0.1:5556</code> is added to Tools &rarr; Options &rarr; Expert Advisors &rarr; Allow WebRequest.
                     </p>
                   )}
                 </div>

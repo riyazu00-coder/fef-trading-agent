@@ -18,7 +18,8 @@ import {
   MT5QuoteData,
   MT5PositionItem,
   MT5PendingOrderItem,
-  MT5SymbolSpecification
+  MT5SymbolSpecification,
+  MT5BrokerSessionInfo
 } from './mt5-bridge-protocol';
 import { symbolDirectory } from './symbol-mapper';
 import { evaluateMarketSession } from '../session/market-session-engine';
@@ -79,7 +80,7 @@ export class MT5BridgeClient {
         success: false,
         state: 'CONNECTED_READ_ONLY',
         error: {
-          code: 'READ_ONLY_LOCK',
+          code: 'READ_ONLY_LOCK_ACTIVE',
           message: `Execution command '${command}' rejected: FEF MT5 Bridge is locked in READ_ONLY safety mode.`
         },
         timestamp: Date.now()
@@ -309,7 +310,18 @@ export class MT5BridgeClient {
   }
 
   public async getPendingOrders(): Promise<BridgeResponsePayload<{ orders: MT5PendingOrderItem[] }>> {
-    return this.sendCommand('GET_PENDING_ORDERS');
+    const res = await this.sendCommand<{ orders: MT5PendingOrderItem[] }>('GET_PENDING_ORDERS');
+    if (res.success && res.data?.orders) {
+      res.data.orders.forEach((ord) => {
+        ord.canonicalSymbol = symbolDirectory.toCanonicalSymbol(ord.symbol);
+      });
+    }
+    return res;
+  }
+
+  public async getBrokerSessions(canonicalSymbol?: string): Promise<BridgeResponsePayload<MT5BrokerSessionInfo>> {
+    const brokerSym = canonicalSymbol ? (symbolDirectory.toBrokerSymbol(canonicalSymbol) || canonicalSymbol) : undefined;
+    return this.sendCommand<MT5BrokerSessionInfo>('GET_BROKER_SESSIONS', undefined, brokerSym);
   }
 }
 

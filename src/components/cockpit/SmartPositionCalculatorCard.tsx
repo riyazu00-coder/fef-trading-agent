@@ -237,6 +237,14 @@ export const SmartPositionCalculatorCard: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-1.5">
+            {!assetProfile.tradeExecutable && (
+              <span
+                className="text-[7.5px] bg-amber-950/70 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-bold uppercase tracking-wider"
+                title={`Market is currently ${assetProfile.sessionState?.statusLabel || 'CLOSED'}. Planning mode only.`}
+              >
+                PLANNING ONLY
+              </span>
+            )}
             <span className="text-[9px] font-bold text-gray-300 bg-black/40 px-1.5 py-0.5 rounded border border-white/10">
               {symbol}
             </span>

@@ -8,6 +8,8 @@ import { NotificationCenterDrawer } from './NotificationCenterDrawer';
 import { SupportModal } from './SupportModal';
 import { getStoredNotifications, subscribeRadarNotifications } from '@/lib/radar/radar-notifications';
 import { BRAND_CONFIG } from '@/lib/config/support-config';
+import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
+import { evaluateMarketSession } from '@/lib/session/market-session-engine';
 
 export const MasterTopNav: React.FC = () => {
   const pathname = usePathname();
@@ -65,11 +67,15 @@ export const MasterTopNav: React.FC = () => {
 
       if (matchedSymbolKey && matchedSymbolKey !== activeSymbol) {
         const targetAsset = allAssets[matchedSymbolKey];
+        const targetSession = evaluateMarketSession(targetAsset.symbol);
         const priceFmt = targetAsset.price >= 1000 
           ? targetAsset.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
           : targetAsset.price.toFixed(4);
+        const marketClosedNotice = !targetSession.tradeExecutable
+          ? ` [MARKET NOTE: ${targetAsset.symbol} is currently ${targetSession.statusLabel}. Execution is unavailable (opens in ${targetSession.nextOpenCountdown}). Revalidation required at next open session.]`
+          : '';
         setAiAnswer(
-          `${targetAsset.name} (${targetAsset.symbol}) is currently trading at ${priceFmt} (${targetAsset.change24h >= 0 ? '+' : ''}${targetAsset.change24h.toFixed(2)}%). Switch the active instrument to ${targetAsset.symbol} in the top-left selector to inspect the complete 15-agent blackboard debate and institutional execution parameters.`
+          `${targetAsset.name} (${targetAsset.symbol}) is currently trading at ${priceFmt} (${targetAsset.change24h >= 0 ? '+' : ''}${targetAsset.change24h.toFixed(2)}%).${marketClosedNotice} Switch the active instrument to ${targetAsset.symbol} in the top-left selector to inspect the complete 15-agent blackboard debate and institutional execution parameters.`
         );
         return;
       }
@@ -79,41 +85,45 @@ export const MasterTopNav: React.FC = () => {
         ? activeAsset.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         : activeAsset.price.toFixed(4);
 
+      const sessionClosedNotice = !assetProfile.tradeExecutable
+        ? ` [MARKET STATUS: ${activeSymbol} is currently ${assetProfile.sessionState.statusLabel}. Execution is locked (opens in ${assetProfile.sessionState.nextOpenCountdown}). Analysis is reference-only; revalidation required at next session open.]`
+        : '';
+
       if (q.includes('why') || q.includes('reason') || q.includes('rationale') || q.includes('thesis')) {
         const reasons = assetProfile.whyThisTrade?.length > 0 
           ? assetProfile.whyThisTrade.join(' ') 
           : `Market structure alignment across higher timeframes confirming ${assetProfile.setupDirection} posture.`;
         setAiAnswer(
-          `Why ${activeSymbol} is ${assetProfile.setupDirection} (${assetProfile.confidence}% Confluence at ${currentPriceFmt}): ${reasons} Invalidation is strictly defined at ${assetProfile.invalidation}.`
+          `Why ${activeSymbol} is ${assetProfile.setupDirection} (${assetProfile.confidence}% Confluence at ${currentPriceFmt}): ${reasons} Invalidation is strictly defined at ${assetProfile.invalidation}.${sessionClosedNotice}`
         );
       } else if (q.includes('risk') || q.includes('danger') || q.includes('guard') || q.includes('loss') || q.includes('sl')) {
         const risks = assetProfile.opposingRisks?.length > 0
           ? assetProfile.opposingRisks.map((r, i) => `${i + 1}) ${r}`).join(' ')
           : `Macro scheduled event shock buffer and liquidity sweeps against stop loss level at ${assetProfile.stopLoss}.`;
         setAiAnswer(
-          `Risk Guardian Parameters for ${activeSymbol}: Stop Loss is pegged at ${assetProfile.stopLoss} (Risk/Reward ${assetProfile.rr}). Active Opposing Risks identified by Council: ${risks} Max mathematical portfolio allocation: 0.50% - 1.00%.`
+          `Risk Guardian Parameters for ${activeSymbol}: Stop Loss is pegged at ${assetProfile.stopLoss} (Risk/Reward ${assetProfile.rr}). Active Opposing Risks identified by Council: ${risks} Max mathematical portfolio allocation: 0.50% - 1.00%.${sessionClosedNotice}`
         );
       } else if (q.includes('level') || q.includes('target') || q.includes('entry') || q.includes('tp')) {
         setAiAnswer(
-          `Execution Levels for ${activeSymbol} [${assetProfile.setupDirection}]: Entry Zone: ${assetProfile.entryZone[0]} - ${assetProfile.entryZone[1]} | Stop Loss: ${assetProfile.stopLoss} | TP1: ${assetProfile.tp1} | TP2: ${assetProfile.tp2} | TP3: ${assetProfile.tp3} | Expected R:R: ${assetProfile.rr}. Invalidation: ${assetProfile.invalidation}.`
+          `Execution Levels for ${activeSymbol} [${assetProfile.setupDirection}]: Entry Zone: ${assetProfile.entryZone[0]} - ${assetProfile.entryZone[1]} | Stop Loss: ${assetProfile.stopLoss} | TP1: ${assetProfile.tp1} | TP2: ${assetProfile.tp2} | TP3: ${assetProfile.tp3} | Expected R:R: ${assetProfile.rr}. Invalidation: ${assetProfile.invalidation}.${sessionClosedNotice}`
         );
       } else if (q.includes('agent') || q.includes('council') || q.includes('vote') || q.includes('swarm')) {
         const bullishCount = assetProfile.agents.filter(a => a.bias === 'BULLISH').length;
         const bearishCount = assetProfile.agents.filter(a => a.bias === 'BEARISH').length;
         const neutralCount = assetProfile.agents.length - bullishCount - bearishCount;
         setAiAnswer(
-          `15-Agent Council Consensus for ${activeSymbol}: ${bullishCount} Bullish, ${bearishCount} Bearish, ${neutralCount} Neutral/Restricted (${assetProfile.confidence}% Confluence). Leading vote: ${assetProfile.setupDirection}. Center Orchestrator enforces strict Risk Guardian exposure bounds before any signal dispatch.`
+          `15-Agent Council Consensus for ${activeSymbol}: ${bullishCount} Bullish, ${bearishCount} Bearish, ${neutralCount} Neutral/Restricted (${assetProfile.confidence}% Confluence). Leading vote: ${assetProfile.setupDirection}. Center Orchestrator enforces strict Risk Guardian exposure bounds before any signal dispatch.${sessionClosedNotice}`
         );
       } else if (q.includes('macro') || q.includes('dxy') || q.includes('yield') || q.includes('fed')) {
         const macroAgent = assetProfile.agents.find(a => a.name.includes('Macro') || a.name.includes('Correlation'));
         setAiAnswer(
-          `Macro & Intermarket State for ${activeSymbol}: ${macroAgent?.lastOpinion || 'DXY rejected key resistance with SMT divergence, influencing systemic liquidity.'} Regime: ${assetProfile.regime}. Volatility: ${assetProfile.volatility}. Session: ${assetProfile.session}.`
+          `Macro & Intermarket State for ${activeSymbol}: ${macroAgent?.lastOpinion || 'DXY rejected key resistance with SMT divergence, influencing systemic liquidity.'} Regime: ${assetProfile.regime}. Volatility: ${assetProfile.volatility}. Session: ${assetProfile.session}.${sessionClosedNotice}`
         );
       } else {
         const topReason = assetProfile.whyThisTrade?.[0] || `Order flow and institutional liquidity aligning with ${assetProfile.setupDirection}.`;
         const topRisk = assetProfile.opposingRisks?.[0] || `Scheduled news release volatility buffer.`;
         setAiAnswer(
-          `FEF AI Swarm Analysis for "${searchQuery}": 15 Council agents report ${assetProfile.confidence}% confluence on ${activeSymbol} (${currentPriceFmt}) with posture ${assetProfile.setupDirection}. Primary Thesis: "${topReason}". Risk Constraint: "${topRisk}". Risk Guardian limit: Max 0.50% account risk.`
+          `FEF AI Swarm Analysis for "${searchQuery}": 15 Council agents report ${assetProfile.confidence}% confluence on ${activeSymbol} (${currentPriceFmt}) with posture ${assetProfile.setupDirection}. Primary Thesis: "${topReason}". Risk Constraint: "${topRisk}". Risk Guardian limit: Max 0.50% account risk.${sessionClosedNotice}`
         );
       }
     }, 500);
@@ -226,6 +236,14 @@ export const MasterTopNav: React.FC = () => {
               /
             </button>
           </form>
+
+          {/* Active Symbol Market Session Badge */}
+          <MarketStatusBadge
+            symbol={activeSymbol}
+            sessionState={assetProfile.sessionState}
+            size="xs"
+            className="hidden sm:inline-flex"
+          />
 
           {/* 24/7 Support Desk */}
           <button

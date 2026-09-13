@@ -10,15 +10,19 @@ import {
   RadarTimeframeType
 } from '@/lib/radar/opportunity-radar-engine';
 import { evaluateRadarTransitions } from '@/lib/radar/radar-notifications';
+import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
+import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
 
 type StateFilterType = 'ALL' | 'BUY' | 'SELL' | 'WATCH' | 'HIGH_SCORE' | 'BEST_RR' | 'LOW_RISK';
 type CategoryFilterType = 'ALL' | 'METALS' | 'FOREX' | 'INDICES' | 'COMMODITIES' | 'COMMODITY' | 'CRYPTO';
 type StyleFilterType = 'ALL' | 'SCALPING' | 'INTRADAY' | 'SWING';
 type SubTabType = 'RADAR_TABLE' | 'DEVELOPING' | 'INVALIDATED' | 'REGIME_MAP';
+type AvailabilityFilterType = 'ALL' | 'TRADEABLE_NOW' | 'DEVELOPING' | 'MARKET_CLOSED';
 
 export const GlobalOpportunityRadar: React.FC = () => {
   const { activeSymbol, setActiveSymbol, allAssets, timeframe } = useActiveAsset();
 
+  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilterType>('ALL');
   const [stateFilter, setStateFilter] = useState<StateFilterType>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilterType>('ALL');
   const [styleFilter, setStyleFilter] = useState<StyleFilterType>('ALL');
@@ -43,6 +47,18 @@ export const GlobalOpportunityRadar: React.FC = () => {
   // Filter ranked opportunities
   const filteredOpportunities = useMemo(() => {
     return radarData.rankedOpportunities.filter((item) => {
+      // Availability / Session Gating filter
+      if (availabilityFilter === 'TRADEABLE_NOW' && !item.tradeExecutable) {
+        return false;
+      }
+      if (availabilityFilter === 'MARKET_CLOSED' && item.tradeExecutable) {
+        return false;
+      }
+      if (availabilityFilter === 'DEVELOPING') {
+        const isDev = item.state.includes('WATCH') || item.state.includes('PRE-OPEN') || (!item.tradeExecutable && item.opportunityScore >= 70);
+        if (!isDev) return false;
+      }
+
       // Category filter
       if (categoryFilter !== 'ALL') {
         const normFilter = categoryFilter === 'COMMODITY' ? 'COMMODITIES' : categoryFilter;
@@ -77,7 +93,7 @@ export const GlobalOpportunityRadar: React.FC = () => {
       }
       return true;
     });
-  }, [radarData.rankedOpportunities, stateFilter, categoryFilter, styleFilter]);
+  }, [radarData.rankedOpportunities, availabilityFilter, stateFilter, categoryFilter, styleFilter]);
 
   const handleSelectAsset = (sym: string) => {
     setActiveSymbol(sym);
@@ -208,6 +224,8 @@ export const GlobalOpportunityRadar: React.FC = () => {
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <span className="text-xl font-black text-white font-mono">{topOpp.symbol}</span>
               <span className="text-xs text-gray-300">{topOpp.name}</span>
+              <MarketStatusBadge symbol={topOpp.symbol} size="xs" />
+              <ExecutabilityBadge executable={topOpp.tradeExecutable} score={topOpp.executabilityScore} size="xs" />
               <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${getStateBadge(topOpp.state)}`}>
                 {topOpp.state}
               </span>
@@ -405,6 +423,29 @@ export const GlobalOpportunityRadar: React.FC = () => {
         {/* Filters Row (Active on RADAR_TABLE) */}
         {subTab === 'RADAR_TABLE' && (
           <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+            {/* Availability / Session Filter */}
+            <div className="flex items-center space-x-1 bg-black/40 p-1 rounded-lg border border-white/10">
+              <span className="text-cyan-400 pl-1 font-bold">SESSION GATE:</span>
+              {([
+                { id: 'ALL', label: 'ALL' },
+                { id: 'TRADEABLE_NOW', label: 'TRADEABLE NOW' },
+                { id: 'DEVELOPING', label: 'DEVELOPING' },
+                { id: 'MARKET_CLOSED', label: 'MARKET CLOSED / NEXT SESSION' }
+              ] as const).map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => setAvailabilityFilter(g.id)}
+                  className={`px-2 py-0.5 rounded cursor-pointer transition-colors whitespace-nowrap ${
+                    availabilityFilter === g.id
+                      ? 'bg-cyan-500/30 text-cyan-200 font-bold border border-cyan-400/40'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
+
             {/* State Filter */}
             <div className="flex items-center space-x-1 bg-black/40 p-1 rounded-lg border border-white/10">
               <span className="text-gray-500 pl-1">STATE:</span>
@@ -466,8 +507,10 @@ export const GlobalOpportunityRadar: React.FC = () => {
               <tr className="border-b border-white/10 bg-black/70 text-gray-300 text-[10px] uppercase font-bold">
                 <th className="py-2.5 px-3"># RANK</th>
                 <th className="py-2.5 px-3">ASSET</th>
+                <th className="py-2.5 px-3">MARKET</th>
                 <th className="py-2.5 px-3">RADAR STATE</th>
-                <th className="py-2.5 px-3">OPPORTUNITY SCORE</th>
+                <th className="py-2.5 px-3">SETUP QUALITY</th>
+                <th className="py-2.5 px-3">EXECUTABILITY</th>
                 <th className="py-2.5 px-3">AI CONFIDENCE</th>
                 <th className="py-2.5 px-3">STYLE / TF</th>
                 <th className="py-2.5 px-3">EST. R:R</th>
@@ -478,14 +521,14 @@ export const GlobalOpportunityRadar: React.FC = () => {
             <tbody className="divide-y divide-white/5">
               {filteredOpportunities.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center">
+                  <td colSpan={11} className="py-8 text-center">
                     <div className="flex flex-col items-center justify-center space-y-2 font-mono">
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
                       <span className="text-amber-300 font-bold text-xs uppercase tracking-wider">
-                        NO CONNECTED {categoryFilter} FEEDS
+                        NO MATCHING {categoryFilter} OPPORTUNITIES
                       </span>
                       <span className="text-gray-400 text-[11px]">
-                        Connect a provider or enable available demo instruments in settings.
+                        Try switching session filters or connecting additional demo instruments in settings.
                       </span>
                     </div>
                   </td>
@@ -520,6 +563,9 @@ export const GlobalOpportunityRadar: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-2.5 px-3">
+                        <MarketStatusBadge symbol={item.symbol} size="xs" showCountdown={false} />
+                      </td>
+                      <td className="py-2.5 px-3">
                         <span className={`px-2 py-0.5 rounded text-[10px] border ${getStateBadge(item.state)}`}>
                           {item.state}
                         </span>
@@ -534,6 +580,9 @@ export const GlobalOpportunityRadar: React.FC = () => {
                             />
                           </div>
                         </div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <ExecutabilityBadge executable={item.tradeExecutable} score={item.executabilityScore} size="xs" />
                       </td>
                       <td className="py-2.5 px-3">
                         <div className="flex items-center space-x-2">

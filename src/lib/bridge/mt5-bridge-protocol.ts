@@ -26,11 +26,13 @@ export type BridgeCommand =
   | 'GET_QUOTE'
   | 'GET_POSITIONS'
   | 'GET_PENDING_ORDERS'
+  | 'GET_BROKER_SESSIONS'
   | 'PLACE_ORDER'
   | 'MODIFY_ORDER'
   | 'CANCEL_ORDER'
   | 'CLOSE_POSITION'
-  | 'CLOSE_ALL';
+  | 'CLOSE_ALL'
+  | 'DELETE_ORDER';
 
 export const ALLOWED_READ_COMMANDS: ReadonlySet<BridgeCommand> = new Set<BridgeCommand>([
   'PING',
@@ -40,7 +42,8 @@ export const ALLOWED_READ_COMMANDS: ReadonlySet<BridgeCommand> = new Set<BridgeC
   'GET_SYMBOL_INFO',
   'GET_QUOTE',
   'GET_POSITIONS',
-  'GET_PENDING_ORDERS'
+  'GET_PENDING_ORDERS',
+  'GET_BROKER_SESSIONS'
 ]);
 
 export const RESTRICTED_EXECUTION_COMMANDS: ReadonlySet<BridgeCommand> = new Set<BridgeCommand>([
@@ -48,7 +51,8 @@ export const RESTRICTED_EXECUTION_COMMANDS: ReadonlySet<BridgeCommand> = new Set
   'MODIFY_ORDER',
   'CANCEL_ORDER',
   'CLOSE_POSITION',
-  'CLOSE_ALL'
+  'CLOSE_ALL',
+  'DELETE_ORDER'
 ]);
 
 export interface BridgeRequestPayload {
@@ -93,6 +97,7 @@ export interface MT5TerminalStatus {
 export interface MT5AccountInfo {
   maskedLogin: string; // e.g. "21***89"
   company: string;     // e.g. "Exness (SC) Ltd"
+  broker?: string;     // e.g. "Exness"
   server: string;      // e.g. "Exness-Real21" or "Exness-Trial"
   currency: string;    // "USD"
   tradeMode: 'DEMO' | 'REAL';
@@ -132,6 +137,7 @@ export interface MT5SymbolSpecification {
   tickValue: number;
   tickSize: number;
   tradeMode: 'FULL' | 'CLOSE_ONLY' | 'DISABLED';
+  pipSize?: number;
 }
 
 export interface MT5PositionItem {
@@ -162,4 +168,13 @@ export interface MT5PendingOrderItem {
   tp: number;
   magic: number;
   openTime: string;
+}
+
+export interface MT5BrokerSessionInfo {
+  brokerSymbol: string;
+  tradeMode: string;
+  sessionStart: string;
+  sessionEnd: string;
+  serverTime: string;
+  marketAvailable: boolean;
 }

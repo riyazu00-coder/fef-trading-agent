@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node scripts/test-swarm-consistency.js && node scripts/test-mt5-bridge.js && node scripts/test-hub-animation.js && node scripts/test-market-session.js"
+    "test": "node scripts/test-swarm-consistency.js && node scripts/test-mt5-bridge.js && node scripts/test-hub-animation.js && node scripts/test-market-session.js && node scripts/test-phase34-evidence-integrity.js"
   },
   "dependencies": {
     "next": "13.5.6",

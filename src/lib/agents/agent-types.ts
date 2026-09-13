@@ -65,6 +65,9 @@ export interface AgentState {
   keyRisk: string;
   invalidation: string;
   dataLimitedReason?: string;
+  evidenceRecords?: any[];
+  evidenceTrustScore?: number;
+  provenanceBadge?: 'LIVE' | 'MT5' | 'DERIVED' | 'INFERENCE' | 'DATA LIMITED' | 'UNAVAILABLE';
 }
 
 export interface MarketAsset {

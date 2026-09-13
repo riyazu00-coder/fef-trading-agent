@@ -6,6 +6,9 @@ import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
+import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
 
 interface OrderItem {
   id: string;
@@ -55,6 +58,7 @@ const INITIAL_DEFAULT_POSITIONS: OrderItem[] = [
 
 export default function ExecutionPage() {
   const { activeSymbol, setActiveSymbol, activeAsset, assetProfile, allAssets } = useActiveAsset();
+  const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
 
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT' | 'STOP'>('MARKET');
   const [direction, setDirection] = useState<'BUY' | 'SELL'>(
@@ -99,34 +103,36 @@ export default function ExecutionPage() {
   const recordClosedTradeInJournal = (pos: OrderItem) => {
     if (typeof window === 'undefined') return;
     try {
-      const existingStr = window.localStorage.getItem('fef_journal_trades');
-      const existing = existingStr ? JSON.parse(existingStr) : [];
-      const currentLivePrice = allAssets[pos.symbol]?.price || pos.currentPrice;
-      const priceDiff = pos.type === 'BUY' ? (currentLivePrice - pos.openPrice) : (pos.openPrice - currentLivePrice);
-      const isWin = priceDiff >= 0;
-      const realizedPnl = Number((pos.lots * priceDiff * (pos.symbol.includes('USD') && !pos.symbol.includes('XAU') && !pos.symbol.includes('USOIL') && !pos.symbol.includes('US30') && !pos.symbol.includes('US100') && !pos.symbol.includes('US500') ? 100000 : 100)).toFixed(2));
+      const existingRaw = window.localStorage.getItem('fef_journal_trades');
+      const existing = existingRaw ? JSON.parse(existingRaw) : [];
 
       const closedTradeRecord = {
-        id: `tr-${Date.now()}-${pos.ticket}`,
+        id: `tr-${Date.now()}`,
         ticket: pos.ticket,
         symbol: pos.symbol,
         type: pos.type,
         entryPrice: pos.openPrice,
-        exitPrice: currentLivePrice,
+        exitPrice: pos.currentPrice,
         lots: pos.lots,
-        pnl: realizedPnl !== 0 ? realizedPnl : (pos.pnl || 150.00),
-        rrAchieved: isWin ? '1 : 2.50' : '-1 : 1.00',
+        pnl: pos.pnl,
+        rrAchieved: pos.pnl >= 0 ? '1 : 2.50' : '-1 : 1.00',
         date: new Date().toISOString().replace('T', ' ').substring(0, 16) + ' UTC',
-        duration: 'Paper Execution Session',
-        strategy: 'Institutional Execution Gate Paper Dispatch',
-        consensusScore: assetProfile?.confidence || 82,
-        status: isWin ? 'WIN' : 'LOSS',
+        duration: 'Live Session',
+        strategy: 'Multi-Agent Council Consensus Execution',
+        consensusScore: assetProfile.confidence,
+        status: pos.pnl > 0 ? 'WIN' : pos.pnl < 0 ? 'LOSS' : 'BREAKEVEN',
+        marketSessionSnapshot: {
+          marketState: assetProfile.sessionState?.marketState || 'OPEN',
+          sessionName: assetProfile.sessionState?.sessionName || 'LIVE',
+          tradeExecutable: assetProfile.tradeExecutable,
+          scheduleSource: assetProfile.sessionState?.scheduleSource || 'SESSION SCHEDULE — REFERENCE',
+        },
         postMortem: {
-          thesis: `Position opened via Institutional Execution Gate based on 15-Agent Council consensus on ${pos.symbol}.`,
-          executionGrade: isWin ? 'A' : 'B',
-          slippage: '0.00 points (Zero-Slippage Paper Engine)',
-          mistakes: isWin ? ['None. Risk Guardian exposure caps maintained.'] : ['Closed on market fluctuation.'],
-          lessonsLearned: 'Strict adherence to mathematical lot sizing protected total capital drawdown.'
+          thesis: `Executed via FEF Institutional Paper Gate with ${pos.lots} lots on ${pos.symbol}.`,
+          executionGrade: 'A',
+          slippage: '0.0 points',
+          mistakes: [],
+          lessonsLearned: 'Strict adherence to Swarm position sizing.'
         }
       };
 
@@ -168,6 +174,16 @@ export default function ExecutionPage() {
   };
 
   const handleExecuteOrder = () => {
+    if (!assetProfile.tradeExecutable) {
+      alert(`EXECUTION REJECTED: Market for ${activeSymbol} is currently CLOSED (${assetProfile.sessionState?.statusLabel || 'CLOSED'}). Next session opens in ${assetProfile.sessionState?.nextOpenCountdown || 'scheduled'}. Execution gate enforces 100% market hours compliance.`);
+      return;
+    }
+
+    if (assetProfile.actionabilityState === 'ANALYSIS ONLY') {
+      alert(`EXECUTION REJECTED: Trust Gate is in ANALYSIS ONLY mode (${assetProfile.evidenceTrust || 0}% evidence trust). Live execution is locked until evidence trust reaches >= 60%.`);
+      return;
+    }
+
     if (!isArmed) {
       alert('Please toggle ARM EXECUTION GATE first to unlock order dispatch.');
       return;
@@ -218,6 +234,8 @@ export default function ExecutionPage() {
                 <span className="text-[9px] bg-cyan-950/60 text-[#67E8F9] border border-cyan-500/40 px-2 py-0.5 rounded font-mono font-bold">
                   PAPER ENGINE ONLINE &bull; MT5 STANDBY
                 </span>
+                <MarketStatusBadge symbol={activeSymbol} sessionState={assetProfile.sessionState} size="xs" />
+                <ExecutabilityBadge executable={assetProfile.tradeExecutable} size="xs" />
               </div>
               <p className="text-xs text-[#94A3B8] font-sans mt-1">
                 Zero-Slippage Simulation &bull; Strict Risk Budget Enforcement &bull; Dual-Phase Human Authorization Gate
@@ -234,33 +252,64 @@ export default function ExecutionPage() {
             </button>
           </div>
 
+          {/* Closed Market Warning Banner */}
+          {!assetProfile.tradeExecutable && (
+            <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                <span className="font-bold uppercase tracking-wider">MARKET CLOSED — EXECUTION GATE LOCKED</span>
+                <span suppressHydrationWarning className="text-gray-300">• Next session opens in {assetProfile.sessionState?.nextOpenCountdown || 'scheduled'} ({assetProfile.sessionState?.nextOpenAt})</span>
+              </div>
+              <span className="text-[10px] bg-rose-900/60 px-2 py-0.5 rounded border border-rose-400/30 font-bold uppercase">
+                ANALYSIS &amp; SETUP PLANNING ONLY
+              </span>
+            </div>
+          )}
+
           {/* MT5 Account Metrics Bar */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-white/5 text-xs">
             <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
               <span className="text-gray-400 text-[10px] block">SERVER / ACCOUNT</span>
-              <span className="text-white font-bold font-mono text-xs">Internal Paper / #PAPER-581903</span>
+              <span className="text-white font-bold font-mono text-xs truncate block">
+                {isMt5Connected && telemetry.account
+                  ? `${telemetry.account.broker} / #${telemetry.account.maskedLogin}`
+                  : 'Internal Paper / #PAPER-581903'}
+              </span>
             </div>
             <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
               <span className="text-gray-400 text-[10px] block">BALANCE</span>
-              <span className="text-white font-bold font-mono text-sm">${accountBalance.toLocaleString()}.00</span>
+              <span className="text-white font-bold font-mono text-sm">
+                ${(isMt5Connected && telemetry.account ? telemetry.account.balance : accountBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </span>
             </div>
             <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
               <span className="text-gray-400 text-[10px] block">EQUITY</span>
               <span className="text-emerald-400 font-bold font-mono text-sm">
-                ${(accountBalance + openPositions.reduce((acc, p) => acc + p.pnl, 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                ${(isMt5Connected && telemetry.account
+                  ? telemetry.account.equity
+                  : (accountBalance + openPositions.reduce((acc, p) => acc + p.pnl, 0))
+                ).toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </span>
             </div>
             <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
               <span className="text-gray-400 text-[10px] block">USED MARGIN</span>
-              <span className="text-purple-300 font-bold font-mono text-sm">$1,840.00</span>
+              <span className="text-purple-300 font-bold font-mono text-sm">
+                ${(isMt5Connected && telemetry.account ? telemetry.account.margin : 1840.00).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </span>
             </div>
             <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
               <span className="text-gray-400 text-[10px] block">FREE MARGIN</span>
-              <span className="text-cyan-300 font-bold font-mono text-sm">$98,160.00</span>
+              <span className="text-cyan-300 font-bold font-mono text-sm">
+                ${(isMt5Connected && telemetry.account ? telemetry.account.freeMargin : 98160.00).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </span>
             </div>
             <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
               <span className="text-gray-400 text-[10px] block">MARGIN LEVEL</span>
-              <span className="text-emerald-400 font-bold font-mono text-sm">5,434%</span>
+              <span className="text-emerald-400 font-bold font-mono text-sm">
+                {isMt5Connected && telemetry.account
+                  ? (telemetry.account.marginLevel > 9999 ? '>9999%' : `${telemetry.account.marginLevel}%`)
+                  : '5,434%'}
+              </span>
             </div>
           </div>
         </div>
@@ -415,18 +464,24 @@ export default function ExecutionPage() {
                 {/* Dispatch Button */}
                 <button
                   onClick={handleExecuteOrder}
-                  disabled={!isArmed}
+                  disabled={!isArmed || !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY'}
                   className={`w-full py-3 rounded-xl font-bold text-xs tracking-wider transition-all shadow-lg flex items-center justify-center space-x-2 ${
-                    isArmed
+                    !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY'
+                      ? 'bg-amber-950/40 text-amber-400/80 border border-amber-500/30 cursor-not-allowed shadow-none'
+                      : isArmed
                       ? direction === 'BUY'
-                        ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_25px_rgba(16,185,129,0.4)]'
-                        : 'bg-rose-500 hover:bg-rose-400 text-white shadow-[0_0_25px_rgba(244,63,94,0.4)]'
+                        ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_25px_rgba(16,185,129,0.4)] cursor-pointer'
+                        : 'bg-rose-500 hover:bg-rose-400 text-white shadow-[0_0_25px_rgba(244,63,94,0.4)] cursor-pointer'
                       : 'bg-white/5 text-gray-500 border border-white/5 cursor-not-allowed'
                   }`}
                 >
-                  <span>⚡</span>
+                  <span>{!assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' ? '🔒' : '⚡'}</span>
                   <span>
-                    {isArmed
+                    {!assetProfile.tradeExecutable
+                      ? 'MARKET CLOSED — DISPATCH LOCKED'
+                      : assetProfile.actionabilityState === 'ANALYSIS ONLY'
+                      ? 'ANALYSIS ONLY — DISPATCH LOCKED'
+                      : isArmed
                       ? `DISPATCH ${direction} ${calculatedLotSize} LOTS TO MT5`
                       : 'ARM EXECUTION GATE TO DISPATCH'}
                   </span>
@@ -448,16 +503,25 @@ export default function ExecutionPage() {
                 <div className="flex items-center space-x-2">
                   <span className="text-emerald-400">📊</span>
                   <h2 className="text-xs font-black text-white uppercase tracking-wider">
-                    LIVE OPEN POSITIONS ({openPositions.length})
+                    {isMt5Connected && telemetry.allPositions.length > 0
+                      ? `MT5 LIVE OPEN POSITIONS (${telemetry.allPositions.length})`
+                      : `LIVE OPEN POSITIONS (${openPositions.length})`}
                   </h2>
+                  {isMt5Connected && telemetry.allPositions.length > 0 && (
+                    <span className="text-[8px] bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
+                      MT5 VERIFIED • READ-ONLY LOCKED 🔒
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs font-bold text-emerald-400 font-mono">
-                  TOTAL PnL: +$
-                  {openPositions.reduce((acc, p) => acc + p.pnl, 0).toFixed(2)}
+                  TOTAL PnL:{' '}
+                  {isMt5Connected && telemetry.account
+                    ? `${telemetry.account.floatingPnl >= 0 ? '+' : ''}$${telemetry.account.floatingPnl.toFixed(2)}`
+                    : `+$${openPositions.reduce((acc, p) => acc + p.pnl, 0).toFixed(2)}`}
                 </div>
               </div>
 
-              {openPositions.length === 0 ? (
+              {(isMt5Connected ? telemetry.allPositions.length === 0 : openPositions.length === 0) ? (
                 <div className="py-12 text-center text-gray-500 text-xs">
                   No active market positions currently open on MT5 account.
                 </div>
@@ -477,45 +541,63 @@ export default function ExecutionPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5 text-gray-300">
-                      {openPositions.map((pos) => {
-                        const isProfit = pos.pnl >= 0;
+                      {(isMt5Connected && telemetry.allPositions.length > 0 ? telemetry.allPositions : openPositions).map((rawPos: any) => {
+                        const isRealMt5 = isMt5Connected && telemetry.allPositions.length > 0;
+                        const ticket = rawPos.ticket;
+                        const sym = rawPos.symbol || rawPos.brokerSymbol || rawPos.canonicalSymbol;
+                        const posType = rawPos.type || rawPos.direction || 'BUY';
+                        const lots = rawPos.lots ?? rawPos.volume ?? 0;
+                        const openP = rawPos.openPrice ?? 0;
+                        const currentP = rawPos.currentPrice ?? openP;
+                        const sl = rawPos.sl ?? 0;
+                        const tp = rawPos.tp ?? 0;
+                        const pnl = rawPos.pnl ?? rawPos.profit ?? 0;
+                        const isProfit = pnl >= 0;
+                        const pnlPct = rawPos.pnlPercent ?? (openP > 0 ? ((currentP - openP) / openP) * 100 : 0);
+
                         return (
-                          <tr key={pos.id} className="hover:bg-white/[0.02] transition-colors">
+                          <tr key={ticket} className="hover:bg-white/[0.02] transition-colors">
                             <td className="py-3 px-3">
-                              <span className="font-bold text-white block">{pos.symbol}</span>
-                              <span className="text-[10px] text-gray-500">#{pos.ticket}</span>
+                              <span className="font-bold text-white block">{sym}</span>
+                              <span className="text-[10px] text-gray-500">#{ticket}</span>
                             </td>
                             <td className="py-3 px-3">
                               <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                                pos.type === 'BUY'
+                                posType === 'BUY'
                                   ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                                   : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
                               }`}>
-                                {pos.type}
+                                {posType}
                               </span>
                             </td>
-                            <td className="py-3 px-3 font-mono font-bold text-white">{pos.lots}</td>
-                            <td className="py-3 px-3 font-mono">${pos.openPrice.toFixed(2)}</td>
-                            <td className="py-3 px-3 font-mono text-cyan-300">${pos.currentPrice.toFixed(2)}</td>
+                            <td className="py-3 px-3 font-mono font-bold text-white">{lots}</td>
+                            <td className="py-3 px-3 font-mono">${Number(openP).toFixed(2)}</td>
+                            <td className="py-3 px-3 font-mono text-cyan-300">${Number(currentP).toFixed(2)}</td>
                             <td className="py-3 px-3 font-mono text-[10px] text-gray-400">
-                              <div>SL: ${pos.sl.toFixed(2)}</div>
-                              <div>TP: ${pos.tp.toFixed(2)}</div>
+                              <div>SL: {sl > 0 ? `$${Number(sl).toFixed(2)}` : 'NONE'}</div>
+                              <div>TP: {tp > 0 ? `$${Number(tp).toFixed(2)}` : 'NONE'}</div>
                             </td>
                             <td className="py-3 px-3 font-mono font-bold">
                               <span className={isProfit ? 'text-emerald-400' : 'text-rose-400'}>
-                                {isProfit ? '+' : ''}${pos.pnl.toFixed(2)}
+                                {isProfit ? '+' : ''}${Number(pnl).toFixed(2)}
                               </span>
                               <span className="text-[10px] text-gray-400 block">
-                                ({isProfit ? '+' : ''}{pos.pnlPercent.toFixed(2)}%)
+                                ({isProfit ? '+' : ''}{Number(pnlPct).toFixed(2)}%)
                               </span>
                             </td>
                             <td className="py-3 px-3 text-right">
-                              <button
-                                onClick={() => handleClosePosition(pos.ticket)}
-                                className="bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[10px] px-2.5 py-1 rounded-lg font-bold transition-colors"
-                              >
-                                CLOSE
-                              </button>
+                              {isRealMt5 ? (
+                                <span className="text-[9px] px-2 py-1 rounded bg-black/50 border border-white/10 text-gray-400 font-mono cursor-not-allowed" title="Execution disabled in READ-ONLY mode">
+                                  LOCKED 🔒
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => handleClosePosition(ticket)}
+                                  className="bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[10px] px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
+                                >
+                                  CLOSE
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );

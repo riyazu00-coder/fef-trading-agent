@@ -2,30 +2,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 
 export const ExecutionControlCard: React.FC = () => {
   const { activeSymbol, assetProfile } = useActiveAsset();
+  const { telemetry, isMt5Connected } = useMT5Telemetry();
   const [riskPercent, setRiskPercent] = useState('0.50%');
   const [isExecuting, setIsExecuting] = useState(false);
   const [executed, setExecuted] = useState(false);
-  const [bridgeStatus, setBridgeStatus] = useState<{ connected: boolean; latencyMs?: number }>({ connected: false });
 
   const sessionState = assetProfile?.sessionState;
-  const isTradeExecutable = assetProfile?.tradeExecutable !== false && (sessionState ? sessionState.tradeExecutable : true);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = window.localStorage.getItem('fef_mt5_bridge_status');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed && parsed.connected) {
-            setBridgeStatus({ connected: true, latencyMs: parsed.latencyMs });
-          }
-        }
-      } catch {}
-    }
-  }, []);
+  const isAnalysisOnly = assetProfile?.actionabilityState === 'ANALYSIS ONLY';
+  const isTradeExecutable = assetProfile?.tradeExecutable !== false && (sessionState ? sessionState.tradeExecutable : true) && !isAnalysisOnly;
 
   const handleDeploy = () => {
     if (!isTradeExecutable) return; // Strict frontend gate
@@ -58,13 +46,13 @@ export const ExecutionControlCard: React.FC = () => {
         <div className="flex items-center space-x-1.5">
           {sessionState && !isTradeExecutable && (
             <span className="text-[7.5px] bg-rose-950/60 text-rose-300 border border-rose-500/40 px-1.5 py-0.2 rounded font-mono font-bold">
-              {sessionState.statusLabel}
+              {isAnalysisOnly ? 'ANALYSIS ONLY' : sessionState.statusLabel}
             </span>
           )}
-          {bridgeStatus.connected ? (
+          {isMt5Connected ? (
             <span className="text-[8px] bg-emerald-950/60 text-[#34D399] border border-emerald-500/40 px-1.5 py-0.2 rounded flex items-center space-x-1 font-mono font-bold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>EXNESS MT5 (READ ONLY)</span>
+              <span>EXNESS MT5 (READ ONLY 🔒)</span>
             </span>
           ) : (
             <span className="text-[8px] bg-amber-950/60 text-[#FBBF24] border border-amber-500/40 px-1.5 py-0.2 rounded flex items-center space-x-1 font-mono font-bold">
@@ -144,14 +132,16 @@ export const ExecutionControlCard: React.FC = () => {
         <span>{!isTradeExecutable ? '🔒' : '⚡'}</span>
         <span suppressHydrationWarning>
           {!isTradeExecutable
-            ? sessionState?.marketState === 'PRE_OPEN'
+            ? isAnalysisOnly
+              ? 'ANALYSIS ONLY — EXECUTION LOCKED'
+              : sessionState?.marketState === 'PRE_OPEN'
               ? `PRE-OPEN WATCH (OPENS IN ${sessionState?.nextOpenCountdown || '15m'})`
               : `MARKET CLOSED (OPENS IN ${sessionState?.nextOpenCountdown || 'SESSION REOPEN'})`
             : executed
             ? 'ORDER ARCHIVED TO TRADE JOURNAL (PAPER)'
             : isExecuting
             ? 'SIMULATING EXECUTION GATEWAY...'
-            : bridgeStatus.connected
+            : isMt5Connected
             ? 'MT5 READ-ONLY LOCKED (SIMULATE PAPER ORDER)'
             : '1-CLICK SIMULATE BUY ORDER (PAPER GATE)'}
         </span>

@@ -13,21 +13,21 @@ export interface BrokerSymbolCandidate {
 }
 
 export const CANONICAL_SYMBOL_MAPPINGS: Record<string, string[]> = {
-  XAUUSD: ['XAUUSD', 'XAUUSDm', 'XAUUSD.r', 'GOLD', 'GOLDm', 'XAUUSD_i'],
-  XAGUSD: ['XAGUSD', 'XAGUSDm', 'XAGUSD.r', 'SILVER', 'SILVERm'],
-  EURUSD: ['EURUSD', 'EURUSDm', 'EURUSD.r', 'EURUSD_i'],
-  GBPUSD: ['GBPUSD', 'GBPUSDm', 'GBPUSD.r', 'GBPUSD_i'],
-  USDJPY: ['USDJPY', 'USDJPYm', 'USDJPY.r', 'USDJPY_i'],
-  GBPJPY: ['GBPJPY', 'GBPJPYm', 'GBPJPY.r'],
-  AUDUSD: ['AUDUSD', 'AUDUSDm', 'AUDUSD.r'],
-  NZDUSD: ['NZDUSD', 'NZDUSDm', 'NZDUSD.r'],
-  USOIL: ['USOIL', 'USOILm', 'USOIL.r', 'WTI', 'WTICRUDE', 'CRUDE'],
-  US100: ['US100', 'US100m', 'USTEC', 'USTECm', 'NAS100', 'NAS100m', 'NQ'],
-  US30: ['US30', 'US30m', 'US30.r', 'DJ30', 'WS30', 'YM'],
-  US500: ['US500', 'US500m', 'US500.r', 'SPX500', 'SP500', 'ES'],
-  BTCUSD: ['BTCUSD', 'BTCUSDm', 'BTCUSDT', 'BTCUSD.r'],
-  ETHUSD: ['ETHUSD', 'ETHUSDm', 'ETHUSDT', 'ETHUSD.r'],
-  SOLUSD: ['SOLUSD', 'SOLUSDm', 'SOLUSDT', 'SOLUSD.r']
+  XAUUSD: ['XAUUSD', 'XAUUSDm', 'XAUUSD.r', 'XAUUSD.a', 'XAUUSDc', 'GOLD', 'GOLDm', 'XAUUSD_i'],
+  XAGUSD: ['XAGUSD', 'XAGUSDm', 'XAGUSD.r', 'XAGUSD.a', 'XAGUSDc', 'SILVER', 'SILVERm'],
+  EURUSD: ['EURUSD', 'EURUSDm', 'EURUSD.r', 'EURUSD.a', 'EURUSDc', 'EURUSD_i'],
+  GBPUSD: ['GBPUSD', 'GBPUSDm', 'GBPUSD.r', 'GBPUSD.a', 'GBPUSDc', 'GBPUSD_i'],
+  USDJPY: ['USDJPY', 'USDJPYm', 'USDJPY.r', 'USDJPY.a', 'USDJPYc', 'USDJPY_i'],
+  GBPJPY: ['GBPJPY', 'GBPJPYm', 'GBPJPY.r', 'GBPJPY.a', 'GBPJPYc'],
+  AUDUSD: ['AUDUSD', 'AUDUSDm', 'AUDUSD.r', 'AUDUSD.a', 'AUDUSDc'],
+  NZDUSD: ['NZDUSD', 'NZDUSDm', 'NZDUSD.r', 'NZDUSD.a', 'NZDUSDc'],
+  USOIL: ['USOIL', 'USOILm', 'USOIL.r', 'USOIL.a', 'USOILc', 'WTI', 'WTICRUDE', 'CRUDE'],
+  US100: ['US100', 'US100m', 'USTEC', 'USTECm', 'USTEC.a', 'NAS100', 'NAS100m', 'NQ'],
+  US30: ['US30', 'US30m', 'US30.r', 'US30.a', 'DJ30', 'WS30', 'YM'],
+  US500: ['US500', 'US500m', 'US500.r', 'US500.a', 'SPX500', 'SP500', 'ES'],
+  BTCUSD: ['BTCUSD', 'BTCUSDm', 'BTCUSDT', 'BTCUSD.r', 'BTCUSD.a', 'BTCUSDc'],
+  ETHUSD: ['ETHUSD', 'ETHUSDm', 'ETHUSDT', 'ETHUSD.r', 'ETHUSD.a', 'ETHUSDc'],
+  SOLUSD: ['SOLUSD', 'SOLUSDm', 'SOLUSDT', 'SOLUSD.r', 'SOLUSD.a', 'SOLUSDc']
 };
 
 class BrokerSymbolDirectory {
@@ -87,6 +87,14 @@ class BrokerSymbolDirectory {
         }
       }
     }
+
+    // Dynamic suffix detection fallback (e.g. broker has XAUUSDm, XAUUSD.a, XAUUSDc)
+    for (const brokerSym of Array.from(this.availableBrokerSymbols)) {
+      if (brokerSym.startsWith(canonicalSymbol)) {
+        return brokerSym;
+      }
+    }
+
     return null;
   }
 
@@ -103,6 +111,13 @@ class BrokerSymbolDirectory {
         return canonical;
       }
     }
+
+    // Dynamic suffix stripping fallback (e.g., XAUUSDm, XAUUSD.a, XAUUSDc -> XAUUSD)
+    const cleanSym = brokerSymbol.replace(/m|\.a|\.r|c|_i$/i, '');
+    if (CANONICAL_SYMBOL_MAPPINGS[cleanSym]) {
+      return cleanSym;
+    }
+
     return brokerSymbol;
   }
 

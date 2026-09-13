@@ -5,20 +5,22 @@
 //+------------------------------------------------------------------+
 #property copyright   "FEF Trading Solutions"
 #property link        "https://feftradingsolutions.com"
-#property version     "1.00"
+#property version     "1.10"
 #property description "Native Non-Blocking TCP Socket Bridge for FEF Trading Solutions"
-#property description "Listens on 127.0.0.1:5555 for local authenticated read-only telemetry"
+#property description "Connects to 127.0.0.1:5555 for local authenticated read-only telemetry"
+#property description "Zero DLL imports required — 100% native MQL5 compatible with macOS/Wine"
 #property strict
 
 //--- Input Parameters
 input group "=== Bridge Configuration ==="
-input int      InpPort           = 5555;                          // TCP Listening Port
+input string   InpHost           = "127.0.0.1";                   // Bridge Host IP (Loopback)
+input int      InpPort           = 5555;                          // Bridge TCP Port
 input ulong    InpMagicNumber    = 8882026;                       // FEF Magic Number
 input string   InpAuthToken      = "fef_local_bridge_token_v1";   // Local Authentication Token
 
 enum ENUM_BRIDGE_MODE
 {
-   BRIDGE_READ_ONLY = 0,         // READ ONLY (Recommended: Zero Execution)
+   BRIDGE_READ_ONLY = 0,         // READ ONLY (Strict: Zero Execution)
    BRIDGE_DEMO_EXECUTION = 1,    // DEMO EXECUTION (Requires Demo Account)
    BRIDGE_LIVE_EXECUTION = 2     // LIVE EXECUTION (Locked by Safety Gate)
 };
@@ -26,9 +28,9 @@ enum ENUM_BRIDGE_MODE
 input group "=== Safety Guardrails ==="
 input ENUM_BRIDGE_MODE InpBridgeMode = BRIDGE_READ_ONLY;          // Bridge Operating Mode
 
-//--- Global Socket Handles & State
-int      g_server_socket = INVALID_HANDLE;
-int      g_client_socket = INVALID_HANDLE;
+//--- Global Socket Handle & Timing State
+int      g_socket = INVALID_HANDLE;
+datetime g_last_connect_attempt = 0;
 datetime g_last_heartbeat = 0;
 
 //+------------------------------------------------------------------+
@@ -109,7 +111,7 @@ string BuildTerminalStatusResponse(string reqId)
    json += "\"tradeAllowed\":" + (tradeAllowed ? "true" : "false") + ",";
    json += "\"tradeExpert\":" + (tradeExpert ? "true" : "false") + ",";
    json += "\"pingToBrokerMs\":" + IntegerToString(pingMs) + ",";
-   json += "\"bridgeVersion\":\"1.0.0\",";
+   json += "\"bridgeVersion\":\"1.1.0\",";
    json += "\"operatingMode\":\"" + modeStr + "\",";
    json += "\"lastHeartbeat\":\"" + TimeToString(TimeCurrent(), TIME_SECONDS) + "\"";
    json += "},";
@@ -321,6 +323,102 @@ string BuildPositionsResponse(string reqId)
 }
 
 //+------------------------------------------------------------------+
+//| Handler: Build GET_PENDING_ORDERS Response                       |
+//+------------------------------------------------------------------+
+string BuildPendingOrdersResponse(string reqId)
+{
+   int total = OrdersTotal();
+   string json = "{";
+   json += "\"reqId\":\"" + reqId + "\",";
+   json += "\"command\":\"GET_PENDING_ORDERS\",";
+   json += "\"success\":true,";
+   json += "\"state\":\"CONNECTED_READ_ONLY\",";
+   json += "\"data\":{\"orders\":[";
+
+   for(int i = 0; i < total; i++)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket > 0)
+      {
+         string sym   = OrderGetString(ORDER_SYMBOL);
+         ENUM_ORDER_TYPE orderType = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+         double lots  = OrderGetDouble(ORDER_VOLUME_CURRENT);
+         double price = OrderGetDouble(ORDER_PRICE_OPEN);
+         double sl    = OrderGetDouble(ORDER_SL);
+         double tp    = OrderGetDouble(ORDER_TP);
+         datetime exp = (datetime)OrderGetInteger(ORDER_TIME_EXPIRATION);
+         long magic   = OrderGetInteger(ORDER_MAGIC);
+         datetime ot  = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
+
+         string typeStr = "BUY_LIMIT";
+         if(orderType == ORDER_TYPE_SELL_LIMIT) typeStr = "SELL_LIMIT";
+         if(orderType == ORDER_TYPE_BUY_STOP)  typeStr = "BUY_STOP";
+         if(orderType == ORDER_TYPE_SELL_STOP) typeStr = "SELL_STOP";
+
+         json += "{";
+         json += "\"ticket\":" + IntegerToString(ticket) + ",";
+         json += "\"symbol\":\"" + sym + "\",";
+         json += "\"type\":\"" + typeStr + "\",";
+         json += "\"lots\":" + DoubleToString(lots, 2) + ",";
+         json += "\"price\":" + DoubleToString(price, 5) + ",";
+         json += "\"sl\":" + DoubleToString(sl, 5) + ",";
+         json += "\"tp\":" + DoubleToString(tp, 5) + ",";
+         json += "\"expiration\":\"" + ((exp > 0) ? TimeToString(exp, TIME_DATE|TIME_SECONDS) : "GTC") + "\",";
+         json += "\"magic\":" + IntegerToString(magic) + ",";
+         json += "\"creationTime\":\"" + TimeToString(ot, TIME_DATE|TIME_SECONDS) + "\"";
+         json += "}";
+         if(i < total - 1) json += ",";
+      }
+   }
+
+   json += "]},";
+   json += "\"timestamp\":" + IntegerToString((long)TimeLocal() * 1000);
+   json += "}\n";
+   return json;
+}
+
+//+------------------------------------------------------------------+
+//| Handler: Build GET_BROKER_SESSIONS Response                      |
+//+------------------------------------------------------------------+
+string BuildBrokerSessionsResponse(string reqId, string symbol)
+{
+   if(!SymbolSelect(symbol, true))
+   {
+      return "{\"reqId\":\"" + reqId + "\",\"command\":\"GET_BROKER_SESSIONS\",\"success\":false,\"error\":{\"code\":\"SYMBOL_NOT_FOUND\",\"message\":\"Symbol " + symbol + " not found\"}}\n";
+   }
+
+   datetime from = 0, to = 0;
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   ENUM_DAY_OF_WEEK day = (ENUM_DAY_OF_WEEK)dt.day_of_week;
+
+   bool sessionFound = SymbolInfoSessionTrade(symbol, day, 0, from, to);
+   ENUM_SYMBOL_TRADE_MODE tradeMode = (ENUM_SYMBOL_TRADE_MODE)SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE);
+   string tradeModeStr = (tradeMode == SYMBOL_TRADE_MODE_FULL) ? "FULL" : (tradeMode == SYMBOL_TRADE_MODE_CLOSEONLY) ? "CLOSE_ONLY" : "DISABLED";
+
+   string sessionStartStr = sessionFound ? TimeToString(from, TIME_SECONDS) : "00:00:00";
+   string sessionEndStr   = sessionFound ? TimeToString(to, TIME_SECONDS)   : "23:59:59";
+   bool marketAvailable   = (tradeMode == SYMBOL_TRADE_MODE_FULL) && (TerminalInfoInteger(TERMINAL_CONNECTED) > 0);
+
+   string json = "{";
+   json += "\"reqId\":\"" + reqId + "\",";
+   json += "\"command\":\"GET_BROKER_SESSIONS\",";
+   json += "\"success\":true,";
+   json += "\"state\":\"CONNECTED_READ_ONLY\",";
+   json += "\"data\":{";
+   json += "\"brokerSymbol\":\"" + symbol + "\",";
+   json += "\"tradeMode\":\"" + tradeModeStr + "\",";
+   json += "\"sessionStart\":\"" + sessionStartStr + "\",";
+   json += "\"sessionEnd\":\"" + sessionEndStr + "\",";
+   json += "\"serverTime\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\",";
+   json += "\"marketAvailable\":" + (marketAvailable ? "true" : "false");
+   json += "},";
+   json += "\"timestamp\":" + IntegerToString((long)TimeLocal() * 1000);
+   json += "}\n";
+   return json;
+}
+
+//+------------------------------------------------------------------+
 //| Handler: Build Rejection for Execution Commands                  |
 //+------------------------------------------------------------------+
 string BuildExecutionRejectResponse(string reqId, string command)
@@ -331,7 +429,7 @@ string BuildExecutionRejectResponse(string reqId, string command)
    json += "\"success\":false,";
    json += "\"state\":\"CONNECTED_READ_ONLY\",";
    json += "\"error\":{";
-   json += "\"code\":\"READ_ONLY_LOCK\",";
+   json += "\"code\":\"READ_ONLY_LOCK_ACTIVE\",";
    json += "\"message\":\"Execution command '" + command + "' rejected: FEF MT5 Bridge is locked in READ_ONLY safety mode. Real orders are blocked by design.\"";
    json += "},";
    json += "\"timestamp\":" + IntegerToString((long)TimeLocal() * 1000);
@@ -391,10 +489,11 @@ string ProcessRequest(string rawRequest)
    if(command == "GET_SYMBOL_INFO")          return BuildSymbolInfoResponse(reqId, symbol);
    if(command == "GET_QUOTE")                return BuildQuoteResponse(reqId, symbol);
    if(command == "GET_POSITIONS")            return BuildPositionsResponse(reqId);
-   if(command == "GET_PENDING_ORDERS")       return "{\"reqId\":\"" + reqId + "\",\"command\":\"GET_PENDING_ORDERS\",\"success\":true,\"state\":\"CONNECTED_READ_ONLY\",\"data\":{\"orders\":[]}}\n";
+   if(command == "GET_PENDING_ORDERS")       return BuildPendingOrdersResponse(reqId);
+   if(command == "GET_BROKER_SESSIONS")      return BuildBrokerSessionsResponse(reqId, symbol);
 
    // Safety Lock on all execution commands
-   if(command == "PLACE_ORDER" || command == "MODIFY_ORDER" || command == "CANCEL_ORDER" || command == "CLOSE_POSITION" || command == "CLOSE_ALL")
+   if(command == "PLACE_ORDER" || command == "MODIFY_ORDER" || command == "CANCEL_ORDER" || command == "CLOSE_POSITION" || command == "CLOSE_ALL" || command == "DELETE_ORDER")
    {
       return BuildExecutionRejectResponse(reqId, command);
    }
@@ -403,30 +502,67 @@ string ProcessRequest(string rawRequest)
 }
 
 //+------------------------------------------------------------------+
+//| Socket Reconnection Helper                                       |
+//+------------------------------------------------------------------+
+bool EnsureConnected()
+{
+   if(g_socket != INVALID_HANDLE && SocketIsConnected(g_socket))
+   {
+      return true;
+   }
+
+   if(g_socket != INVALID_HANDLE)
+   {
+      SocketClose(g_socket);
+      g_socket = INVALID_HANDLE;
+   }
+
+   // Reconnect throttle: wait 2 seconds between attempts
+   datetime now = TimeLocal();
+   if(now - g_last_connect_attempt < 2)
+   {
+      return false;
+   }
+   g_last_connect_attempt = now;
+
+   g_socket = SocketCreate();
+   if(g_socket == INVALID_HANDLE)
+   {
+      Print("✕ ERROR: SocketCreate failed: ", GetLastError());
+      return false;
+   }
+
+   SocketTimeouts(g_socket, 500, 500);
+
+   if(!SocketConnect(g_socket, InpHost, InpPort, 1000))
+   {
+      SocketClose(g_socket);
+      g_socket = INVALID_HANDLE;
+      return false;
+   }
+
+   Print("✓ SUCCESS: FEF_Bridge EA connected to Local Bridge on ", InpHost, ":", InpPort);
+
+   // Send initial handshake identifying this connection as MT5 EA
+   string hello = "{\"command\":\"EA_CONNECTED\",\"token\":\"" + InpAuthToken + "\",\"magic\":" + IntegerToString(InpMagicNumber) + ",\"account\":" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ",\"build\":" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)) + "}\n";
+   uchar buf[];
+   StringToCharArray(hello, buf, 0, WHOLE_ARRAY, CP_UTF8);
+   SocketSend(g_socket, buf, ArraySize(buf) - 1);
+
+   return true;
+}
+
+//+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   Print("=== [FEF TRADING SOLUTIONS] MT5 BRIDGE INITIALIZING ===");
-   Print("Bridge Host: 127.0.0.1 | Port: ", InpPort, " | Magic Number: ", InpMagicNumber);
+   Print("=== [FEF TRADING SOLUTIONS] MT5 BRIDGE EA INITIALIZING ===");
+   Print("Bridge Host: ", InpHost, " | Port: ", InpPort, " | Magic Number: ", InpMagicNumber);
    Print("Operating Mode: READ_ONLY (Execution blocked by safety gate)");
+   Print("Architecture: Native MQL5 Socket Client (0 DLL Imports — Wine/macOS Safe)");
 
-   g_server_socket = SocketCreate();
-   if(g_server_socket == INVALID_HANDLE)
-   {
-      Print("✕ ERROR: Failed to create server socket: ", GetLastError());
-      return INIT_FAILED;
-   }
-
-   if(!SocketBindListen(g_server_socket, "127.0.0.1", InpPort))
-   {
-      Print("✕ ERROR: Failed to bind server socket to 127.0.0.1:", InpPort, " Error: ", GetLastError());
-      SocketClose(g_server_socket);
-      g_server_socket = INVALID_HANDLE;
-      return INIT_FAILED;
-   }
-
-   Print("✓ SUCCESS: FEF MT5 Bridge listening on 127.0.0.1:", InpPort);
+   EnsureConnected();
    EventSetMillisecondTimer(100); // 100ms non-blocking polling interval
    return INIT_SUCCEEDED;
 }
@@ -437,58 +573,49 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
-   if(g_client_socket != INVALID_HANDLE)
+   if(g_socket != INVALID_HANDLE)
    {
-      SocketClose(g_client_socket);
-      g_client_socket = INVALID_HANDLE;
+      SocketClose(g_socket);
+      g_socket = INVALID_HANDLE;
    }
-   if(g_server_socket != INVALID_HANDLE)
-   {
-      SocketClose(g_server_socket);
-      g_server_socket = INVALID_HANDLE;
-   }
-   Print("=== [FEF TRADING SOLUTIONS] MT5 BRIDGE TERMINATED ===");
+   Print("=== [FEF TRADING SOLUTIONS] MT5 BRIDGE EA TERMINATED ===");
 }
 
 //+------------------------------------------------------------------+
-//| Timer event function: Non-blocking socket accept & request processing|
+//| Timer event function: Non-blocking socket read & request processing|
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-   if(g_server_socket == INVALID_HANDLE) return;
+   if(!EnsureConnected()) return;
 
-   // Accept incoming client connection if none active
-   if(g_client_socket == INVALID_HANDLE)
+   uint readable = SocketIsReadable(g_socket);
+   if(readable > 0)
    {
-      g_client_socket = SocketAccept(g_server_socket);
-   }
+      uchar buffer[];
+      ArrayResize(buffer, readable + 1);
+      ArrayInitialize(buffer, 0);
 
-   if(g_client_socket != INVALID_HANDLE)
-   {
-      uint readable = SocketIsReadable(g_client_socket);
-      if(readable > 0)
+      int readBytes = SocketRead(g_socket, buffer, readable, 50);
+      if(readBytes > 0)
       {
-         uchar buffer[];
-         ArrayResize(buffer, readable + 1);
-         ArrayInitialize(buffer, 0);
+         string reqStr = CharArrayToString(buffer, 0, readBytes, CP_UTF8);
 
-         int readBytes = SocketRead(g_client_socket, buffer, readable, 50);
-         if(readBytes > 0)
+         // Split multiple lines if received together
+         string lines[];
+         int numLines = StringSplit(reqStr, '\n', lines);
+         for(int i = 0; i < numLines; i++)
          {
-            string reqStr = CharArrayToString(buffer, 0, readBytes, CP_UTF8);
-            string respStr = ProcessRequest(reqStr);
-
-            uchar respBuffer[];
-            StringToCharArray(respStr, respBuffer, 0, WHOLE_ARRAY, CP_UTF8);
-            SocketSend(g_client_socket, respBuffer, ArraySize(respBuffer) - 1);
+            string line = lines[i];
+            StringTrimLeft(line);
+            StringTrimRight(line);
+            if(StringLen(line) > 0)
+            {
+               string respStr = ProcessRequest(line);
+               uchar respBuffer[];
+               StringToCharArray(respStr, respBuffer, 0, WHOLE_ARRAY, CP_UTF8);
+               SocketSend(g_socket, respBuffer, ArraySize(respBuffer) - 1);
+            }
          }
-      }
-
-      // If client closed or errored, reset client handle
-      if(!SocketIsConnected(g_client_socket))
-      {
-         SocketClose(g_client_socket);
-         g_client_socket = INVALID_HANDLE;
       }
    }
 }

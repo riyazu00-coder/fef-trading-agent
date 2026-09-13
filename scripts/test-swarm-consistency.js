@@ -333,6 +333,7 @@ runTest('Trade Opportunity Confirmed alerts include complete blueprint fields', 
     tp2: 2060,
     rr: '1:3.2',
     riskLevel: 'LOW',
+    tradeExecutable: true,
   };
 
   const alerts = evaluateRadarTransitions([mockOpp]);

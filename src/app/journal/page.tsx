@@ -22,6 +22,12 @@ interface HistoricalTrade {
   strategy: string;
   consensusScore: number;
   status: 'WIN' | 'LOSS' | 'BREAKEVEN';
+  marketSessionSnapshot?: {
+    marketState: string;
+    sessionName: string;
+    tradeExecutable: boolean;
+    scheduleSource: string;
+  };
   postMortem: {
     thesis: string;
     executionGrade: string;
@@ -48,6 +54,12 @@ const TRADE_HISTORY: HistoricalTrade[] = [
     strategy: 'London Liquidity Sweep + H1 FVG',
     consensusScore: 84,
     status: 'WIN',
+    marketSessionSnapshot: {
+      marketState: 'OPEN',
+      sessionName: 'London / NY Overlap',
+      tradeExecutable: true,
+      scheduleSource: 'CANONICAL_HOURS'
+    },
     postMortem: {
       thesis: 'Asian low swept cleanly at 4320 with instant displacement and bullish order block tap.',
       executionGrade: 'A+',
@@ -71,6 +83,12 @@ const TRADE_HISTORY: HistoricalTrade[] = [
     strategy: 'ECB Rate Hold Continuation',
     consensusScore: 78,
     status: 'WIN',
+    marketSessionSnapshot: {
+      marketState: 'OPEN',
+      sessionName: 'London Session',
+      tradeExecutable: true,
+      scheduleSource: 'CANONICAL_HOURS'
+    },
     postMortem: {
       thesis: 'Yield spread widened after German bund auctions, confirming interbank demand.',
       executionGrade: 'A',
@@ -94,6 +112,12 @@ const TRADE_HISTORY: HistoricalTrade[] = [
     strategy: 'Overhead Resistance Fade',
     consensusScore: 61,
     status: 'LOSS',
+    marketSessionSnapshot: {
+      marketState: 'OPEN',
+      sessionName: 'New York Afternoon',
+      tradeExecutable: true,
+      scheduleSource: 'CANONICAL_HOURS'
+    },
     postMortem: {
       thesis: 'Tried to fade psychological $102.50 ceiling before US inventory reports.',
       executionGrade: 'C-',
@@ -117,6 +141,12 @@ const TRADE_HISTORY: HistoricalTrade[] = [
     strategy: 'Weekend Compression Breakout',
     consensusScore: 82,
     status: 'WIN',
+    marketSessionSnapshot: {
+      marketState: 'OPEN',
+      sessionName: 'Weekend 24/7 Liquidity',
+      tradeExecutable: true,
+      scheduleSource: '24/7 Crypto Schedule'
+    },
     postMortem: {
       thesis: 'Spot ETF inflows reached $480M; funding rate normalized to neutral.',
       executionGrade: 'A',
@@ -195,9 +225,9 @@ export default function JournalPage() {
   const totalPnL = trades.reduce((acc, t) => acc + t.pnl, 0);
 
   const handleExportCSV = () => {
-    const headers = ['Ticket,Symbol,Type,Lots,Entry,Exit,PnL,RR,Date,Strategy,Status,Notes'];
+    const headers = ['Ticket,Symbol,Type,Lots,Entry,Exit,PnL,RR,Date,Session,SessionState,Strategy,Status,Notes'];
     const rows = trades.map(
-      (t) => `${t.ticket},${t.symbol},${t.type},${t.lots},${t.entryPrice},${t.exitPrice},${t.pnl},"${t.rrAchieved}","${t.date}","${t.strategy}",${t.status},"${t.postMortem.notes || ''}"`
+      (t) => `${t.ticket},${t.symbol},${t.type},${t.lots},${t.entryPrice},${t.exitPrice},${t.pnl},"${t.rrAchieved}","${t.date}","${t.marketSessionSnapshot?.sessionName || 'N/A'}","${t.marketSessionSnapshot?.marketState || 'N/A'}","${t.strategy}",${t.status},"${t.postMortem.notes || ''}"`
     );
     const blob = new Blob([[...headers, ...rows].join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -358,6 +388,11 @@ export default function JournalPage() {
                           }`}>
                             {tr.type}
                           </span>
+                          {tr.marketSessionSnapshot && (
+                            <span className="text-[8.5px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/40 text-cyan-300 border border-cyan-500/30">
+                              {tr.marketSessionSnapshot.sessionName}
+                            </span>
+                          )}
                         </div>
                         <span className="text-[10px] text-gray-400 block truncate max-w-[140px]">{tr.strategy}</span>
                       </td>
@@ -452,6 +487,26 @@ export default function JournalPage() {
                   </span>
                 </div>
               </div>
+
+              {/* Market Session at Entry */}
+              {selectedTrade.marketSessionSnapshot && (
+                <div className="bg-cyan-950/20 border border-cyan-500/30 p-3 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] text-gray-400 uppercase font-bold">SESSION AT ENTRY:</span>
+                    <span className="text-cyan-300 font-bold font-mono">{selectedTrade.marketSessionSnapshot.sessionName}</span>
+                    <span className={`text-[9px] px-2 py-0.5 rounded font-mono font-bold border ${
+                      selectedTrade.marketSessionSnapshot.tradeExecutable
+                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    }`}>
+                      {selectedTrade.marketSessionSnapshot.marketState}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-gray-400 font-sans">
+                    Schedule: {selectedTrade.marketSessionSnapshot.scheduleSource}
+                  </span>
+                </div>
+              )}
 
               {/* Trade Thesis */}
               <div className="space-y-1.5">

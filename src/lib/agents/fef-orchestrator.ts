@@ -65,11 +65,11 @@ export class FEFAIOrchestrator {
         agent: 'ORDER FLOW DELTA',
         timestamp: '18:14:56',
         eventType: 'CVD_DIVERGENCE_CONFIRMED',
-        observation: 'Passive limit absorption detected at 4341.20 (+1,240 contracts). CVD trend flipped positive.',
+        observation: 'Passive limit absorption detected at 4341.20. CVD momentum trend flipped positive.',
         impact: 'Validates Technical CHOCH with institutional order flow volume backing.',
         bias: 'BULLISH',
         confidence: 86,
-        evidence: ['CVD divergence M5', 'Bid/Ask imbalance 3.2:1', 'Iceberg absorption at VWAP'],
+        evidence: ['CVD divergence M5', 'Bid/Ask imbalance 3.2:1', 'Absorption at VWAP'],
         responseTargets: ['Technical Agent', 'Sniper Agent']
       },
       {
@@ -89,11 +89,11 @@ export class FEFAIOrchestrator {
         agent: 'LIQUIDITY HEATMAP',
         timestamp: '18:14:58',
         eventType: 'LIQUIDITY_MAGNET_IDENTIFIED',
-        observation: 'Sell-side liquidity cleared. $148M resting Buy-Side Liquidity cluster identified at 4358.50-4368.00.',
+        observation: 'Sell-side liquidity cleared. Resting Buy-Side Liquidity cluster identified at 4358.50-4368.00.',
         impact: 'Clear upside path with zero liquidity friction beneath 4340 support.',
         bias: 'BULLISH',
         confidence: 87,
-        evidence: ['SSL fully mitigated', 'BSL $148M cluster', 'Resting stops above equal highs'],
+        evidence: ['SSL fully mitigated', 'BSL target cluster', 'Resting stops above equal highs'],
         responseTargets: ["Devil's Advocate", 'Sniper Agent']
       },
       {

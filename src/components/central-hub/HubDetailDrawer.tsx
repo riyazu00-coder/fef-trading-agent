@@ -45,7 +45,7 @@ export const HubDetailDrawer: React.FC<HubDetailDrawerProps> = ({
       <div className="flex-1 overflow-y-auto py-2.5 space-y-2.5 pr-1">
         {selectedAgent && (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-black/40 p-2.5 rounded-xl border border-white/5">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-black/40 p-2.5 rounded-xl border border-white/5">
               <div>
                 <span className="text-gray-400 text-[8.5px]">Role:</span>
                 <p className="text-white font-bold text-[9px] truncate">{selectedAgent.role}</p>
@@ -63,18 +63,31 @@ export const HubDetailDrawer: React.FC<HubDetailDrawerProps> = ({
                 <p className="text-cyan-300 font-bold text-[9px]">{selectedAgent.confidence}%</p>
               </div>
               <div>
-                <span className="text-gray-400 text-[8.5px]">Node Freshness:</span>
-                <p className={`font-bold text-[9px] ${
-                  selectedAgent.status === 'DATA LIMITED' ? 'text-amber-400' : 'text-emerald-400'
+                <span className="text-gray-400 text-[8.5px]">Evidence Trust:</span>
+                <p className={`font-bold text-[9px] font-mono ${
+                  (selectedAgent.evidenceTrustScore ?? 0) >= 70 ? 'text-emerald-400' : (selectedAgent.evidenceTrustScore ?? 0) >= 30 ? 'text-amber-400' : 'text-rose-400'
                 }`}>
-                  {selectedAgent.status === 'DATA LIMITED' ? 'DATA LIMITED' : 'LIVE (15/15)'}
+                  {selectedAgent.evidenceTrustScore !== undefined ? `${selectedAgent.evidenceTrustScore}%` : 'N/A'}
+                </p>
+              </div>
+              <div>
+                <span className="text-gray-400 text-[8.5px]">Provenance:</span>
+                <p className="text-cyan-400 font-mono font-bold text-[9px]">
+                  {selectedAgent.provenanceBadge || (selectedAgent.status === 'DATA LIMITED' ? 'DATA LIMITED' : 'DERIVED')}
                 </p>
               </div>
             </div>
 
             {/* Evidence Signals */}
             <div className="bg-black/30 p-2.5 rounded-xl border border-white/5 space-y-1.5">
-              <h4 className="text-[8.5px] font-bold text-gray-400 uppercase">Evidence & Telemetry</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-[8.5px] font-bold text-gray-400 uppercase">Evidence & Telemetry</h4>
+                {selectedAgent.provenanceBadge && (
+                  <span className="text-[8px] font-mono font-bold px-1.5 py-0.2 rounded border border-cyan-500/30 bg-cyan-950/40 text-cyan-300">
+                    {selectedAgent.provenanceBadge}
+                  </span>
+                )}
+              </div>
               {selectedAgent.evidence && selectedAgent.evidence.length > 0 ? (
                 <ul className="space-y-1 text-gray-200 text-[9px]">
                   {selectedAgent.evidence.map((ev, i) => (

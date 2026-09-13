@@ -1,5 +1,6 @@
 import '../styles/globals.css';
 import { ActiveAssetProvider } from '@/context/ActiveAssetContext';
+import { MT5TelemetryProvider } from '@/context/MT5TelemetryContext';
 import { TradeOpportunityPopup } from '@/components/cockpit/TradeOpportunityPopup';
 
 export const metadata = {
@@ -12,8 +13,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body className="bg-[#030711] text-[#F8FAFC] min-h-screen antialiased flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black">
         <ActiveAssetProvider>
-          {children}
-          <TradeOpportunityPopup />
+          <MT5TelemetryProvider>
+            {children}
+            <TradeOpportunityPopup />
+          </MT5TelemetryProvider>
         </ActiveAssetProvider>
       </body>
     </html>

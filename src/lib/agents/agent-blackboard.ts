@@ -1,3 +1,5 @@
+import { evaluateMarketSession, MarketSessionState } from '../session/market-session-engine';
+
 /**
  * Shared Agent Blackboard (Shared Intelligence Memory Context)
  * Agents publish structured observations here and read other agents' analyses.
@@ -13,6 +15,15 @@ export interface SharedMarketContext {
   spread: number;
   marketRegime: string;
   session: string;
+  marketSession?: {
+    marketState: string;
+    sessionName: string;
+    tradeExecutable: boolean;
+    nextOpenCountdown?: string | null;
+    nextCloseCountdown?: string | null;
+    statusLabel: string;
+    scheduleSource: string;
+  };
   dxyState: {
     price: number;
     trend: 'WEAKENING' | 'STRENGTHENING' | 'NEUTRAL';
@@ -57,6 +68,14 @@ export const INITIAL_BLACKBOARD_STATE: SharedMarketContext = {
   spread: 0.36,
   marketRegime: 'Bullish Expansion (H1 FVG Retest)',
   session: 'London / NY Overlap',
+  marketSession: {
+    marketState: 'OPEN',
+    sessionName: 'London / NY Overlap',
+    tradeExecutable: true,
+    nextCloseCountdown: '3h 45m',
+    statusLabel: 'OPEN',
+    scheduleSource: 'CANONICAL_HOURS'
+  },
   dxyState: {
     price: 104.18,
     trend: 'WEAKENING',
@@ -234,6 +253,8 @@ export function createSharedBlackboardForAsset(
     };
   }
 
+  const sessionInfo = evaluateMarketSession(symbol, new Date());
+
   return {
     timestamp: new Date().toTimeString().split(' ')[0],
     selectedSymbol: symbol,
@@ -243,7 +264,16 @@ export function createSharedBlackboardForAsset(
     ask: Number((price + spread / 2).toFixed(symbol.includes('JPY') ? 2 : isForex ? 4 : 2)),
     spread,
     marketRegime: regime,
-    session,
+    session: sessionInfo.sessionName || session,
+    marketSession: {
+      marketState: sessionInfo.marketState,
+      sessionName: sessionInfo.sessionName,
+      tradeExecutable: sessionInfo.tradeExecutable,
+      nextOpenCountdown: sessionInfo.nextOpenCountdown,
+      nextCloseCountdown: sessionInfo.nextCloseCountdown,
+      statusLabel: sessionInfo.statusLabel,
+      scheduleSource: sessionInfo.scheduleSource
+    },
     dxyState: {
       price: 104.18,
       trend: 'WEAKENING',

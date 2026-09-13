@@ -6,7 +6,10 @@ import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { AgentState } from '@/lib/agents/agent-types';
+import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
+import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
 
 interface ExtendedAgent extends AgentState {
   id: string;
@@ -25,6 +28,7 @@ interface ExtendedAgent extends AgentState {
 
 export default function AgentsDirectoryPage() {
   const { activeSymbol, assetProfile, refreshData } = useActiveAsset();
+  const { telemetry, isMt5Connected } = useMT5Telemetry();
   const [selectedAgent, setSelectedAgent] = useState<ExtendedAgent | null>(null);
   const [filterBias, setFilterBias] = useState<string>('ALL');
   const [search, setSearch] = useState<string>('');
@@ -47,22 +51,24 @@ export default function AgentsDirectoryPage() {
       },
       conflictsWith: ag.bias === 'BULLISH' ? ['Macro Agent (Hawkish Fed)', 'Risk Guardian'] : ['Technical Agent', 'Opportunity Hunter']
     })),
-    // 5 Specialist Observers
+    // 5 Specialist Observers (Strictly Non-Voting Architecture)
     {
       type: 'SYNAPSE_SENTINEL',
       name: 'Synapse Data Sentinel',
-      role: 'Feed Integrity & WebSocket Auditor',
+      role: 'Feed Integrity & MT5 Transport Auditor',
       bias: 'NEUTRAL',
-      confidence: 99,
+      confidence: 96,
       status: 'ONLINE',
-      lastOpinion: `Zero feed latency detected on Exness socket. Tick throughput at nominal 42 ticks/sec on ${activeSymbol}.`,
-      evidence: ['WebSocket roundtrip 18ms', '0 dropped packets', 'Zero price gaps'],
+      lastOpinion: `Zero feed latency detected on local transport. MT5 bridge heartbeat verified for ${activeSymbol}.`,
+      evidence: ['Transport: HTTP WebRequest (127.0.0.1:5556)', 'Broker: Exness verified', 'Feed integrity: 0 payload anomalies'],
       keyRisk: 'Broker disconnect',
       invalidation: 'Latency > 250ms',
       id: 'spec-1',
       model: 'Rust Micro-Daemon',
       weight: 1.0,
       latencyMs: 14,
+      provenanceBadge: 'MT5',
+      evidenceTrustScore: 95,
       systemMandate: 'Verify raw Exness socket ticks for zero spoofing, abnormal spread spikes, and network packet continuity.',
       telemetry: { memoryMb: 128, tokensPerSec: 0, sampleCount: 84200, uptime: '100.00%' }
     },
@@ -70,17 +76,19 @@ export default function AgentsDirectoryPage() {
       type: 'DARK_POOL_RADAR',
       name: 'Dark Pool & Whale Radar',
       role: 'Off-Exchange Hidden Liquidity',
-      bias: 'BULLISH',
-      confidence: 84,
-      status: 'ONLINE',
-      lastOpinion: `Institutional iceberg buy orders totaling $42M accumulated during early European session.`,
-      evidence: ['Hidden block volume print', 'Dark pool net accumulation index +1.84'],
+      bias: 'NEUTRAL',
+      confidence: 40,
+      status: 'DATA LIMITED',
+      lastOpinion: 'Institutional dark-pool & iceberg flow: DATA PROVIDER NOT CONNECTED. Off-exchange ATS feeds require institutional gateway.',
+      evidence: ['Dark pool feed: PROVIDER NOT CONNECTED', 'ATS block print: UNAVAILABLE', 'Institutional gateway required'],
       keyRisk: 'Whale spoof cancelation',
       invalidation: 'Aggressive market dump',
       id: 'spec-2',
       model: 'WhaleTracker L2',
       weight: 1.8,
       latencyMs: 44,
+      provenanceBadge: 'UNAVAILABLE',
+      evidenceTrustScore: 0,
       systemMandate: 'Deconstruct off-exchange ATS dark pool reporting and detect institutional stealth accumulation.',
       telemetry: { memoryMb: 520, tokensPerSec: 64, sampleCount: 3900, uptime: '99.94%' }
     },
@@ -89,97 +97,121 @@ export default function AgentsDirectoryPage() {
       name: 'Black Swan Event Monitor',
       role: 'Tail-Risk & Flash Crash Defense',
       bias: 'CAUTION',
-      confidence: 91,
-      status: 'ONLINE',
-      lastOpinion: 'Tail-risk probability model stands at 2.1% (nominal range). No immediate sovereign debt or banking alerts.',
-      evidence: ['VIX sub-18', 'CDS spreads tight', 'Interbank lending stable'],
+      confidence: 45,
+      status: 'DATA LIMITED',
+      lastOpinion: 'Tail-risk model: Insufficient verified macro-volatility inputs. Sovereign CDS and options volatility feeds offline.',
+      evidence: ['VIX feed: PROVIDER NOT CONNECTED', 'Sovereign CDS: DATA UNAVAILABLE', 'Interbank spread: MONITORING'],
       keyRisk: 'Unscheduled geopolitical escalation',
       invalidation: 'VIX spike > 25',
       id: 'spec-3',
       model: 'Monte Carlo 100k',
       weight: 2.2,
-      latencyMs: 78,
-      systemMandate: 'Stress-test open positions across 100,000 historical flash crashes and sovereign liquidation cascades.',
-      telemetry: { memoryMb: 890, tokensPerSec: 120, sampleCount: 100000, uptime: '99.99%' }
-    },
-    {
-      type: 'SPREAD_ARBITRAGE',
-      name: 'Cross-Venue Arbitrage Engine',
-      role: 'Multi-Broker Pricing Delta',
-      bias: 'BULLISH',
-      confidence: 88,
-      status: 'ONLINE',
-      lastOpinion: `Exness quote tracking tight within 0.1 pip of interbank Spot EBS reference rate.`,
-      evidence: ['EBS vs Exness delta: 0.08 pip', 'Zero arbitrage drift'],
-      keyRisk: 'Rollover spread widening',
-      invalidation: 'Spread blowup > 1.2 pips',
-      id: 'spec-4',
-      model: 'C++ Low-Latency Matrix',
-      weight: 1.1,
-      latencyMs: 11,
-      systemMandate: 'Continuously compute spatial arbitrage between Exness, EBS, Currenex, and LMAX to guarantee fair pricing.',
-      telemetry: { memoryMb: 96, tokensPerSec: 0, sampleCount: 92000, uptime: '100.00%' }
-    },
-    {
-      type: 'HUMAN_ALIGNMENT',
-      name: 'Human Alignment & Ethics Gate',
-      role: 'Overtrading & Emotional Guard',
-      bias: 'NEUTRAL',
-      confidence: 95,
-      status: 'ONLINE',
-      lastOpinion: 'Daily trade count within prescribed limits (3/5). Maximum account drawdown today 0.12% (limit 2.00%).',
-      evidence: ['User revenge trading risk: LOW', 'Consecutive loss streak: 0'],
-      keyRisk: 'Chasing breakout',
-      invalidation: 'User manual override',
-      id: 'spec-5',
-      model: 'Behavioral RLHF',
-      weight: 2.5,
       latencyMs: 38,
-      systemMandate: 'Enforce strict psychological discipline: prevent revenge trading, lot size doubling, and risk rule violations.',
-      telemetry: { memoryMb: 340, tokensPerSec: 92, sampleCount: 1200, uptime: '99.99%' }
+      provenanceBadge: 'UNAVAILABLE',
+      evidenceTrustScore: 10,
+      systemMandate: 'Scan cross-asset volatility indices and sovereign CDS spreads to detect nascent systemic dislocation.',
+      telemetry: { memoryMb: 890, tokensPerSec: 120, sampleCount: 15400, uptime: '99.99%' }
+    },
+    {
+      type: 'RETAIL_FADE_INDEX',
+      name: 'Retail Sentiment & Fade Engine',
+      role: 'Contrarian Positioning Signals',
+      bias: 'NEUTRAL',
+      confidence: 40,
+      status: 'DATA LIMITED',
+      lastOpinion: `Retail positioning on ${activeSymbol}: PROVIDER NOT CONNECTED. Broker sentiment aggregation feed offline.`,
+      evidence: ['Broker sentiment feed: NOT CONNECTED', 'Contrarian skew: INSUFFICIENT DATA', 'Crowd metric: STANDBY'],
+      keyRisk: 'Retail breakout joining momentum',
+      invalidation: 'Retail flipping net long',
+      id: 'spec-4',
+      model: 'Contrarian Hunter',
+      weight: 1.4,
+      latencyMs: 28,
+      provenanceBadge: 'UNAVAILABLE',
+      evidenceTrustScore: 0,
+      systemMandate: 'Quantify retail trader positioning skew from aggregated broker sentiment to generate contrarian institutional edge.',
+      telemetry: { memoryMb: 340, tokensPerSec: 42, sampleCount: 7100, uptime: '99.95%' }
+    },
+    {
+      type: 'CROSS_ASSET_BETA',
+      name: 'Cross-Asset Beta Engine',
+      role: 'Intermarket SMT & Macro Confluence',
+      bias: 'BULLISH',
+      confidence: 72,
+      status: 'ONLINE',
+      lastOpinion: 'Intermarket cross-asset correlation model active. Monitoring multi-asset divergence against live prices.',
+      evidence: ['Multi-asset price matrix: ACTIVE', 'Bond yield feed: UNAVAILABLE (ESTIMATED)', 'Equity beta: MODEL INFERENCE'],
+      keyRisk: 'Correlation breakdown',
+      invalidation: 'DXY reclaiming daily high',
+      id: 'spec-5',
+      model: 'Intermarket Matrix',
+      weight: 1.5,
+      latencyMs: 35,
+      provenanceBadge: 'INFERENCE',
+      evidenceTrustScore: 40,
+      systemMandate: 'Compute high-frequency correlation vectors across FX crosses, bonds, equities, and precious metals to isolate structural beta.',
+      telemetry: { memoryMb: 460, tokensPerSec: 58, sampleCount: 11200, uptime: '99.97%' }
     }
   ];
+
+  const handlePulseSwarm = () => {
+    setIsPulsing(true);
+    refreshData();
+    setTimeout(() => {
+      setIsPulsing(false);
+    }, 800);
+  };
 
   const filteredAgents = fullCouncil.filter((ag) => {
     const matchesBias = filterBias === 'ALL' || ag.bias === filterBias;
     const matchesSearch =
       ag.name.toLowerCase().includes(search.toLowerCase()) ||
       ag.role.toLowerCase().includes(search.toLowerCase()) ||
-      ag.lastOpinion.toLowerCase().includes(search.toLowerCase());
+      ag.systemMandate.toLowerCase().includes(search.toLowerCase());
     return matchesBias && matchesSearch;
   });
 
-  const handlePulseSwarm = () => {
-    setIsPulsing(true);
-    setTimeout(() => {
-      refreshData();
-      setIsPulsing(false);
-    }, 1200);
-  };
-
   return (
     <div className="relative min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black overflow-x-hidden">
-      {/* Background Aurora */}
+      {/* Dynamic Background */}
       <BackgroundLiveChart symbol={activeSymbol} isPositive={true} />
 
-      {/* Main Content */}
+      {/* Main Layout Container */}
       <div className="relative z-10 flex flex-col p-2 sm:p-4 space-y-4 w-full max-w-[1920px] mx-auto">
         <MasterTopNav />
 
-        {/* Header Panel */}
+        {/* Page Header */}
         <div className="ghost-glass-panel rounded-2xl p-5 font-sans space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-bold text-[#F8FAFC] uppercase tracking-[0.06em] font-sans">
                   AUTONOMOUS AGENT COUNCIL REGISTRY
                 </h1>
                 <span className="text-[9px] bg-cyan-950/60 text-[#22D3EE] border border-cyan-500/40 px-2 py-0.5 rounded font-mono font-bold">
                   20 AGENTS ONLINE &bull; {activeSymbol} FOCUS
                 </span>
+                <MarketStatusBadge symbol={activeSymbol} sessionState={assetProfile.sessionState} size="xs" />
+                <ExecutabilityBadge executable={assetProfile.tradeExecutable} size="xs" />
+                {isMt5Connected && telemetry.account ? (
+                  <span className="text-[9px] bg-emerald-950/60 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>MT5: {telemetry.account.broker} #{telemetry.account.maskedLogin} (Eq: ${telemetry.account.equity.toLocaleString('en-US', { minimumFractionDigits: 0 })})</span>
+                    <span className="text-gray-400 font-normal">&bull; READ-ONLY 🔒</span>
+                  </span>
+                ) : (
+                  <span className="text-[9px] bg-black/40 text-gray-400 border border-white/10 px-2 py-0.5 rounded font-mono">
+                    MT5: STANDBY
+                  </span>
+                )}
               </div>
               <p className="text-xs text-[#94A3B8] mt-1 font-sans">
-                Multi-Agent Cognitive Architecture &bull; 15 Voting Council Members + 5 Specialist Observers &bull; Sub-50ms Deliberation Latency
+                Multi-Agent Cognitive Architecture &bull; 15 Voting Council Members + 5 Specialist Observers &bull; Setup Quality: <span className="font-mono text-cyan-300 font-bold">{assetProfile.setupQuality}/100</span>
+                {!assetProfile.tradeExecutable && (
+                  <span suppressHydrationWarning className="text-rose-400 font-mono ml-2 font-bold">
+                    [MARKET CLOSED — DELIBERATIONS REFERENCE ONLY • OPENS IN {assetProfile.sessionState?.nextOpenCountdown || 'SCHEDULED'}]
+                  </span>
+                )}
               </p>
             </div>
 
@@ -263,7 +295,7 @@ export default function AgentsDirectoryPage() {
                   </div>
 
                   {/* Model & Weight Badges */}
-                  <div className="flex items-center space-x-2 text-[9px] text-gray-400">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[9px] text-gray-400">
                     <span className="bg-white/5 px-2 py-0.5 rounded border border-white/5 font-mono">
                       {ag.model}
                     </span>
@@ -273,6 +305,17 @@ export default function AgentsDirectoryPage() {
                     <span className="text-cyan-400 font-mono">
                       {ag.latencyMs}ms
                     </span>
+                    {ag.provenanceBadge && (
+                      <span className={`px-1.5 py-0.2 rounded font-mono font-bold text-[8px] border ${
+                        ag.provenanceBadge === 'LIVE' ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40' :
+                        ag.provenanceBadge === 'MT5' ? 'bg-cyan-950/60 text-cyan-300 border-cyan-500/40' :
+                        ag.provenanceBadge === 'DERIVED' ? 'bg-teal-950/60 text-teal-300 border-teal-500/40' :
+                        ag.provenanceBadge === 'INFERENCE' ? 'bg-purple-950/60 text-purple-300 border-purple-500/40' :
+                        'bg-amber-950/60 text-amber-300 border-amber-500/40'
+                      }`}>
+                        {ag.provenanceBadge}
+                      </span>
+                    )}
                   </div>
 
                   {/* Opinion Box */}
@@ -298,7 +341,14 @@ export default function AgentsDirectoryPage() {
                 {/* Card Footer: Click hint */}
                 <div className="pt-3 mt-3 border-t border-white/5 flex items-center justify-between text-[10px] text-gray-400">
                   <span className="text-cyan-400 hover:underline">Click to inspect agent &rarr;</span>
-                  <span>{ag.status}</span>
+                  <div className="flex items-center space-x-2">
+                    {ag.evidenceTrustScore !== undefined && (
+                      <span className="text-[8.5px] font-mono text-gray-400">
+                        Trust: <strong className={ag.evidenceTrustScore >= 70 ? 'text-emerald-300' : ag.evidenceTrustScore >= 30 ? 'text-amber-300' : 'text-rose-400'}>{ag.evidenceTrustScore}%</strong>
+                      </span>
+                    )}
+                    <span>{ag.status}</span>
+                  </div>
                 </div>
               </div>
             );
@@ -330,7 +380,7 @@ export default function AgentsDirectoryPage() {
               </div>
 
               {/* Status & Bias Banner */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
                 <div className="bg-black/50 p-3 rounded-xl border border-white/5">
                   <span className="text-gray-400 text-[10px] block">CURRENT STANCE</span>
                   <span className="text-cyan-400 font-bold text-sm">{selectedAgent.bias}</span>
@@ -340,8 +390,16 @@ export default function AgentsDirectoryPage() {
                   <span className="text-white font-bold text-sm">{selectedAgent.confidence}%</span>
                 </div>
                 <div className="bg-black/50 p-3 rounded-xl border border-white/5">
-                  <span className="text-gray-400 text-[10px] block">INFERENCE LATENCY</span>
-                  <span className="text-emerald-400 font-bold text-sm">{selectedAgent.latencyMs} ms</span>
+                  <span className="text-gray-400 text-[10px] block">EVIDENCE TRUST</span>
+                  <span className={`font-bold text-sm font-mono ${
+                    (selectedAgent.evidenceTrustScore ?? 0) >= 70 ? 'text-emerald-400' : (selectedAgent.evidenceTrustScore ?? 0) >= 30 ? 'text-amber-400' : 'text-rose-400'
+                  }`}>
+                    {selectedAgent.evidenceTrustScore ?? 0}%
+                  </span>
+                </div>
+                <div className="bg-black/50 p-3 rounded-xl border border-white/5">
+                  <span className="text-gray-400 text-[10px] block">PROVENANCE</span>
+                  <span className="text-cyan-300 font-bold text-sm font-mono">{selectedAgent.provenanceBadge || 'HEURISTIC'}</span>
                 </div>
                 <div className="bg-black/50 p-3 rounded-xl border border-white/5">
                   <span className="text-gray-400 text-[10px] block">VOTE WEIGHT</span>

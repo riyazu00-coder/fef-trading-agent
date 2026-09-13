@@ -12,6 +12,7 @@ import {
   searchMarkets,
   MarketDefinition
 } from '@/lib/registry/market-registry';
+import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 
 export default function MarketsPage() {
   const router = useRouter();
@@ -101,6 +102,7 @@ export default function MarketsPage() {
                 <tr className="border-b border-white/[0.06] bg-[#07101D]/90 text-[10px] text-[#94A3B8] uppercase tracking-wider font-sans font-bold">
                   <th className="p-3.5">Asset / Symbol</th>
                   <th className="p-3.5">Category</th>
+                  <th className="p-3.5">Market Session</th>
                   <th className="p-3.5 text-right">Live Price</th>
                   <th className="p-3.5 text-right">24h Change</th>
                   <th className="p-3.5 text-right">Spread</th>
@@ -112,7 +114,7 @@ export default function MarketsPage() {
               <tbody className="divide-y divide-white/[0.04]">
                 {filteredMarkets.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center">
+                    <td colSpan={9} className="py-12 text-center">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <span className="w-3 h-3 rounded-full bg-[#FBBF24] animate-ping" />
                         <span className="text-[#FBBF24] font-bold text-sm uppercase tracking-wider font-sans">
@@ -150,10 +152,10 @@ export default function MarketsPage() {
                             <span
                               className={`w-2 h-2 rounded-full ${
                                 row.feedStatus === 'LIVE'
-                                  ? 'bg-[#34D399] animate-pulse'
-                                  : row.feedStatus === 'DEMO'
-                                  ? 'bg-[#22D3EE]'
-                                  : 'bg-[#FBBF24]'
+                                    ? 'bg-[#34D399] animate-pulse'
+                                    : row.feedStatus === 'DEMO'
+                                    ? 'bg-[#22D3EE]'
+                                    : 'bg-[#FBBF24]'
                               }`}
                             />
                             <div>
@@ -169,6 +171,10 @@ export default function MarketsPage() {
                           <span className="text-[9.5px] px-2 py-0.5 rounded bg-[#07101D] border border-white/[0.08] text-[#CBD5E1] font-sans font-semibold">
                             {row.category}
                           </span>
+                        </td>
+
+                        <td className="p-3.5 whitespace-nowrap">
+                          <MarketStatusBadge symbol={row.symbol} size="xs" showCountdown={true} />
                         </td>
 
                         <td className="p-3.5 text-right font-bold text-[#F8FAFC] text-sm font-mono">

@@ -2,6 +2,8 @@
 
 import React from 'react';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
+import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
 
 export const MarketOverviewCard: React.FC = () => {
   const { activeAsset, timeframe, setTimeframe, assetProfile } = useActiveAsset();
@@ -25,9 +27,12 @@ export const MarketOverviewCard: React.FC = () => {
             MARKET OVERVIEW
           </h3>
         </div>
-        <span className="text-[8px] bg-white/5 text-gray-400 px-2 py-0.5 rounded border border-white/5">
-          {activeAsset.category}
-        </span>
+        <div className="flex items-center space-x-1.5">
+          <MarketStatusBadge sessionState={assetProfile.sessionState} size="xs" showCountdown={false} />
+          <span className="text-[8px] bg-white/5 text-gray-400 px-2 py-0.5 rounded border border-white/5">
+            {activeAsset.category}
+          </span>
+        </div>
       </div>
 
       {/* Asset Info & Main Price */}
@@ -37,6 +42,7 @@ export const MarketOverviewCard: React.FC = () => {
             <div className="flex items-center space-x-1.5">
               <span className={`w-2.5 h-2.5 rounded-full ${isPos ? 'bg-emerald-400' : 'bg-rose-400'} inline-block`} />
               <span className="text-sm font-black text-white tracking-wide">{activeAsset.symbol}</span>
+              <ExecutabilityBadge executable={assetProfile.tradeExecutable} size="xs" />
             </div>
             <p className="text-[9.5px] text-gray-400">{activeAsset.name}</p>
           </div>
@@ -45,7 +51,7 @@ export const MarketOverviewCard: React.FC = () => {
             <div>Spread: <span className="text-cyan-300 font-bold">{activeAsset.spread}</span></div>
             <div>Day High: <span className="text-white font-bold">{isForex ? activeAsset.high24h.toFixed(4) : activeAsset.high24h.toLocaleString()}</span></div>
             <div>Day Low: <span className="text-white font-bold">{isForex ? activeAsset.low24h.toFixed(4) : activeAsset.low24h.toLocaleString()}</span></div>
-            <div>Session: <span className="text-amber-300 font-bold">{assetProfile.session}</span></div>
+            <div>Status: <span className={assetProfile.sessionState?.isOpen ? 'text-emerald-300 font-bold' : 'text-rose-300 font-bold'}>{assetProfile.sessionState?.statusLabel || assetProfile.session}</span></div>
           </div>
         </div>
 
@@ -131,7 +137,12 @@ export const MarketOverviewCard: React.FC = () => {
             <span className="text-gray-400 font-bold">🎯</span>
             <span>Session</span>
           </span>
-          <span className="text-gray-200">{assetProfile.session}</span>
+          <span className="text-gray-200 text-right truncate max-w-[150px]">
+            {assetProfile.sessionState?.sessionName || assetProfile.session}
+            {!assetProfile.sessionState?.isOpen && assetProfile.sessionState?.nextOpenCountdown && (
+              <span suppressHydrationWarning className="text-amber-300 ml-1 text-[9px]">({assetProfile.sessionState.nextOpenCountdown})</span>
+            )}
+          </span>
         </div>
         <div className="flex items-center justify-between text-gray-300">
           <span className="flex items-center space-x-1.5">

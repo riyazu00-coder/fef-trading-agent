@@ -91,8 +91,9 @@ export const TradeOpportunityPopup: React.FC = () => {
 
   if (!currentAlert) return null;
 
-  const isBuy = currentAlert.newState.includes('BUY');
-  const isSell = currentAlert.newState.includes('SELL');
+  const isDevelopingClosed = currentAlert.eventType === 'SETUP_DEVELOPING' || currentAlert.tradeExecutable === false;
+  const isBuy = !isDevelopingClosed && currentAlert.newState.includes('BUY');
+  const isSell = !isDevelopingClosed && currentAlert.newState.includes('SELL');
   const isInvalidated = currentAlert.eventType === 'SETUP_INVALIDATED';
   const isRestricted = currentAlert.eventType === 'RISK_RESTRICTED';
 
@@ -139,7 +140,9 @@ export const TradeOpportunityPopup: React.FC = () => {
         {/* Glow Header Accent Line */}
         <div
           className={`absolute top-0 left-0 right-0 h-1 transition-all ${
-            isInvalidated
+            isDevelopingClosed
+              ? 'bg-amber-400'
+              : isInvalidated
               ? 'bg-amber-500'
               : isRestricted
               ? 'bg-rose-500'
@@ -154,7 +157,9 @@ export const TradeOpportunityPopup: React.FC = () => {
           <div className="flex items-center space-x-2">
             <span
               className={`w-2.5 h-2.5 rounded-full ${
-                isInvalidated
+                isDevelopingClosed
+                  ? 'bg-amber-400 animate-pulse'
+                  : isInvalidated
                   ? 'bg-amber-400 animate-pulse'
                   : isRestricted
                   ? 'bg-rose-400 animate-ping'
@@ -164,7 +169,9 @@ export const TradeOpportunityPopup: React.FC = () => {
               }`}
             />
             <span className="text-[10px] font-mono font-black uppercase tracking-wider text-cyan-300">
-              {isInvalidated
+              {isDevelopingClosed
+                ? 'SETUP DEVELOPING (MARKET CLOSED)'
+                : isInvalidated
                 ? 'SWARM INVALIDATION NOTICE'
                 : isRestricted
                 ? 'RISK GUARDIAN RESTRICTION'
@@ -206,7 +213,9 @@ export const TradeOpportunityPopup: React.FC = () => {
               </span>
               <span
                 className={`px-2 py-0.5 rounded text-[10px] font-mono font-black uppercase border ${
-                  isInvalidated
+                  isDevelopingClosed
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    : isInvalidated
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                     : isRestricted
                     ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
@@ -215,7 +224,7 @@ export const TradeOpportunityPopup: React.FC = () => {
                     : 'bg-rose-500/20 text-rose-300 border-rose-400/50 shadow-[0_0_10px_rgba(244,63,94,0.3)]'
                 }`}
               >
-                {currentAlert.newState}
+                {isDevelopingClosed ? 'MONITOR NEXT OPEN' : currentAlert.newState}
               </span>
             </div>
 
@@ -269,7 +278,9 @@ export const TradeOpportunityPopup: React.FC = () => {
             <svg className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="truncate">Human confirmation required</span>
+            <span className="truncate">
+              {isDevelopingClosed ? 'Market Closed — Revalidation Required at Next Open' : 'Human confirmation required'}
+            </span>
           </div>
 
           <div className="flex items-center space-x-2 font-mono">
@@ -283,7 +294,7 @@ export const TradeOpportunityPopup: React.FC = () => {
               onClick={handleViewAnalysis}
               className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 via-blue-600 to-cyan-500 hover:from-cyan-400 hover:to-blue-500 text-white font-black text-xs transition-all shadow-[0_0_15px_rgba(0,240,255,0.4)] cursor-pointer border border-cyan-300/50 flex items-center space-x-1"
             >
-              <span>VIEW ANALYSIS</span>
+              <span>{isDevelopingClosed ? 'PREVIEW SETUP' : 'VIEW ANALYSIS'}</span>
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
               </svg>

@@ -183,13 +183,13 @@ export const INITIAL_AGENTS: AgentState[] = [
     bias: 'BULLISH',
     confidence: 86,
     status: 'DEBATING',
-    lastOpinion: 'Cumulative Volume Delta (CVD) diverged bullishly at 4341.20; +1,240 contracts absorbed by passive limit bids.',
+    lastOpinion: 'Order flow tick delta indicates positive buyer momentum at 4341.20; passive absorption inferred at discount zone.',
     evidence: [
-      'Aggressive market sellers trapped into resting bid wall at 4341.00',
-      'CVD slope turned positive on M5 with rising delta bars',
-      'Bid-Ask imbalance shows 3.2:1 buyers defending 4346.50 VWAP'
+      'Aggressive market sellers rejected at demand zone near 4341.00',
+      'Tick momentum slope turned positive on M5 timeframe',
+      'Order book imbalance modeling indicates buyer defense at VWAP'
     ],
-    keyRisk: 'Large institutional sell icebergs at 4368.00 liquidity pool',
+    keyRisk: 'Large institutional sell supply at 4368.00 liquidity pool',
     invalidation: 'Sustained delta breakdown below -850 contracts'
   },
   {
@@ -231,10 +231,10 @@ export const INITIAL_AGENTS: AgentState[] = [
     bias: 'BULLISH',
     confidence: 87,
     status: 'ALERT',
-    lastOpinion: 'Massive Buy-Side Liquidity (BSL) cluster pool concentrated at 4358.50 - 4368.00 acting as a price magnet after Sell-Side Liquidity (SSL) flush.',
+    lastOpinion: 'Buy-Side Liquidity (BSL) pool concentrated at 4358.50 - 4368.00 acting as structural target after Sell-Side Liquidity (SSL) sweep.',
     evidence: [
       'Sell-side stops under 4342.00 completely wiped out in recent sweep',
-      'Heatmap indicates $148M resting short stop-losses stacked at 4368.00',
+      'Heatmap model indicates resting stop-loss pool stacked above 4368.00',
       'Zero resting liquidity clusters remaining below 4340.00 support'
     ],
     keyRisk: 'Secondary liquidation sweep attempting to test 4338 before taking off',

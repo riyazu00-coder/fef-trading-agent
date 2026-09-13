@@ -9,6 +9,8 @@ import {
   MarketDefinition
 } from '@/lib/registry/market-registry';
 
+import { evaluateMarketSession } from '@/lib/session/market-session-engine';
+
 export const LiveTickerStrip: React.FC = () => {
   const { activeSymbol, setActiveSymbol, allAssets, categoryFilter, setCategoryFilter } = useActiveAsset();
 
@@ -39,6 +41,7 @@ export const LiveTickerStrip: React.FC = () => {
             const p = liveData ? liveData.price : item.basePrice;
             const change = liveData ? liveData.change24h : item.typicalDailyChangePct;
             const isPositive = change >= 0;
+            const session = evaluateMarketSession(item.symbol);
 
             const formatPrice = (val: number, dec: number) => {
               if (item.category === 'CRYPTO' || item.category === 'INDICES') {
@@ -67,17 +70,28 @@ export const LiveTickerStrip: React.FC = () => {
               <button
                 key={item.symbol}
                 onClick={() => setActiveSymbol(item.symbol)}
-                className={`flex items-center justify-between px-3 py-2 rounded-xl border transition-all text-left min-w-[162px] flex-shrink-0 cursor-pointer ${
+                className={`flex items-center justify-between px-3 py-2 rounded-xl border transition-all text-left min-w-[172px] flex-shrink-0 cursor-pointer ${
                   isSelected
                     ? 'bg-[#07101D] border-[#22D3EE] shadow-[0_0_15px_rgba(34,211,238,0.35)] ring-1 ring-[#22D3EE]/50'
                     : 'bg-[#07101D]/75 hover:bg-[#07101D] border-white/10 hover:border-[#22D3EE]/40'
                 }`}
+                title={`${item.symbol} • ${session.sessionName} (${session.statusLabel})`}
               >
                 <div>
                   <div className="flex items-center space-x-1.5">
                     <span className="font-sans font-bold text-[#F8FAFC] text-[11px] tracking-wider">
                       {item.symbol}
                     </span>
+                    {/* Compact Session Dot */}
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        session.isOpen
+                          ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
+                          : session.marketState === 'PRE_OPEN' || session.marketState === 'DAILY_BREAK'
+                          ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]'
+                          : 'bg-rose-400/80 shadow-[0_0_6px_rgba(251,113,133,0.6)]'
+                      }`}
+                    />
                     <span className="font-mono font-bold text-[#F8FAFC] text-[10px]">
                       {formatPrice(p, item.decimalPrecision)}
                     </span>
@@ -94,6 +108,11 @@ export const LiveTickerStrip: React.FC = () => {
                       {isPositive ? '▲ +' : '▼ '}
                       {change}%
                     </span>
+                    {!session.isOpen && (
+                      <span className="text-[7.5px] font-mono uppercase text-rose-400/90 font-bold">
+                        {session.marketState === 'WEEKEND_CLOSED' ? 'WKD' : 'CLS'}
+                      </span>
+                    )}
                   </div>
                 </div>
 
