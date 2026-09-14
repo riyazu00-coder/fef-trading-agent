@@ -1,15 +1,25 @@
-'use client';
-
 import React, { useState, useEffect } from 'react';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { resolvePriceForPurpose } from '@/lib/price/price-authority';
 
 export const ExecutionControlCard: React.FC = () => {
   const { activeSymbol, assetProfile } = useActiveAsset();
-  const { telemetry, isMt5Connected } = useMT5Telemetry();
+  const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
   const [riskPercent, setRiskPercent] = useState('0.50%');
   const [isExecuting, setIsExecuting] = useState(false);
   const [executed, setExecuted] = useState(false);
+
+  const direction: 'BUY' | 'SELL' = assetProfile.setupDirection.includes('SELL') ? 'SELL' : 'BUY';
+  const brokerQuote = activeTelemetry?.quote || telemetry.allQuotes[activeSymbol] || telemetry.allQuotes[activeSymbol.toUpperCase()];
+  const execResolution = resolvePriceForPurpose(activeSymbol, 'EXECUTION', {
+    brokerQuote,
+    isMt5Connected,
+    operatingMode: telemetry.operatingMode,
+    direction,
+    brokerName: telemetry.account?.broker || telemetry.terminal?.brokerName,
+    brokerServer: telemetry.terminal?.brokerServer
+  });
 
   const sessionState = assetProfile?.sessionState;
   const isAnalysisOnly = assetProfile?.actionabilityState === 'ANALYSIS ONLY';
@@ -25,7 +35,9 @@ export const ExecutionControlCard: React.FC = () => {
     }, 800);
   };
 
-  const entryDisplay = assetProfile?.entryZone ? `$${assetProfile.entryZone[0]}` : '$4,349.70';
+  const entryDisplay = execResolution.isExecutable
+    ? `$${execResolution.effectivePrice.toFixed(execResolution.canonical?.digits || 2)}`
+    : assetProfile?.entryZone ? `$${assetProfile.entryZone[0]}` : '$4,349.70';
   const slDisplay = assetProfile?.stopLoss ? `$${assetProfile.stopLoss}` : '$4,343.70';
   const tp1Display = assetProfile?.tp1 ? `${assetProfile.tp1}` : '4,356.70';
   const tp2Display = assetProfile?.tp2 ? `${assetProfile.tp2}` : '4,366.80';

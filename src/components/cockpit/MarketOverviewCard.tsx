@@ -1,16 +1,38 @@
-'use client';
-
 import React from 'react';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
+import {
+  buildCanonicalFromBrokerQuote,
+  evaluateCrossFeedDivergence
+} from '@/lib/price/price-authority';
 
 export const MarketOverviewCard: React.FC = () => {
   const { activeAsset, timeframe, setTimeframe, assetProfile } = useActiveAsset();
+  const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
   const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
 
   const isPos = activeAsset.change24h >= 0;
   const isForex = activeAsset.category === 'FOREX';
+
+  // Retrieve active broker quote
+  const brokerQuote = activeTelemetry?.quote || telemetry.allQuotes[activeAsset.symbol] || telemetry.allQuotes[activeAsset.symbol.toUpperCase()];
+  const brokerCanonical = (isMt5Connected && brokerQuote && brokerQuote.bid > 0)
+    ? buildCanonicalFromBrokerQuote(
+        activeAsset.symbol,
+        brokerQuote,
+        telemetry.account?.broker || telemetry.terminal?.brokerName || 'Exness Technologies Ltd',
+        telemetry.terminal?.brokerServer
+      )
+    : null;
+
+  const crossFeed = (brokerQuote && brokerQuote.bid > 0)
+    ? evaluateCrossFeedDivergence(activeAsset.symbol, brokerQuote, activeAsset)
+    : null;
+
+  const isBrokerLive = Boolean(brokerCanonical && brokerCanonical.executable);
+
   const priceDisplay = isForex
     ? `$${activeAsset.price.toFixed(4)}`
     : `$${activeAsset.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
@@ -36,7 +58,7 @@ export const MarketOverviewCard: React.FC = () => {
       </div>
 
       {/* Asset Info & Main Price */}
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center space-x-1.5">
@@ -48,22 +70,84 @@ export const MarketOverviewCard: React.FC = () => {
           </div>
 
           <div className="text-right text-[9px] text-gray-300 space-y-0.5">
-            <div>Spread: <span className="text-cyan-300 font-bold">{activeAsset.spread}</span></div>
+            <div>Spread: <span className="text-cyan-300 font-bold">{isBrokerLive && brokerCanonical && brokerCanonical.ask != null && brokerCanonical.bid != null ? `${brokerCanonical.spread} pts ($${(brokerCanonical.ask - brokerCanonical.bid).toFixed(brokerCanonical.digits)} USD)` : activeAsset.spread}</span></div>
             <div>Day High: <span className="text-white font-bold">{isForex ? activeAsset.high24h.toFixed(4) : activeAsset.high24h.toLocaleString()}</span></div>
             <div>Day Low: <span className="text-white font-bold">{isForex ? activeAsset.low24h.toFixed(4) : activeAsset.low24h.toLocaleString()}</span></div>
             <div>Status: <span className={assetProfile.sessionState?.isOpen ? 'text-emerald-300 font-bold' : 'text-rose-300 font-bold'}>{assetProfile.sessionState?.statusLabel || assetProfile.session}</span></div>
           </div>
         </div>
 
-        <div className="pt-1 flex items-baseline space-x-2">
-          <span className="text-2xl font-black text-white tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
-            {priceDisplay}
-          </span>
-        </div>
+        {/* Pricing Provenance Block */}
+        {isBrokerLive && brokerCanonical ? (
+          <div className="pt-1 space-y-1 bg-emerald-950/20 p-2 rounded-xl border border-emerald-500/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[9.5px] font-black text-emerald-300 tracking-wider">
+                  MT5 BROKER LIVE
+                </span>
+                <span className="text-[8.5px] text-gray-400 font-normal">
+                  ({brokerCanonical.broker || 'Exness'})
+                </span>
+              </div>
+              <span className="text-[8px] text-emerald-400 font-mono">
+                Updated {(brokerCanonical.ageMs / 1000).toFixed(1)}s ago
+              </span>
+            </div>
 
-        <div className={`text-[10px] font-bold ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {isPos ? '▲ +' : '▼ '}{activeAsset.change24h}% ({isPos ? '+' : ''}{(activeAsset.price * (activeAsset.change24h / 100)).toFixed(2)})
-        </div>
+            <div className="flex items-baseline justify-between pt-0.5">
+              <div className="flex items-baseline space-x-2">
+                <span className="text-xl font-black text-white tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+                  {(brokerCanonical.bid ?? 0).toFixed(brokerCanonical.digits)}
+                </span>
+                <span className="text-xs text-gray-400">/</span>
+                <span className="text-xl font-black text-cyan-300 tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+                  {(brokerCanonical.ask ?? 0).toFixed(brokerCanonical.digits)}
+                </span>
+                <span className="text-[8.5px] text-gray-400 font-bold ml-1">BID / ASK</span>
+              </div>
+              <div className={`text-[10px] font-bold ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {isPos ? '▲ +' : '▼ '}{activeAsset.change24h}%
+              </div>
+            </div>
+
+            {/* Cross-Feed Monitor Basis Strip */}
+            {crossFeed && crossFeed.status !== 'UNAVAILABLE' && (
+              <div className="flex items-center justify-between text-[8px] border-t border-emerald-500/20 pt-1 text-gray-300">
+                <span className="text-gray-400">
+                  Ref Feed: <strong className="text-gray-200">${activeAsset.price.toFixed(brokerCanonical.digits)}</strong> ({activeAsset.provider || 'Gold-API'})
+                </span>
+                <span className={`px-1.5 py-0.2 rounded font-bold ${
+                  crossFeed.status === 'NORMAL_BASIS'
+                    ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
+                    : crossFeed.status === 'ELEVATED_BASIS'
+                    ? 'bg-amber-950/60 text-amber-300 border border-amber-500/30'
+                    : 'bg-rose-950/60 text-rose-300 border border-rose-500/30'
+                }`}>
+                  {crossFeed.statusLabel}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="pt-1 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[8.5px] bg-white/5 text-amber-300/90 border border-amber-500/30 px-1.5 py-0.5 rounded font-mono font-bold">
+                REFERENCE FEED ({activeAsset.provider || activeAsset.source || 'Gold-API'}) &bull; NOT EXECUTABLE
+              </span>
+              <div className={`text-[10px] font-bold ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {isPos ? '▲ +' : '▼ '}{activeAsset.change24h}% ({isPos ? '+' : ''}{(activeAsset.price * (activeAsset.change24h / 100)).toFixed(2)})
+              </div>
+            </div>
+
+            <div className="pt-0.5 flex items-baseline space-x-2">
+              <span className="text-2xl font-black text-white tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+                {priceDisplay}
+              </span>
+              <span className="text-[9px] text-gray-400 font-mono">(INDICATIVE MID)</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Mini Area Chart (Adapts color & shape based on asset trend) */}

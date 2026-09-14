@@ -9,6 +9,10 @@ import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
+import {
+  resolvePriceForPurpose,
+  evaluateCrossFeedDivergence
+} from '@/lib/price/price-authority';
 
 interface OrderItem {
   id: string;
@@ -156,16 +160,56 @@ export default function ExecutionPage() {
     }
   };
 
-  // Pricing calculations
+  // Broker quote and symbol mapping
+  const brokerSym = activeTelemetry?.quote?.brokerSymbol || (telemetry as any).symbols?.discovered?.find((s: string) => s.startsWith(activeSymbol)) || activeSymbol;
+  const currentQuote = telemetry.allQuotes[activeSymbol] || telemetry.allQuotes[brokerSym] || activeTelemetry?.quote;
+
+  // Authoritative price resolution for Execution and Position Sizing
+  const resolvedExecutionPrice = resolvePriceForPurpose(activeSymbol, 'EXECUTION', {
+    side: direction,
+    referenceAsset: activeAsset,
+    brokerQuote: currentQuote,
+    isMt5Connected,
+    operatingMode: telemetry.operatingMode,
+    brokerName: telemetry.account?.broker || telemetry.terminal?.brokerName,
+    brokerServer: telemetry.terminal?.brokerServer
+  });
+
+  const resolvedSizingPrice = resolvePriceForPurpose(activeSymbol, 'POSITION_SIZING', {
+    side: direction,
+    referenceAsset: activeAsset,
+    brokerQuote: currentQuote,
+    isMt5Connected,
+    operatingMode: telemetry.operatingMode,
+    brokerName: telemetry.account?.broker || telemetry.terminal?.brokerName,
+    brokerServer: telemetry.terminal?.brokerServer
+  });
+
+  // Cross-Feed divergence tracking (if broker quote is present)
+  const crossFeedDivergence = (currentQuote && currentQuote.bid > 0)
+    ? evaluateCrossFeedDivergence(activeSymbol, currentQuote, activeAsset)
+    : null;
+
+  // Authoritative prices
   const p = activeAsset.price;
-  const entryPrice = p;
+  const entryPrice = resolvedExecutionPrice.executable ? resolvedExecutionPrice.price : p;
   const slPrice = assetProfile.stopLoss;
   const tpPrice = assetProfile.tp1;
-  const slDistance = Math.abs(entryPrice - slPrice);
+  const sizingReferencePrice = resolvedSizingPrice.price || entryPrice;
+  const slDistance = Math.abs(sizingReferencePrice - slPrice);
   const riskAmount = (accountBalance * riskPercent) / 100;
   
   // Computed dynamic lot size based on risk and distance
   const calculatedLotSize = slDistance > 0 ? Math.max(0.01, Number((riskAmount / (slDistance * 100)).toFixed(2))) : 0.10;
+
+  // Real broker BID / ASK (Strict: NO synthetic offsets fabricated when MT5 is disconnected)
+  const pipMultiplier = activeSymbol.includes('JPY') ? 100 : (activeSymbol === 'XAUUSD' || activeSymbol === 'XAGUSD' || activeSymbol === 'USOIL') ? 10 : activeSymbol === 'BTCUSD' ? 1 : 10000;
+  const hasBrokerQuote = Boolean(isMt5Connected && currentQuote && currentQuote.bid > 0);
+  const brokerBid = hasBrokerQuote ? currentQuote!.bid : null;
+  const brokerAsk = hasBrokerQuote ? currentQuote!.ask : null;
+  const brokerSpread = hasBrokerQuote
+    ? (currentQuote!.spread != null ? currentQuote!.spread : Math.max(0, Number(((currentQuote!.ask - currentQuote!.bid) * pipMultiplier).toFixed(1))))
+    : null;
 
   const handleClosePosition = (ticket: number) => {
     if (confirm(`Are you sure you want to close position #${ticket}? Realized PnL will be archived in the Institutional Trade Journal.`)) {
@@ -185,13 +229,6 @@ export default function ExecutionPage() {
       alert('All open market orders liquidated successfully and recorded in Trade Journal.');
     }
   };
-
-  // Dynamic quote telemetry
-  const currentBid = activeTelemetry?.quote?.bid || entryPrice;
-  const currentAsk = activeTelemetry?.quote?.ask || (entryPrice + (activeSymbol === 'BTCUSD' ? 5.0 : activeSymbol === 'XAUUSD' ? 0.25 : 0.00015));
-  const pipMultiplier = activeSymbol.includes('JPY') ? 100 : (activeSymbol === 'XAUUSD' || activeSymbol === 'XAGUSD' || activeSymbol === 'USOIL') ? 10 : activeSymbol === 'BTCUSD' ? 1 : 10000;
-  const spreadPips = activeTelemetry?.quote?.spread != null ? activeTelemetry.quote.spread : Math.max(0.1, Number(((currentAsk - currentBid) * pipMultiplier).toFixed(1)));
-  const brokerSym = activeTelemetry?.quote?.brokerSymbol || (telemetry as any).symbols?.discovered?.find((s: string) => s.startsWith(activeSymbol)) || activeSymbol;
 
   const handleExecuteOrder = () => {
     if (!assetProfile.tradeExecutable) {
@@ -214,17 +251,8 @@ export default function ExecutionPage() {
       return;
     }
 
-    const currentQuote = telemetry.allQuotes[activeSymbol] || telemetry.allQuotes[brokerSym];
-    if (!currentQuote) {
-      alert(`EXECUTION REJECTED: Broker quote for ${activeSymbol} is UNAVAILABLE.`);
-      return;
-    }
-    if (currentQuote.freshness === 'SESSION_CLOSED') {
-      alert(`EXECUTION REJECTED: Market session for ${activeSymbol} is closed. Order execution is locked.`);
-      return;
-    }
-    if (currentQuote.freshness === 'STALE' || currentQuote.isStale) {
-      alert(`EXECUTION REJECTED: Broker quote for ${activeSymbol} is STALE. Demo execution requires a verified FRESH broker quote.`);
+    if (!resolvedExecutionPrice.executable) {
+      alert(`EXECUTION REJECTED: Authoritative execution price is UNAVAILABLE (${resolvedExecutionPrice.reason || 'Fail-closed'}). Cannot execute order without verified fresh MT5 broker BID/ASK.`);
       return;
     }
 
@@ -238,17 +266,8 @@ export default function ExecutionPage() {
       return;
     }
 
-    const currentQuote = telemetry.allQuotes[activeSymbol] || telemetry.allQuotes[brokerSym];
-    if (!currentQuote) {
-      alert(`EXECUTION REJECTED: Broker quote for ${activeSymbol} is UNAVAILABLE.`);
-      return;
-    }
-    if (currentQuote.freshness === 'SESSION_CLOSED') {
-      alert(`EXECUTION REJECTED: Market session for ${activeSymbol} is closed.`);
-      return;
-    }
-    if (currentQuote.freshness === 'STALE' || currentQuote.isStale) {
-      alert(`EXECUTION REJECTED: Broker quote for ${activeSymbol} is STALE.`);
+    if (!resolvedExecutionPrice.executable) {
+      alert(`EXECUTION REJECTED: Authoritative execution price is UNAVAILABLE (${resolvedExecutionPrice.reason || 'Fail-closed'}). Orders cannot be dispatched.`);
       return;
     }
 
@@ -270,7 +289,9 @@ export default function ExecutionPage() {
             brokerSymbol: brokerSym,
             orderType: direction,
             volume: calculatedLotSize,
-            price: entryPrice,
+            price: resolvedExecutionPrice.price,
+            priceProvenance: resolvedExecutionPrice.provenance,
+            priceClass: resolvedExecutionPrice.priceClass,
             sl: slPrice,
             tp: tpPrice,
             comment: `FEF-${activeSymbol}-${direction}`,
@@ -674,7 +695,12 @@ export default function ExecutionPage() {
               <div className="space-y-2 text-xs">
                 <div className="bg-black/40 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
                   <span className="text-gray-400">ENTRY PRICE:</span>
-                  <span className="font-bold text-white font-mono">${entryPrice.toFixed(2)}</span>
+                  <div className="text-right">
+                    <span className="font-bold text-white font-mono">${entryPrice.toFixed(2)}</span>
+                    <span className={`block text-[9px] ${resolvedExecutionPrice.executable ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {resolvedExecutionPrice.executable ? `BROKER ${direction === 'BUY' ? 'ASK' : 'BID'} (${resolvedExecutionPrice.provenance})` : 'REFERENCE FEED • NOT EXECUTABLE'}
+                    </span>
+                  </div>
                 </div>
                 <div className="bg-black/40 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
                   <span className="text-rose-400 font-bold">STOP LOSS (SL):</span>
@@ -943,22 +969,32 @@ export default function ExecutionPage() {
               {/* 5. ENTRY */}
               <div className="flex justify-between border-b border-white/5 pb-1">
                 <span className="text-gray-400">5. ENTRY:</span>
-                <span className="font-bold text-white">${entryPrice.toFixed(2)}</span>
+                <span className="font-bold text-white">
+                  ${entryPrice.toFixed(2)} {resolvedExecutionPrice.executable ? `(BROKER ${direction === 'BUY' ? 'ASK' : 'BID'})` : '(REF ONLY)'}
+                </span>
               </div>
               {/* 6. CURRENT BID */}
               <div className="flex justify-between border-b border-white/5 pb-1">
                 <span className="text-gray-400">6. CURRENT BID:</span>
-                <span className="font-bold text-gray-200">${currentBid.toFixed(2)}</span>
+                <span className="font-bold text-gray-200">
+                  {brokerBid !== null ? `$${brokerBid.toFixed(2)}` : 'UNAVAILABLE (OFFLINE / UNQUOTED)'}
+                </span>
               </div>
               {/* 7. CURRENT ASK */}
               <div className="flex justify-between border-b border-white/5 pb-1">
                 <span className="text-gray-400">7. CURRENT ASK:</span>
-                <span className="font-bold text-gray-200">${currentAsk.toFixed(2)}</span>
+                <span className="font-bold text-gray-200">
+                  {brokerAsk !== null ? `$${brokerAsk.toFixed(2)}` : 'UNAVAILABLE (OFFLINE / UNQUOTED)'}
+                </span>
               </div>
               {/* 8. SPREAD */}
               <div className="flex justify-between border-b border-white/5 pb-1">
                 <span className="text-gray-400">8. SPREAD:</span>
-                <span className="font-bold text-amber-300">{spreadPips} pips</span>
+                <span className="font-bold text-amber-300">
+                  {brokerSpread !== null && brokerAsk !== null && brokerBid !== null
+                    ? `${brokerSpread} pts ($${(brokerAsk - brokerBid).toFixed(3)} USD)`
+                    : 'UNAVAILABLE (FAIL-CLOSED)'}
+                </span>
               </div>
               {/* 9. STOP LOSS */}
               <div className="flex justify-between border-b border-white/5 pb-1">

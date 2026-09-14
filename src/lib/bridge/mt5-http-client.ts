@@ -32,7 +32,7 @@ export interface MT5HttpClientConfig {
 export const DEFAULT_HTTP_BRIDGE_CONFIG: MT5HttpClientConfig = {
   baseUrl: 'http://127.0.0.1:5556',
   token: process.env.FEF_BRIDGE_TOKEN || 'fef_local_bridge_token_v1',
-  timeoutMs: 1500,
+  timeoutMs: 4000,
   magicNumber: 8882026,
 };
 
@@ -79,7 +79,7 @@ export class MT5HttpClient {
 
     try {
       const controller = new AbortController();
-      const effectiveTimeout = command === 'PLACE_ORDER' ? Math.max(6000, this.config.timeoutMs) : this.config.timeoutMs;
+      const effectiveTimeout = command === 'PLACE_ORDER' ? Math.max(12000, this.config.timeoutMs) : this.config.timeoutMs;
       const timeout = setTimeout(() => controller.abort(), effectiveTimeout);
 
       const res = await fetch(`${this.config.baseUrl}/api/command`, {
@@ -170,6 +170,7 @@ export class MT5HttpClient {
           localBridgeLatencyMs: localLatencyMs,
         };
       }
+      console.warn('[MT5HttpClient.getStatus non-200]:', res.status, res.statusText);
       return {
         success: false,
         localBridge: 'OFFLINE',
@@ -178,6 +179,7 @@ export class MT5HttpClient {
         localBridgeLatencyMs: localLatencyMs,
       };
     } catch (err: any) {
+      console.error('[MT5HttpClient.getStatus error]:', err?.message, err?.code, err?.cause);
       return {
         success: false,
         localBridge: 'OFFLINE',
