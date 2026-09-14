@@ -51,24 +51,56 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
     isFetchingRef.current = true;
 
     try {
-      const res = await fetch('/api/bridge/mt5?action=TELEMETRY', {
-        headers: { 'Cache-Control': 'no-cache' }
-      });
+      let data: any = null;
+      let localOnline = false;
+      let mt5Online = false;
+      let isRemote = false;
 
-      if (!res.ok) {
+      // 1. Try local bridge endpoint first
+      try {
+        const res = await fetch('/api/bridge/mt5?action=TELEMETRY', {
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        if (res.ok) {
+          const localData = await res.json();
+          if (localData.localBridge === 'ONLINE' || localData.mt5Connected) {
+            data = localData;
+            localOnline = localData.localBridge === 'ONLINE' || localData.success === true;
+            mt5Online = Boolean(localData.mt5Connected);
+            isRemote = false;
+          }
+        }
+      } catch {}
+
+      // 2. If local bridge is not connected / offline, fall back to remote relay telemetry
+      if (!mt5Online) {
+        try {
+          const remoteRes = await fetch('/api/remote-mt5/telemetry', {
+            headers: { 'Cache-Control': 'no-cache' }
+          });
+          if (remoteRes.ok) {
+            const remoteData = await remoteRes.json();
+            if (remoteData.connected && remoteData.success) {
+              data = remoteData;
+              localOnline = true;
+              mt5Online = true;
+              isRemote = true;
+            }
+          }
+        } catch {}
+      }
+
+      if (!data) {
         setTelemetry((prev) => ({
           ...prev,
           localBridgeOnline: false,
           mt5Connected: false,
+          isRemote: false,
           state: 'BRIDGE_OFFLINE',
           lastSyncTimestamp: Date.now()
         }));
         return;
       }
-
-      const data = await res.json();
-      const localOnline = data.localBridge === 'ONLINE' || data.success === true;
-      const mt5Online = Boolean(data.mt5Connected);
 
       // Hydrate symbolDirectory if symbols present
       if (Array.isArray(data.symbols) && data.symbols.length > 0) {
@@ -79,8 +111,9 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const allQuotes: Record<string, any> = data.quotes || {};
 
       const rawMode = (data.operatingMode || data.mode || data.account?.operatingMode || 'READ_ONLY') as 'READ_ONLY' | 'DEMO_EXECUTION';
-      const isAccountDemo = data.account?.tradeMode !== 'REAL';
+      const isAccountDemo = data.account?.tradeMode !== 'REAL' && data.tradeMode !== 'REAL';
       const opMode: 'READ_ONLY' | 'DEMO_EXECUTION' = (
+        !isRemote &&
         mt5Online &&
         data.state !== 'MT5_OFFLINE' &&
         rawMode === 'DEMO_EXECUTION' &&
@@ -89,16 +122,36 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const isReadOnly = opMode === 'READ_ONLY';
 
       // Transform raw account to account context with consistent authoritative operating mode
-      const accountContext = deriveAccountRiskContext(data.account, data.positions, opMode);
+      const rawAccount = data.account || {
+        account: data.maskedAccount || data.accountMasked || '00***00',
+        broker: data.broker || 'Exness',
+        server: data.server || 'Exness-MT5Trial16',
+        balance: data.balance || 10000,
+        equity: data.equity || 10000,
+        margin: data.margin || 0,
+        freeMargin: data.freeMargin || 10000,
+        leverage: data.leverage || 200,
+        currency: data.currency || 'USD',
+        tradeMode: data.tradeMode || 'DEMO',
+        tradeAllowed: false,
+      };
+      const accountContext = deriveAccountRiskContext(rawAccount, data.positions, opMode);
 
       setTelemetry({
         localBridgeOnline: localOnline,
         mt5Connected: mt5Online,
-        state: data.state || (mt5Online ? (opMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY') : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE'),
-        transport: data.transport || 'HTTP / WEBREQUEST',
+        isRemote,
+        state: data.state || (isRemote ? 'CONNECTED_READ_ONLY' : (mt5Online ? (opMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY') : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE')),
+        transport: isRemote ? 'SECURE_RELAY (WSS)' : (data.transport || 'HTTP / WEBREQUEST'),
         heartbeatAgeMs: data.heartbeatAgeMs ?? null,
         lastHeartbeat: data.lastHeartbeat ?? null,
-        terminal: data.terminal || null,
+        terminal: data.terminal || {
+          connected: true,
+          tradeAllowed: false,
+          brokerName: data.broker || 'Exness',
+          brokerServer: data.server || 'Exness-MT5Trial16',
+          ping: data.ping ?? 5,
+        },
         account: accountContext,
         allPositions: Array.isArray(data.positions) ? data.positions : [],
         allPendingOrders: Array.isArray(data.orders) ? data.orders : [],
@@ -112,6 +165,7 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
         ...prev,
         localBridgeOnline: false,
         mt5Connected: false,
+        isRemote: false,
         state: 'BRIDGE_OFFLINE',
         lastSyncTimestamp: Date.now()
       }));

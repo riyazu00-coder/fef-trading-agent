@@ -6,11 +6,33 @@ import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 export const ProviderTelemetryCard: React.FC = () => {
   const { isMt5Connected, telemetry } = useMT5Telemetry();
 
+  const isRemoteRelay = Boolean(telemetry.isRemote || (telemetry as any).transport?.includes('RELAY'));
   const isDemoExecution = telemetry.operatingMode === 'DEMO_EXECUTION';
   const brokerName = telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER'
     ? telemetry.account.broker
     : telemetry.terminal?.brokerName || 'Exness';
   const pingMs = (telemetry.account as any)?.ping || 5;
+
+  const mt5Item = isMt5Connected
+    ? isRemoteRelay
+      ? {
+          name: 'Remote MT5 (Relay)',
+          status: 'REMOTE LIVE',
+          detail: `${brokerName} • Telemetry Only`,
+          statusColor: 'bg-cyan-950/60 text-cyan-300 border-cyan-500/40'
+        }
+      : {
+          name: 'MT5 Broker (Exec)',
+          status: isDemoExecution ? 'DEMO LIVE' : 'READ ONLY',
+          detail: `${brokerName} • ${pingMs}ms`,
+          statusColor: isDemoExecution ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40' : 'bg-cyan-950/60 text-cyan-300 border-cyan-500/40'
+        }
+    : {
+        name: 'MT5 Broker (Exec)',
+        status: 'OFFLINE',
+        detail: 'Standby / Locked',
+        statusColor: 'bg-rose-950/60 text-rose-300 border-rose-500/40'
+      };
 
   const telemetryItems = [
     { name: 'Gold-API Spot (Ref)', status: 'LIVE', detail: 'Analysis Only', statusColor: 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40' },
@@ -19,19 +41,7 @@ export const ProviderTelemetryCard: React.FC = () => {
     { name: 'Macro Yields (Ref)', status: 'DELAYED', detail: '10Y Benchmark', statusColor: 'bg-amber-950/60 text-amber-300 border-amber-500/40' },
     { name: 'Financial Wire', status: 'DATA LTD', detail: 'Public Feeds', statusColor: 'bg-amber-950/60 text-amber-300 border-amber-500/40' },
     { name: 'Chart Vision', status: 'HEURISTIC', detail: 'Local Engine', statusColor: 'bg-cyan-950/60 text-cyan-300 border-cyan-500/40' },
-    isMt5Connected
-      ? {
-          name: 'MT5 Broker (Exec)',
-          status: isDemoExecution ? 'DEMO LIVE' : 'READ ONLY',
-          detail: `${brokerName} • ${pingMs}ms`,
-          statusColor: isDemoExecution ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40' : 'bg-cyan-950/60 text-cyan-300 border-cyan-500/40'
-        }
-      : {
-          name: 'MT5 Broker (Exec)',
-          status: 'OFFLINE',
-          detail: 'Standby / Locked',
-          statusColor: 'bg-rose-950/60 text-rose-300 border-rose-500/40'
-        },
+    mt5Item,
     { name: 'Paper Engine', status: 'SIMULATED', detail: 'Risk Verified', statusColor: 'bg-cyan-950/60 text-cyan-300 border-cyan-500/40' }
   ];
 

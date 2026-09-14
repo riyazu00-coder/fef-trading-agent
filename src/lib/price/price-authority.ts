@@ -52,7 +52,7 @@ export interface CanonicalPrice {
 
   provider: string;
   provenance: string;
-  providerType: 'MT5_BROKER' | 'PUBLIC_API' | 'DERIVED' | 'SYNTHETIC_FALLBACK';
+  providerType: 'MT5_BROKER' | 'MT5_REMOTE_BROKER' | 'PUBLIC_API' | 'DERIVED' | 'SYNTHETIC_FALLBACK';
 
   priceClass: PriceClass;
 
@@ -83,6 +83,7 @@ export interface PriceResolutionContext {
   brokerName?: string;
   brokerServer?: string;
   isProduction?: boolean;
+  isRemoteMt5?: boolean;
 }
 
 export interface PriceResolutionResult {
@@ -98,7 +99,7 @@ export interface PriceResolutionResult {
   direction?: 'BUY' | 'SELL';
   provenance: string;
   priceClass: PriceClass;
-  providerType: 'MT5_BROKER' | 'PUBLIC_API' | 'DERIVED' | 'SYNTHETIC_FALLBACK';
+  providerType: 'MT5_BROKER' | 'MT5_REMOTE_BROKER' | 'PUBLIC_API' | 'DERIVED' | 'SYNTHETIC_FALLBACK';
   freshness: 'FRESH' | 'STALE' | 'SESSION_CLOSED' | 'UNAVAILABLE';
 }
 
@@ -160,7 +161,8 @@ export function buildCanonicalFromBrokerQuote(
   quote: MT5QuoteData,
   brokerName?: string,
   brokerServer?: string,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  isRemote: boolean = false
 ): CanonicalPrice {
   const quoteTime = quote.timestamp || (quote.time ? new Date(quote.time).getTime() : nowMs);
   const calculatedAge = Math.max(0, nowMs - (isNaN(quoteTime) ? nowMs : quoteTime));
@@ -170,7 +172,9 @@ export function buildCanonicalFromBrokerQuote(
   const ask = Number(quote.ask || 0);
   const mid = Number(((bid + ask) / 2).toFixed(quote.digits || 2));
   const bName = brokerName || 'Exness Technologies Ltd';
-  const provenance = `MT5:${bName}${brokerServer ? ` (${brokerServer})` : ''}`;
+  const provenance = isRemote
+    ? `MT5_REMOTE:${bName}${brokerServer ? ` (${brokerServer})` : ''}`
+    : `MT5:${bName}${brokerServer ? ` (${brokerServer})` : ''}`;
 
   return {
     canonicalSymbol,
@@ -178,10 +182,12 @@ export function buildCanonicalFromBrokerQuote(
     bid,
     ask,
     mid,
-    provider: bName,
+    provider: isRemote ? `${bName} (Remote Relay)` : bName,
     provenance,
-    providerType: 'MT5_BROKER',
-    priceClass: isFresh ? 'EXECUTABLE_BROKER' : quote.freshness === 'SESSION_CLOSED' ? 'REFERENCE_DELAYED' : 'CACHED',
+    providerType: isRemote ? 'MT5_REMOTE_BROKER' : 'MT5_BROKER',
+    priceClass: isRemote
+      ? (isFresh ? 'REFERENCE_LIVE' : quote.freshness === 'SESSION_CLOSED' ? 'REFERENCE_DELAYED' : 'CACHED')
+      : (isFresh ? 'EXECUTABLE_BROKER' : quote.freshness === 'SESSION_CLOSED' ? 'REFERENCE_DELAYED' : 'CACHED'),
     timestamp: quoteTime,
     providerTimestamp: quoteTime,
     receivedAt: nowMs,
@@ -189,8 +195,8 @@ export function buildCanonicalFromBrokerQuote(
     freshness: quote.freshness || (isFresh ? 'FRESH' : 'STALE'),
     broker: bName,
     server: brokerServer,
-    executable: isFresh,
-    sourcePriority: 100,
+    executable: isRemote ? false : isFresh,
+    sourcePriority: isRemote ? 90 : 100,
     spread: Number(quote.spread || (ask - bid)),
     digits: Number(quote.digits || 2),
     point: Number(quote.point || 0.01)
@@ -275,7 +281,7 @@ export function resolvePriceForPurpose(
 
   // 1. Build canonical representations if data is provided
   const brokerCanonical = context.brokerQuote && context.brokerQuote.bid > 0
-    ? buildCanonicalFromBrokerQuote(upper, context.brokerQuote, context.brokerName, context.brokerServer, now)
+    ? buildCanonicalFromBrokerQuote(upper, context.brokerQuote, context.brokerName, context.brokerServer, now, Boolean(context.isRemoteMt5))
     : null;
 
   const referenceCanonical = context.referenceAsset && context.referenceAsset.price > 0
@@ -287,6 +293,26 @@ export function resolvePriceForPurpose(
 
   // 3. EXECUTION PURPOSE: Broker price strictly required
   if (purpose === 'EXECUTION') {
+    // Fail closed if remote MT5 in Phase 2B (telemetry only)
+    if (context.isRemoteMt5) {
+      return {
+        price: 0,
+        canonical: brokerCanonical,
+        effectivePrice: 0,
+        purpose,
+        isExecutable: false,
+        executable: false,
+        status: 'LOCKED',
+        reason: 'Phase 2B is TELEMETRY ONLY. Remote execution is disabled.',
+        sourceUsed: 'NONE',
+        direction: dir,
+        provenance: brokerCanonical ? brokerCanonical.provenance : 'MT5_REMOTE_BROKER',
+        priceClass: 'UNAVAILABLE',
+        providerType: 'MT5_REMOTE_BROKER',
+        freshness: brokerCanonical ? brokerCanonical.freshness : 'UNAVAILABLE'
+      };
+    }
+
     if (isProd) {
       return {
         price: 0,
@@ -521,7 +547,7 @@ export function resolvePriceForPurpose(
       };
     }
 
-    if (brokerCanonical && brokerCanonical.executable && !isProd) {
+    if (brokerCanonical && (context.isRemoteMt5 ? (brokerCanonical.freshness !== 'UNAVAILABLE') : (brokerCanonical.executable && !isProd))) {
       return {
         price: brokerCanonical.mid,
         canonical: brokerCanonical,
@@ -530,11 +556,13 @@ export function resolvePriceForPurpose(
         isExecutable: false,
         executable: false,
         status: 'RESOLVED',
-        sourceUsed: `${brokerCanonical.broker || 'MT5'} (BROKER LIVE MID)`,
+        sourceUsed: context.isRemoteMt5
+          ? `${brokerCanonical.broker || 'MT5'} (REMOTE BROKER TELEMETRY MID)`
+          : `${brokerCanonical.broker || 'MT5'} (BROKER LIVE MID)`,
         direction: dir,
         provenance: brokerCanonical.provenance,
         priceClass: 'REFERENCE',
-        providerType: 'MT5_BROKER',
+        providerType: brokerCanonical.providerType,
         freshness: brokerCanonical.freshness
       };
     }
@@ -558,7 +586,7 @@ export function resolvePriceForPurpose(
   }
 
   // 7. DISPLAY_REFERENCE (Default UI Overview)
-  if (brokerCanonical && brokerCanonical.executable && !isProd) {
+  if (brokerCanonical && (context.isRemoteMt5 ? (brokerCanonical.freshness !== 'UNAVAILABLE') : (brokerCanonical.executable && !isProd))) {
     return {
       price: brokerCanonical.mid,
       canonical: brokerCanonical,
@@ -567,11 +595,13 @@ export function resolvePriceForPurpose(
       isExecutable: false,
       executable: false,
       status: 'RESOLVED',
-      sourceUsed: `${brokerCanonical.broker || 'MT5'} BROKER LIVE`,
+      sourceUsed: context.isRemoteMt5
+        ? `${brokerCanonical.broker || 'MT5'} REMOTE BROKER TELEMETRY`
+        : `${brokerCanonical.broker || 'MT5'} BROKER LIVE`,
       direction: dir,
       provenance: brokerCanonical.provenance,
       priceClass: 'REFERENCE',
-      providerType: 'MT5_BROKER',
+      providerType: brokerCanonical.providerType,
       freshness: brokerCanonical.freshness
     };
   }

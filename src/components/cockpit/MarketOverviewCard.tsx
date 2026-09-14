@@ -17,13 +17,16 @@ export const MarketOverviewCard: React.FC = () => {
   const isForex = activeAsset.category === 'FOREX';
 
   // Retrieve active broker quote
+  const isRemoteRelay = Boolean(telemetry.isRemote || (telemetry as any).transport?.includes('RELAY'));
   const brokerQuote = activeTelemetry?.quote || telemetry.allQuotes[activeAsset.symbol] || telemetry.allQuotes[activeAsset.symbol.toUpperCase()];
   const brokerCanonical = (isMt5Connected && brokerQuote && brokerQuote.bid > 0)
     ? buildCanonicalFromBrokerQuote(
         activeAsset.symbol,
         brokerQuote,
         telemetry.account?.broker || telemetry.terminal?.brokerName || 'Exness Technologies Ltd',
-        telemetry.terminal?.brokerServer
+        telemetry.terminal?.brokerServer,
+        Date.now(),
+        isRemoteRelay
       )
     : null;
 
@@ -32,6 +35,7 @@ export const MarketOverviewCard: React.FC = () => {
     : null;
 
   const isBrokerLive = Boolean(brokerCanonical && brokerCanonical.executable);
+  const isBrokerConnected = Boolean(brokerCanonical && (isBrokerLive || isRemoteRelay));
 
   const priceDisplay = isForex
     ? `$${activeAsset.price.toFixed(4)}`
@@ -64,13 +68,13 @@ export const MarketOverviewCard: React.FC = () => {
             <div className="flex items-center space-x-1.5">
               <span className={`w-2.5 h-2.5 rounded-full ${isPos ? 'bg-emerald-400' : 'bg-rose-400'} inline-block`} />
               <span className="text-sm font-black text-white tracking-wide">{activeAsset.symbol}</span>
-              <ExecutabilityBadge executable={assetProfile.tradeExecutable} size="xs" />
+              <ExecutabilityBadge executable={isRemoteRelay ? false : assetProfile.tradeExecutable} size="xs" />
             </div>
             <p className="text-[9.5px] text-gray-400">{activeAsset.name}</p>
           </div>
 
           <div className="text-right text-[9px] text-gray-300 space-y-0.5">
-            <div>Spread: <span className="text-cyan-300 font-bold">{isBrokerLive && brokerCanonical && brokerCanonical.ask != null && brokerCanonical.bid != null ? `${brokerCanonical.spread} pts ($${(brokerCanonical.ask - brokerCanonical.bid).toFixed(brokerCanonical.digits)} USD)` : activeAsset.spread}</span></div>
+            <div>Spread: <span className="text-cyan-300 font-bold">{isBrokerConnected && brokerCanonical && brokerCanonical.ask != null && brokerCanonical.bid != null ? `${brokerCanonical.spread} pts ($${(brokerCanonical.ask - brokerCanonical.bid).toFixed(brokerCanonical.digits)} USD)` : activeAsset.spread}</span></div>
             <div>Day High: <span className="text-white font-bold">{isForex ? activeAsset.high24h.toFixed(4) : activeAsset.high24h.toLocaleString()}</span></div>
             <div>Day Low: <span className="text-white font-bold">{isForex ? activeAsset.low24h.toFixed(4) : activeAsset.low24h.toLocaleString()}</span></div>
             <div>Status: <span className={assetProfile.sessionState?.isOpen ? 'text-emerald-300 font-bold' : 'text-rose-300 font-bold'}>{assetProfile.sessionState?.statusLabel || assetProfile.session}</span></div>
@@ -78,19 +82,24 @@ export const MarketOverviewCard: React.FC = () => {
         </div>
 
         {/* Pricing Provenance Block */}
-        {isBrokerLive && brokerCanonical ? (
-          <div className="pt-1 space-y-1 bg-emerald-950/20 p-2 rounded-xl border border-emerald-500/30">
+        {isBrokerConnected && brokerCanonical ? (
+          <div className={`pt-1 space-y-1 ${isRemoteRelay ? 'bg-cyan-950/20 border border-cyan-500/30' : 'bg-emerald-950/20 border border-emerald-500/30'} p-2 rounded-xl`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[9.5px] font-black text-emerald-300 tracking-wider">
-                  MT5 BROKER LIVE
+                <span className={`w-2 h-2 rounded-full ${isRemoteRelay ? 'bg-cyan-400' : 'bg-emerald-400'} animate-pulse`} />
+                <span className={`text-[9.5px] font-black ${isRemoteRelay ? 'text-cyan-300' : 'text-emerald-300'} tracking-wider`}>
+                  {isRemoteRelay ? 'REMOTE MT5 TELEMETRY' : 'MT5 BROKER LIVE'}
                 </span>
                 <span className="text-[8.5px] text-gray-400 font-normal">
-                  ({brokerCanonical.broker || 'Exness'})
+                  ({brokerCanonical.broker || 'Exness'}{telemetry.terminal?.brokerServer ? ` • ${telemetry.terminal.brokerServer}` : ''})
                 </span>
+                {isRemoteRelay && (
+                  <span className="text-[7.5px] bg-amber-950/60 text-amber-300 border border-amber-500/40 px-1 py-0.2 rounded font-bold">
+                    NOT EXECUTABLE
+                  </span>
+                )}
               </div>
-              <span className="text-[8px] text-emerald-400 font-mono">
+              <span className={`text-[8px] ${isRemoteRelay ? 'text-cyan-400' : 'text-emerald-400'} font-mono`}>
                 Updated {(brokerCanonical.ageMs / 1000).toFixed(1)}s ago
               </span>
             </div>

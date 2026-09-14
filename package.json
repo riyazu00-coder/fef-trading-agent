@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node scripts/test-swarm-consistency.js && node scripts/test-mt5-bridge.js && node scripts/test-hub-animation.js && node scripts/test-market-session.js && node scripts/test-phase34-evidence-integrity.js && node scripts/test-phase35-demo-execution.js && node scripts/test-phase35-1-mode-consistency.js && node scripts/test-phase35-acceptance.js && ./node_modules/.bin/sucrase-node scripts/test-notifications.ts && ./node_modules/.bin/sucrase-node scripts/test-crypto-feed.ts && ./node_modules/.bin/sucrase-node scripts/test-blueprint-geometry.ts && ./node_modules/.bin/sucrase-node scripts/test-broker-agnostic.ts && ./node_modules/.bin/sucrase-node scripts/test-rc2-telemetry-consistency.ts && ./node_modules/.bin/sucrase-node scripts/test-engineering-demo-transport.ts && ./node_modules/.bin/sucrase-node scripts/test-price-authority-consistency.ts"
+    "mt5:relay": "node scripts/fef-remote-relay-service.js",
+    "mt5:remote-connector": "node scripts/fef-local-connector-agent.js",
+    "test": "node scripts/test-swarm-consistency.js && node scripts/test-mt5-bridge.js && node scripts/test-hub-animation.js && node scripts/test-market-session.js && node scripts/test-phase34-evidence-integrity.js && node scripts/test-phase35-demo-execution.js && node scripts/test-phase35-1-mode-consistency.js && node scripts/test-phase35-acceptance.js && ./node_modules/.bin/sucrase-node scripts/test-notifications.ts && ./node_modules/.bin/sucrase-node scripts/test-crypto-feed.ts && ./node_modules/.bin/sucrase-node scripts/test-blueprint-geometry.ts && ./node_modules/.bin/sucrase-node scripts/test-broker-agnostic.ts && ./node_modules/.bin/sucrase-node scripts/test-rc2-telemetry-consistency.ts && ./node_modules/.bin/sucrase-node scripts/test-engineering-demo-transport.ts && ./node_modules/.bin/sucrase-node scripts/test-price-authority-consistency.ts && ./node_modules/.bin/sucrase-node scripts/test-phase2-remote-foundation.ts && ./node_modules/.bin/sucrase-node scripts/test-phase2b-remote-telemetry.ts"
   },
   "dependencies": {
     "next": "13.5.6",

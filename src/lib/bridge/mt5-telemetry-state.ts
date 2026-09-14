@@ -75,6 +75,7 @@ export interface MT5ActiveSymbolTelemetry {
 export interface MT5UnifiedTelemetry {
   localBridgeOnline: boolean;
   mt5Connected: boolean;
+  isRemote?: boolean;
   state: BridgeConnectionState;
   transport: string;
   heartbeatAgeMs: number | null;

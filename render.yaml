@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: fef-secure-remote-relay
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install --production
+    startCommand: node scripts/fef-remote-relay-service.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FEF_REMOTE_DEVICE_ID
+        sync: false
+      - key: FEF_REMOTE_KEY_ID
+        sync: false
+      - key: FEF_REMOTE_DEVICE_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: "https://app.feftradingsolutions.com,http://localhost:3000"
