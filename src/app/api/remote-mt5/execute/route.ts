@@ -1,0 +1,205 @@
+import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
+import {
+  validateTradeProtection,
+} from '@/lib/execution/trade-protection-validator';
+import {
+  generateTicketFingerprint,
+  signCommandPayload,
+} from '@/lib/remote/remote-security-validator';
+import { RemoteExecutionCommand, RemoteExecutionResult } from '@/lib/remote/remote-types';
+
+export const dynamic = 'force-dynamic';
+
+export async function POST(req: NextRequest) {
+  const relayUrl = process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557';
+  const deviceId = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
+  const keyId = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';
+  const deviceSecret = process.env.FEF_REMOTE_DEVICE_SECRET || 'fef_device_secret_secure_v2';
+
+  try {
+    const body = await req.json();
+
+    // 1. Mandatory Human Approval Check
+    if (body.humanApproved !== true) {
+      return NextResponse.json({
+        success: false,
+        status: 'REJECTED',
+        error: {
+          code: 'HUMAN_APPROVAL_REQUIRED',
+          message: 'Remote execution rejected: Explicit human authorization is required.',
+        },
+        timestamp: Date.now(),
+      }, { status: 403 });
+    }
+
+    // 2. Layer 1 DEMO Hard Lock Check
+    if (body.accountMode === 'REAL' || body.tradeMode === 'REAL') {
+      return NextResponse.json({
+        success: false,
+        status: 'REJECTED',
+        error: {
+          code: 'REAL_EXECUTION_LOCKED',
+          message: 'REAL account execution is strictly locked across all layers.',
+        },
+        timestamp: Date.now(),
+      }, { status: 403 });
+    }
+
+    // 3. Central Protection Validation Gate
+    const protectionResult = validateTradeProtection({
+      symbol: body.symbol,
+      direction: body.direction,
+      entry: Number(body.priceBasis || body.entry || 0),
+      sl: Number(body.sl || 0),
+      tp1: Number(body.tp1 || body.tp || 0),
+      tp2: body.tp2 ? Number(body.tp2) : undefined,
+      tp3: body.tp3 ? Number(body.tp3) : undefined,
+    });
+
+    if (!protectionResult.valid) {
+      return NextResponse.json({
+        success: false,
+        status: 'REJECTED',
+        error: {
+          code: protectionResult.state,
+          message: protectionResult.reasons.join(' | '),
+        },
+        timestamp: Date.now(),
+      }, { status: 400 });
+    }
+
+    // 4. Immutable Ticket Fingerprint Validation
+    if (body.approvalHash) {
+      const expectedFingerprint = generateTicketFingerprint({
+        symbol: body.symbol,
+        direction: body.direction,
+        volume: Number(body.volume),
+        priceBasis: Number(body.priceBasis || body.entry || 0),
+        sl: Number(body.sl),
+        tp1: Number(body.tp1 || body.tp),
+        tp2: body.tp2 ? Number(body.tp2) : undefined,
+        tp3: body.tp3 ? Number(body.tp3) : undefined,
+      });
+
+      if (body.approvalHash !== expectedFingerprint) {
+        return NextResponse.json({
+          success: false,
+          status: 'REJECTED',
+          error: {
+            code: 'TICKET_TAMPERED',
+            message: 'Human authorization ticket fingerprint mismatch. Ticket parameters were modified after approval.',
+          },
+          timestamp: Date.now(),
+        }, { status: 400 });
+      }
+    }
+
+    // 5. Build Canonical Remote Command Envelope
+    const now = Date.now();
+    const requestId = `REQ-REMOTE-${now}-${crypto.randomBytes(3).toString('hex')}`;
+    const approvalId = body.approvalId || `APPR-${now}`;
+    const expiresAt = now + 25000; // 25s TTL
+
+    const commandPayload: RemoteExecutionCommand = {
+      requestId,
+      approvalId,
+      approvalHash: body.approvalHash,
+      deviceId,
+      keyId,
+      commandType: 'PLACE_ORDER',
+      createdAt: now,
+      expiresAt,
+      symbol: body.symbol,
+      brokerSymbol: body.brokerSymbol || body.symbol,
+      direction: body.direction,
+      orderType: body.orderType || body.direction,
+      volume: Number(body.volume),
+      sl: Number(body.sl),
+      tp1: Number(body.tp1 || body.tp),
+      tp2: body.tp2 ? Number(body.tp2) : undefined,
+      tp3: body.tp3 ? Number(body.tp3) : undefined,
+      priceBasis: Number(body.priceBasis || body.entry),
+      evidenceTrust: typeof body.evidenceTrust === 'number' ? body.evidenceTrust : 65,
+      riskGuardianState: body.riskGuardianState || 'NORMAL',
+      accountMode: 'DEMO',
+      humanApproved: true,
+      nonce: now,
+      comment: body.comment || 'FEF REMOTE DEMO 2C',
+      magic: body.magic || 8882026,
+    };
+
+    // 6. Sign Command with HMAC-SHA256
+    commandPayload.signature = signCommandPayload(commandPayload as any, deviceSecret);
+
+    // 7. Dispatch to Secure Cloud Relay
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    const relayRes = await fetch(`${relayUrl}/device/${deviceId}/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${deviceSecret}`,
+      },
+      body: JSON.stringify(commandPayload),
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+
+    clearTimeout(timeout);
+
+    const relayData = await relayRes.json();
+
+    if (!relayRes.ok || !relayData.success) {
+      return NextResponse.json({
+        success: false,
+        requestId,
+        status: 'FAILED',
+        error: relayData.error || {
+          code: `RELAY_ERROR_${relayRes.status}`,
+          message: 'Relay rejected command dispatch.',
+        },
+        timestamp: Date.now(),
+      }, { status: relayRes.status === 403 ? 403 : 400 });
+    }
+
+    const result: RemoteExecutionResult = {
+      success: true,
+      requestId,
+      ticket: relayData.ticket,
+      fillPrice: relayData.fillPrice,
+      volume: commandPayload.volume,
+      symbol: commandPayload.symbol,
+      direction: commandPayload.direction,
+      sl: commandPayload.sl,
+      tp: commandPayload.tp1,
+      status: 'EXECUTED',
+      timestamp: Date.now(),
+    };
+
+    return NextResponse.json(result);
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      return NextResponse.json({
+        success: false,
+        status: 'TIMEOUT',
+        error: {
+          code: 'EXECUTION_TIMEOUT',
+          message: 'Timed out waiting for remote MT5 execution confirmation.',
+        },
+        timestamp: Date.now(),
+      }, { status: 504 });
+    }
+
+    return NextResponse.json({
+      success: false,
+      status: 'FAILED',
+      error: {
+        code: 'EXECUTION_DISPATCH_ERROR',
+        message: err.message || 'Failed to dispatch remote execution command.',
+      },
+      timestamp: Date.now(),
+    }, { status: 500 });
+  }
+}

@@ -100,12 +100,23 @@ export interface RemoteExecutionCommand {
   symbol: string;
   brokerSymbol: string;
   direction: 'BUY' | 'SELL';
+  orderType?: 'MARKET_BUY' | 'MARKET_SELL' | 'BUY' | 'SELL';
   volume: number;
-  sl?: number;
-  tp?: number;
-  magic: number;
-  comment: string;
+  sl?: number;                     // Mandatory for PLACE_ORDER under Phase 2B.3 protection policy
+  tp1?: number;                    // Mandatory for PLACE_ORDER under Phase 2B.3 protection policy
+  tp?: number;                     // Backwards compatibility alias for tp1
+  tp2?: number;                    // Optional Take Profit 2
+  tp3?: number;                    // Optional Take Profit 3
+  priceBasis?: number;             // Authoritative broker BID (for SELL) or ASK (for BUY)
+  evidenceTrust?: number;          // Evidence Trust score (must be >= 60%)
+  riskGuardianState?: 'NORMAL' | 'ELEVATED';
+  accountMode?: 'DEMO' | 'REAL';   // Strictly 'DEMO'
+  magic?: number;
+  comment?: string;
   approvalId: string;              // Correlation to 20-point Human Authorization record
+  approvalHash?: string;           // SHA-256 fingerprint of immutable ticket fields
+  keyId?: string;                  // Key identifier for HMAC signature
+  signature?: string;              // HMAC-SHA256 signature
   humanApproved: boolean;          // Mandatory human approval gate
   nonce: number;                   // Monotonic nonce for replay prevention
   testType?: 'ENGINEERING_DEMO_TEST';
@@ -129,4 +140,39 @@ export interface RemoteCommandAck {
     message: string;
   };
   timestamp: number;
+}
+
+export interface RemoteExecutionResult {
+  success: boolean;
+  requestId: string;
+  ticket?: number;
+  fillPrice?: number;
+  volume?: number;
+  symbol?: string;
+  direction?: 'BUY' | 'SELL';
+  sl?: number;
+  tp?: number;
+  status: CommandAckStatus | 'EXECUTED' | 'FAILED' | 'REJECTED';
+  error?: {
+    code: string;
+    message: string;
+  };
+  postFillVerification?: PostFillProtectionVerification;
+  timestamp: number;
+}
+
+/**
+ * Phase 2C Post-Fill Telemetry Protection Verification Contract
+ */
+export interface PostFillProtectionVerification {
+  ticket: number;
+  symbol: string;
+  direction: 'BUY' | 'SELL';
+  volume: number;
+  hasBrokerSl: boolean;
+  hasBrokerTp: boolean;
+  actualSl?: number;
+  actualTp?: number;
+  status: 'PROTECTED' | 'PROTECTION_FAILURE' | 'PENDING_VERIFICATION' | 'UNPROTECTED_EXPOSURE';
+  verifiedAt: number;
 }

@@ -4,6 +4,7 @@ import { mt5BridgeClient } from '@/lib/bridge/mt5-client';
 import { BridgeCommand, RESTRICTED_EXECUTION_COMMANDS } from '@/lib/bridge/mt5-bridge-protocol';
 import { symbolDirectory } from '@/lib/bridge/symbol-mapper';
 import { evaluateMarketSession } from '@/lib/session/market-session-engine';
+import { validateTradeProtection } from '@/lib/execution/trade-protection-validator';
 
 export const dynamic = 'force-dynamic';
 
@@ -246,8 +247,9 @@ export async function POST(req: NextRequest) {
       }
 
       // Demo account & Operating Mode verification from bridge state
+      let bridgeStatus: any = null;
       try {
-        const bridgeStatus = await mt5HttpClient.getStatus();
+        bridgeStatus = await mt5HttpClient.getStatus();
         const effectiveMode = bridgeStatus?.operatingMode || bridgeStatus?.mode || bridgeStatus?.account?.operatingMode;
         if (effectiveMode !== 'DEMO_EXECUTION') {
           return NextResponse.json(
@@ -322,6 +324,54 @@ export async function POST(req: NextRequest) {
           }
         }
       } catch {}
+
+      // Mandatory Trade Protection Revalidation (Phase 2B.3)
+      const isEngineeringDemo = Boolean(
+        params?.testType === 'ENGINEERING_DEMO_TEST' ||
+        params?.comment === 'FEF V1 DEMO ACCEPTANCE' ||
+        String(params?.requestId || '').startsWith('ENG-DEMO-')
+      );
+
+      if (!isEngineeringDemo) {
+        const orderDirection = String(params?.direction || params?.orderType || 'BUY').toUpperCase() as 'BUY' | 'SELL';
+        const quote = bridgeStatus?.quotes ? (bridgeStatus.quotes[targetSym] || bridgeStatus.quotes[params?.brokerSymbol || targetSym]) : null;
+        const entryPriceToValidate = Number(params?.price) || (quote ? (orderDirection === 'BUY' ? quote.ask : quote.bid) : 0);
+        const slToValidate = Number(params?.sl ?? params?.stopLoss ?? 0);
+        const tp1ToValidate = Number(params?.tp1 ?? params?.tp ?? params?.takeProfit ?? 0);
+        const tp2ToValidate = params?.tp2 != null ? Number(params.tp2) : undefined;
+        const tp3ToValidate = params?.tp3 != null ? Number(params.tp3) : undefined;
+
+        const protectionValidation = validateTradeProtection({
+          symbol: targetSym,
+          direction: orderDirection,
+          entry: entryPriceToValidate,
+          sl: slToValidate,
+          tp1: tp1ToValidate,
+          tp2: tp2ToValidate,
+          tp3: tp3ToValidate,
+          brokerQuote: quote,
+          symbolSpec: quote ? {
+            point: quote.point,
+            digits: quote.digits,
+            stopsLevel: quote.stopsLevel,
+            freezeLevel: quote.freezeLevel,
+          } : null,
+        });
+
+        if (!protectionValidation.valid) {
+          return NextResponse.json(
+            {
+              success: false,
+              state: 'REJECTED',
+              error: {
+                code: protectionValidation.state,
+                message: `Mandatory Protection Gate: Order rejected (${protectionValidation.state}). ${protectionValidation.reasons.join(' ')}`
+              }
+            },
+            { status: 400 }
+          );
+        }
+      }
 
       const res = await dispatchCommand('PLACE_ORDER', params, symbol);
       return NextResponse.json(res);

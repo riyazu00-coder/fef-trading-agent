@@ -936,6 +936,7 @@ async function handleHttpRequest(req, res) {
         body.comment === 'FEF V1 DEMO ACCEPTANCE' ||
         String(reqId).startsWith('ENG-DEMO-')
       );
+
       if (!isEngineeringDemo && (sl <= 0 || isNaN(sl))) {
         return sendJson(res, 200, {
           reqId,
@@ -944,7 +945,7 @@ async function handleHttpRequest(req, res) {
           state: 'REJECTED',
           error: {
             code: 'INVALID_SL',
-            message: 'Order rejected: valid non-zero Stop Loss is mandatory under Risk Guardian policy.'
+            message: 'Order rejected: valid positive Stop Loss (SL) is mandatory under institutional protection policy.'
           },
           timestamp: Date.now(),
         });
@@ -1007,6 +1008,117 @@ async function handleHttpRequest(req, res) {
           },
           timestamp: Date.now(),
         });
+      }
+
+      // 8. Mandatory Trade Protection (SL & TP1 required under Phase 2B.3)
+      if (!isEngineeringDemo) {
+        if (sl <= 0 || isNaN(sl)) {
+          return sendJson(res, 200, {
+            reqId,
+            command: 'PLACE_ORDER',
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'MISSING_SL',
+              message: 'Order rejected: valid positive Stop Loss (SL) is mandatory under institutional protection policy.'
+            },
+            timestamp: Date.now(),
+          });
+        }
+        if (tp <= 0 || isNaN(tp)) {
+          return sendJson(res, 200, {
+            reqId,
+            command: 'PLACE_ORDER',
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'MISSING_TP1',
+              message: 'Order rejected: valid positive Take Profit 1 (TP1) is mandatory under institutional protection policy.'
+            },
+            timestamp: Date.now(),
+          });
+        }
+
+        const entryRef = direction === 'BUY' ? rawQuote.ask : rawQuote.bid;
+        const slDist = Math.abs(entryRef - sl);
+        const tpDist = Math.abs(tp - entryRef);
+
+        if (direction === 'BUY') {
+          if (sl >= entryRef) {
+            return sendJson(res, 200, {
+              reqId,
+              command: 'PLACE_ORDER',
+              success: false,
+              state: 'REJECTED',
+              error: {
+                code: 'INVALID_GEOMETRY',
+                message: `Order rejected: BUY Stop Loss (${sl}) must be strictly below Entry (${entryRef}).`
+              },
+              timestamp: Date.now(),
+            });
+          }
+          if (tp <= entryRef) {
+            return sendJson(res, 200, {
+              reqId,
+              command: 'PLACE_ORDER',
+              success: false,
+              state: 'REJECTED',
+              error: {
+                code: 'INVALID_GEOMETRY',
+                message: `Order rejected: BUY Take Profit (${tp}) must be strictly above Entry (${entryRef}).`
+              },
+              timestamp: Date.now(),
+            });
+          }
+        } else {
+          // SELL
+          if (sl <= entryRef) {
+            return sendJson(res, 200, {
+              reqId,
+              command: 'PLACE_ORDER',
+              success: false,
+              state: 'REJECTED',
+              error: {
+                code: 'INVALID_GEOMETRY',
+                message: `Order rejected: SELL Stop Loss (${sl}) must be strictly above Entry (${entryRef}).`
+              },
+              timestamp: Date.now(),
+            });
+          }
+          if (tp >= entryRef) {
+            return sendJson(res, 200, {
+              reqId,
+              command: 'PLACE_ORDER',
+              success: false,
+              state: 'REJECTED',
+              error: {
+                code: 'INVALID_GEOMETRY',
+                message: `Order rejected: SELL Take Profit (${tp}) must be strictly below Entry (${entryRef}).`
+              },
+              timestamp: Date.now(),
+            });
+          }
+        }
+
+        // Stops level validation
+        const point = rawQuote.point || 0.001;
+        const stopsLevel = rawQuote.stopsLevel || 0;
+        const minStopDist = stopsLevel * point;
+        if (stopsLevel > 0 && minStopDist > 0) {
+          if (slDist < minStopDist - 1e-9 || tpDist < minStopDist - 1e-9) {
+            return sendJson(res, 200, {
+              reqId,
+              command: 'PLACE_ORDER',
+              success: false,
+              state: 'REJECTED',
+              error: {
+                code: 'BROKER_STOP_LEVEL_VIOLATION',
+                message: `Order rejected: SL or TP distance is within broker minimum stops level (${stopsLevel} points = ${minStopDist.toFixed(4)} distance).`
+              },
+              timestamp: Date.now(),
+            });
+          }
+        }
       }
 
       // 8. Free margin check

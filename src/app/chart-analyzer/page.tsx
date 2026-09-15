@@ -187,8 +187,9 @@ export default function ChartAnalyzerPage() {
   const validation = validateTradeBlueprint(analysisResult?.setup);
   const isMarketOpen = assetProfile?.tradeExecutable ?? true;
   const isTrustApproved = (assetProfile?.evidenceTrust ?? 100) >= 60;
-  const canSendToExecution = Boolean(analysisResult && validation.isValid && isMarketOpen && isTrustApproved);
-  const canCalculatePosition = Boolean(analysisResult && validation.isValid);
+  const hasActionableDirection = validation.direction === 'BUY' || validation.direction === 'SELL';
+  const canSendToExecution = Boolean(analysisResult && validation.isValid && hasActionableDirection && isMarketOpen && isTrustApproved);
+  const canCalculatePosition = Boolean(analysisResult && validation.isValid && hasActionableDirection);
 
   const handleTransferToExecution = () => {
     if (!canSendToExecution || !analysisResult) return;
@@ -710,6 +711,8 @@ export default function ChartAnalyzerPage() {
                   <p className="text-[10px] text-center text-gray-400">
                     {!validation.isValid
                       ? '⚠️ Execution locked: Blueprint geometry is inconsistent.'
+                      : !hasActionableDirection
+                      ? '🔒 Execution locked: Setup is in ANALYSIS ONLY or WAIT state.'
                       : !isMarketOpen
                       ? '🔒 Execution locked: Market session is currently closed.'
                       : !isTrustApproved

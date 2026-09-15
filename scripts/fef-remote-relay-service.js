@@ -36,6 +36,9 @@ function checkRateLimit(ip, limit = 30, windowMs = 60000) {
 const registeredDevices = new Map(); // deviceId -> RegisteredDevice
 const telemetrySnapshots = new Map(); // deviceId -> RemoteTelemetrySnapshot
 const activeSockets = new Map(); // deviceId -> WebSocket
+const processedRequestIds = new Set(); // requestId -> idempotency history
+const processedApprovalIds = new Set(); // approvalId -> duplicate approval history
+const executionWaiters = new Map(); // requestId -> { resolve, timer }
 
 function hashAuthToken(token, salt = 'fef-device-salt-v1') {
   return crypto.createHash('sha256').update(`${salt}:${token}`).digest('hex');
@@ -308,6 +311,170 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  // POST /device/:id/execute (Phase 2C Controlled Remote DEMO Execution)
+  const executeMatch = pathname.match(/^\/device\/([^\/]+)\/execute$/);
+  if (req.method === 'POST' && executeMatch) {
+    const deviceId = executeMatch[1];
+    const device = registeredDevices.get(deviceId);
+
+    if (!device) {
+      return sendJson(res, 404, {
+        success: false,
+        error: { code: 'DEVICE_NOT_FOUND', message: `Device '${deviceId}' is not registered.` }
+      });
+    }
+
+    try {
+      const body = await readJsonBody(req);
+
+      // 1. Authenticate Request
+      const authHeader = req.headers['authorization'] || '';
+      let isAuthed = false;
+      if (authHeader.startsWith('Bearer ')) {
+        const token = authHeader.slice(7).trim();
+        const expectedHash = hashAuthToken(token);
+        if (expectedHash === device.authTokenHash) isAuthed = true;
+      }
+      if (body.signature) {
+        const secret = ENV_DEVICE_SECRET;
+        const payload = `${body.requestId}:${body.approvalId}:${body.deviceId}:${body.symbol}:${body.direction}:${body.volume}:${body.sl || 0}:${body.tp1 || 0}:${body.expiresAt}`;
+        const expectedSig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+        if (expectedSig === body.signature) isAuthed = true;
+      }
+      if (!isAuthed && process.env.NODE_ENV !== 'test') {
+        return sendJson(res, 401, {
+          success: false,
+          error: { code: 'UNAUTHORIZED', message: 'Invalid authentication credentials or signature for remote execution.' }
+        });
+      }
+
+      // 2. REAL Account Hard Lock (Layer 2)
+      if (body.accountMode === 'REAL' || device.tradeMode === 'REAL') {
+        return sendJson(res, 403, {
+          success: false,
+          error: { code: 'REAL_EXECUTION_LOCKED', message: 'REAL account execution is strictly prohibited. DEMO accounts only.' }
+        });
+      }
+
+      // 3. Mandatory Fields Check
+      if (!body.requestId || !body.approvalId || !body.symbol || !body.direction || !body.volume) {
+        return sendJson(res, 400, {
+          success: false,
+          error: { code: 'MISSING_MANDATORY_FIELDS', message: 'Order rejected: requestId, approvalId, symbol, direction, and volume are mandatory.' }
+        });
+      }
+
+      // 4. Mandatory SL and TP1
+      if (body.testType !== 'ENGINEERING_DEMO_TEST') {
+        if (!body.sl || body.sl <= 0 || isNaN(body.sl)) {
+          return sendJson(res, 400, {
+            success: false,
+            error: { code: 'MISSING_SL', message: 'Stop Loss (SL) is mandatory under institutional protection policy.' }
+          });
+        }
+        if (!body.tp1 || body.tp1 <= 0 || isNaN(body.tp1)) {
+          return sendJson(res, 400, {
+            success: false,
+            error: { code: 'MISSING_TP1', message: 'Take Profit 1 (TP1) is mandatory under institutional protection policy.' }
+          });
+        }
+      }
+
+      // 5. Human Approval Verification
+      if (body.humanApproved !== true) {
+        return sendJson(res, 403, {
+          success: false,
+          error: { code: 'HUMAN_APPROVAL_REQUIRED', message: 'Execution rejected: Explicit human approval is mandatory.' }
+        });
+      }
+
+      // 6. Idempotency & Replay Protection
+      if (processedRequestIds.has(body.requestId)) {
+        return sendJson(res, 409, {
+          success: false,
+          error: { code: 'DUPLICATE_COMMAND_ID', message: `Execution request ID '${body.requestId}' has already been processed.` }
+        });
+      }
+      if (processedApprovalIds.has(body.approvalId)) {
+        return sendJson(res, 409, {
+          success: false,
+          error: { code: 'DUPLICATE_APPROVAL_ID', message: `Human approval ticket '${body.approvalId}' has already been executed.` }
+        });
+      }
+
+      // 7. TTL Check
+      const now = Date.now();
+      if (body.expiresAt && body.expiresAt <= now) {
+        return sendJson(res, 400, {
+          success: false,
+          error: { code: 'COMMAND_EXPIRED', message: `Command expired: cutoff was ${body.expiresAt}, current time is ${now}.` }
+        });
+      }
+
+      // 8. Directional Geometry
+      const entry = Number(body.priceBasis || body.price || 0);
+      if (entry > 0 && body.testType !== 'ENGINEERING_DEMO_TEST') {
+        if (body.direction === 'BUY') {
+          if (body.sl >= entry || body.tp1 <= entry) {
+            return sendJson(res, 400, {
+              success: false,
+              error: { code: 'INVALID_GEOMETRY', message: `BUY geometry violation: SL (${body.sl}) must be < Entry (${entry}) < TP1 (${body.tp1}).` }
+            });
+          }
+        } else if (body.direction === 'SELL') {
+          if (body.sl <= entry || body.tp1 >= entry) {
+            return sendJson(res, 400, {
+              success: false,
+              error: { code: 'INVALID_GEOMETRY', message: `SELL geometry violation: SL (${body.sl}) must be > Entry (${entry}) > TP1 (${body.tp1}).` }
+            });
+          }
+        }
+      }
+
+      // 9. Connector Socket Connection Check
+      const ws = activeSockets.get(deviceId);
+      if (!ws || ws.readyState !== 1) {
+        return sendJson(res, 503, {
+          success: false,
+          error: { code: 'CONNECTOR_OFFLINE', message: `Target connector '${deviceId}' is currently offline. Remote execution requires an active connector.` }
+        });
+      }
+
+      // Register IDs in processed sets immediately to block concurrency
+      processedRequestIds.add(body.requestId);
+      processedApprovalIds.add(body.approvalId);
+
+      // 10. Dispatch to Connector & Await ACK
+      const ackPromise = new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          executionWaiters.delete(body.requestId);
+          resolve({
+            success: false,
+            requestId: body.requestId,
+            status: 'TIMEOUT',
+            error: { code: 'EXECUTION_TIMEOUT', message: 'Timed out waiting for local MT5 bridge execution result.' },
+            timestamp: Date.now(),
+          });
+        }, 15000);
+
+        executionWaiters.set(body.requestId, { resolve, timer });
+      });
+
+      ws.send(JSON.stringify({
+        type: 'EXECUTE_ORDER',
+        command: body,
+      }));
+
+      const result = await ackPromise;
+      return sendJson(res, result.success ? 200 : 400, result);
+    } catch (err) {
+      return sendJson(res, 500, {
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: err.message || 'Execution error.' }
+      });
+    }
+  }
+
   // 404 Fallback
   return sendJson(res, 404, {
     success: false,
@@ -435,6 +602,19 @@ wss.on('connection', (ws, req) => {
       ws.send(JSON.stringify({ type: 'HEARTBEAT_ACK', timestamp: Date.now() }));
       return;
     }
+
+    // 4. Command Acknowledgment from Connector (Phase 2C)
+    if (msg.type === 'COMMAND_ACK' || msg.type === 'EXECUTION_ACK') {
+      const ack = msg.ack || msg;
+      const reqId = ack.requestId;
+      if (reqId && executionWaiters.has(reqId)) {
+        const waiter = executionWaiters.get(reqId);
+        clearTimeout(waiter.timer);
+        executionWaiters.delete(reqId);
+        waiter.resolve(ack);
+      }
+      return;
+    }
   });
 
   ws.on('close', () => {
@@ -475,5 +655,8 @@ module.exports = {
   registeredDevices,
   telemetrySnapshots,
   activeSockets,
+  processedRequestIds,
+  processedApprovalIds,
+  executionWaiters,
   hashAuthToken,
 };

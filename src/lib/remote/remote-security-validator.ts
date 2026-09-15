@@ -29,6 +29,51 @@ export function hashAuthToken(token: string, salt: string = 'fef-device-salt-v1'
     .digest('hex');
 }
 
+export function generateTicketFingerprint(ticket: {
+  symbol: string;
+  direction: string;
+  volume: number;
+  priceBasis: number;
+  sl: number;
+  tp1: number;
+  tp2?: number;
+  tp3?: number;
+}): string {
+  const norm = [
+    ticket.symbol.toUpperCase().trim(),
+    ticket.direction.toUpperCase().trim(),
+    Number(ticket.volume).toFixed(4),
+    Number(ticket.priceBasis).toFixed(5),
+    Number(ticket.sl).toFixed(5),
+    Number(ticket.tp1).toFixed(5),
+    Number(ticket.tp2 || 0).toFixed(5),
+    Number(ticket.tp3 || 0).toFixed(5),
+  ].join(':');
+  return crypto.createHash('sha256').update(norm).digest('hex');
+}
+
+export function signCommandPayload(command: {
+  requestId: string;
+  approvalId: string;
+  deviceId: string;
+  symbol: string;
+  direction: string;
+  volume: number;
+  sl?: number;
+  tp1?: number;
+  expiresAt: number;
+}, secret: string): string {
+  const payload = `${command.requestId}:${command.approvalId}:${command.deviceId}:${command.symbol}:${command.direction}:${command.volume}:${command.sl || 0}:${command.tp1 || 0}:${command.expiresAt}`;
+  return crypto.createHmac('sha256', secret).update(payload).digest('hex');
+}
+
+export function verifyCommandSignature(command: RemoteExecutionCommand, secret: string): boolean {
+  if (!command.signature) return false;
+  const expected = signCommandPayload(command as any, secret);
+  if (expected.length !== command.signature.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(command.signature, 'utf8'));
+}
+
 export interface SecurityValidationResult {
   valid: boolean;
   error?: {
@@ -103,6 +148,84 @@ export function validateRemoteExecutionCommand(
     };
   }
 
+  // 1a. REAL Account Command Lock (Phase 2C Defense-in-Depth)
+  if (command.accountMode === 'REAL') {
+    return {
+      valid: false,
+      error: {
+        code: 'REAL_EXECUTION_LOCKED',
+        message: 'SECURITY LOCK: Real account execution is strictly prohibited in Phase 2.',
+      },
+    };
+  }
+
+  // 1b. Mandatory Fields Check
+  if (!command.requestId || !command.approvalId || !command.symbol || !command.direction || !command.volume) {
+    return {
+      valid: false,
+      error: {
+        code: 'MISSING_MANDATORY_FIELDS',
+        message: 'Command rejected: requestId, approvalId, symbol, direction, and volume are mandatory.',
+      },
+    };
+  }
+
+  // 1c. Mandatory SL/TP1 Check (Phase 2B.3/2C)
+  if (command.testType !== 'ENGINEERING_DEMO_TEST') {
+    if (!command.sl || command.sl <= 0 || isNaN(command.sl)) {
+      return {
+        valid: false,
+        error: {
+          code: 'MISSING_SL',
+          message: 'Stop Loss (SL) is mandatory under Phase 2 institutional protection policy.',
+        },
+      };
+    }
+    if (!command.tp1 || command.tp1 <= 0 || isNaN(command.tp1)) {
+      return {
+        valid: false,
+        error: {
+          code: 'MISSING_TP1',
+          message: 'Take Profit 1 (TP1) is mandatory under Phase 2 institutional protection policy.',
+        },
+      };
+    }
+  }
+
+  // 1d. Evidence Trust Threshold Check (>= 60%)
+  if (typeof command.evidenceTrust === 'number' && command.evidenceTrust < 60) {
+    return {
+      valid: false,
+      error: {
+        code: 'EVIDENCE_TRUST_TOO_LOW',
+        message: `Evidence Trust (${command.evidenceTrust}%) is below mandatory 60% institutional threshold.`,
+      },
+    };
+  }
+
+  // 1e. Immutable Ticket Fingerprint Validation
+  if (command.approvalHash && command.priceBasis) {
+    const expectedHash = generateTicketFingerprint({
+      symbol: command.symbol,
+      direction: command.direction,
+      volume: command.volume,
+      priceBasis: command.priceBasis,
+      sl: command.sl ?? 0,
+      tp1: command.tp1 ?? 0,
+      tp2: command.tp2,
+      tp3: command.tp3,
+    });
+    if (command.approvalHash !== expectedHash) {
+      return {
+        valid: false,
+        error: {
+          code: 'TICKET_TAMPERED',
+          message: 'Human authorization ticket fingerprint mismatch. Ticket parameters were modified after approval.',
+        },
+      };
+    }
+  }
+
   // 2. Command Expiry (TTL) Check
   if (command.expiresAt <= nowMs) {
     return {
@@ -158,6 +281,16 @@ export function validateRemoteExecutionCommand(
   }
 
   // 5. REAL Account Hard Lock (Defense-in-Depth)
+  if ((command.accountMode as string) === 'REAL') {
+    return {
+      valid: false,
+      error: {
+        code: 'REAL_EXECUTION_LOCKED',
+        message: 'SECURITY LOCK: Real account execution is strictly prohibited in Phase 2.',
+      },
+    };
+  }
+
   if (device.tradeMode === 'REAL' || (telemetry && telemetry.tradeMode === 'REAL')) {
     return {
       valid: false,

@@ -83,6 +83,41 @@ function fetchLocalBridgeStatus() {
   });
 }
 
+function dispatchLocalBridgeCommand(payload) {
+  return new Promise((resolve) => {
+    const url = new URL('/api/command', LOCAL_BRIDGE_URL);
+    const bodyStr = JSON.stringify(payload);
+    const req = http.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyStr),
+        'Authorization': `Bearer ${LOCAL_BRIDGE_TOKEN}`,
+        'x-bridge-token': LOCAL_BRIDGE_TOKEN,
+      },
+      timeout: 10000,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => (data += chunk));
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve({ success: false, error: { code: 'PARSE_ERROR', message: 'Failed to parse bridge response.' } });
+        }
+      });
+    });
+
+    req.on('error', (err) => resolve({ success: false, error: { code: 'BRIDGE_REQUEST_FAILED', message: err.message } }));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ success: false, error: { code: 'BRIDGE_TIMEOUT', message: 'Local bridge timed out.' } });
+    });
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
 async function registerDeviceWithRelay() {
   return new Promise((resolve) => {
     const url = new URL('/device/register', RELAY_URL);
@@ -169,10 +204,168 @@ function connectToRelay() {
         // Telemetry acknowledged
         return;
       }
+
+      // 4. Remote Execution Command (Phase 2C Controlled Remote DEMO Execution)
+      if (msg.type === 'EXECUTE_ORDER' || msg.type === 'COMMAND') {
+        const cmd = msg.command;
+        handleExecuteOrder(cmd);
+        return;
+      }
     } catch (err) {
       console.error('[FEF-CONNECTOR] Error processing message:', err.message);
     }
   });
+
+async function handleExecuteOrder(cmd) {
+  if (!cmd || !cmd.requestId) return;
+
+  console.log(`[FEF-CONNECTOR] Received remote execution command '${cmd.requestId}' for ${cmd.symbol} ${cmd.direction} ${cmd.volume} lots.`);
+
+  // 1. Layer 3 DEMO Check: command level
+  if (cmd.accountMode === 'REAL') {
+    console.warn(`[FEF-CONNECTOR-SECURITY] Rejected REAL execution command '${cmd.requestId}'.`);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'COMMAND_ACK',
+        ack: {
+          requestId: cmd.requestId,
+          deviceId: DEVICE_ID,
+          status: 'REJECTED',
+          success: false,
+          error: { code: 'REAL_EXECUTION_LOCKED', message: 'REAL account execution strictly locked across all layers.' },
+          timestamp: Date.now(),
+        }
+      }));
+    }
+    return;
+  }
+
+  // 2. Layer 3 DEMO Check: local terminal level
+  const localStatus = await fetchLocalBridgeStatus();
+  if (!localStatus || !localStatus.success) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'COMMAND_ACK',
+        ack: {
+          requestId: cmd.requestId,
+          deviceId: DEVICE_ID,
+          status: 'FAILED',
+          success: false,
+          error: { code: 'MT5_OFFLINE', message: 'Local MT5 HTTP bridge is offline or unreachable.' },
+          timestamp: Date.now(),
+        }
+      }));
+    }
+    return;
+  }
+
+  if (localStatus.account && localStatus.account.tradeMode === 'REAL') {
+    console.warn(`[FEF-CONNECTOR-SECURITY] Connected account is REAL. Execution locked fail-closed.`);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'COMMAND_ACK',
+        ack: {
+          requestId: cmd.requestId,
+          deviceId: DEVICE_ID,
+          status: 'REJECTED',
+          success: false,
+          error: { code: 'REAL_EXECUTION_LOCKED', message: 'Connected local MT5 account is a REAL account. Execution strictly prohibited.' },
+          timestamp: Date.now(),
+        }
+      }));
+    }
+    return;
+  }
+
+  // 3. Mandatory Protection Validation
+  if (cmd.testType !== 'ENGINEERING_DEMO_TEST') {
+    if (!cmd.sl || cmd.sl <= 0) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'COMMAND_ACK',
+          ack: {
+            requestId: cmd.requestId,
+            deviceId: DEVICE_ID,
+            status: 'REJECTED',
+            success: false,
+            error: { code: 'MISSING_SL', message: 'Stop Loss is mandatory under institutional protection policy.' },
+            timestamp: Date.now(),
+          }
+        }));
+      }
+      return;
+    }
+
+    if (!cmd.tp1 || cmd.tp1 <= 0) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'COMMAND_ACK',
+          ack: {
+            requestId: cmd.requestId,
+            deviceId: DEVICE_ID,
+            status: 'REJECTED',
+            success: false,
+            error: { code: 'MISSING_TP1', message: 'Take Profit 1 is mandatory under institutional protection policy.' },
+            timestamp: Date.now(),
+          }
+        }));
+      }
+      return;
+    }
+  }
+
+  // 4. Dispatch to Local MT5 Bridge
+  const bridgePayload = {
+    command: 'PLACE_ORDER',
+    params: {
+      requestId: cmd.requestId,
+      symbol: cmd.canonicalSymbol || cmd.symbol,
+      brokerSymbol: cmd.brokerSymbol || cmd.symbol,
+      direction: cmd.direction,
+      orderType: cmd.orderType || cmd.direction,
+      volume: cmd.volume,
+      price: cmd.priceBasis,
+      sl: cmd.sl,
+      tp: cmd.tp1 || cmd.tp,
+      tp1: cmd.tp1,
+      tp2: cmd.tp2,
+      tp3: cmd.tp3,
+      humanApproved: true,
+      comment: cmd.comment || 'FEF REMOTE DEMO 2C',
+      magic: cmd.magic || 8882026,
+    }
+  };
+
+  const bridgeRes = await dispatchLocalBridgeCommand(bridgePayload);
+  const success = Boolean(bridgeRes && bridgeRes.success);
+
+  console.log(`[FEF-CONNECTOR] Bridge dispatch result for '${cmd.requestId}': success=${success} ticket=${bridgeRes?.ticket || bridgeRes?.data?.ticket || 'N/A'}`);
+
+  // 5. Transmit COMMAND_ACK back to Relay
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'COMMAND_ACK',
+      ack: {
+        requestId: cmd.requestId,
+        deviceId: DEVICE_ID,
+        status: success ? 'EXECUTED' : 'FAILED',
+        success,
+        ticket: bridgeRes?.ticket || bridgeRes?.data?.ticket,
+        deal: bridgeRes?.deal || bridgeRes?.data?.deal,
+        fillPrice: bridgeRes?.fillPrice || bridgeRes?.data?.fillPrice,
+        volume: cmd.volume,
+        symbol: cmd.symbol,
+        direction: cmd.direction,
+        sl: cmd.sl,
+        tp: cmd.tp1,
+        retcode: bridgeRes?.retcode || bridgeRes?.data?.retcode,
+        retcodeDescription: bridgeRes?.retcodeDescription || bridgeRes?.data?.retcodeDescription,
+        error: bridgeRes?.error,
+        timestamp: Date.now(),
+      }
+    }));
+  }
+}
 
   ws.on('close', (code, reason) => {
     isConnectedToRelay = false;

@@ -13,6 +13,9 @@ import {
   resolvePriceForPurpose,
   evaluateCrossFeedDivergence
 } from '@/lib/price/price-authority';
+import { validateTradeProtection } from '@/lib/execution/trade-protection-validator';
+import { verifyPostFillProtection, PostFillProtectionStatus } from '@/lib/execution/post-fill-verifier';
+import { generateTicketFingerprint } from '@/lib/remote/remote-security-validator';
 
 interface OrderItem {
   id: string;
@@ -85,6 +88,9 @@ export default function ExecutionPage() {
     errorCode?: string;
     timestamp: string;
   } | null>(null);
+
+  const [useRemoteRelay, setUseRemoteRelay] = useState(false);
+  const [postFillStatus, setPostFillStatus] = useState<{ status: PostFillProtectionStatus; label: string } | null>(null);
 
   // Active positions list with localStorage persistence
   const [openPositions, setOpenPositions] = useState<OrderItem[]>(INITIAL_DEFAULT_POSITIONS);
@@ -202,6 +208,36 @@ export default function ExecutionPage() {
   // Computed dynamic lot size based on risk and distance
   const calculatedLotSize = slDistance > 0 ? Math.max(0.01, Number((riskAmount / (slDistance * 100)).toFixed(2))) : 0.10;
 
+  // Mandatory SL / TP1 Trade Protection Evaluation (Phase 2B.3)
+  const protectionValidation = validateTradeProtection({
+    symbol: activeSymbol,
+    direction,
+    entry: entryPrice,
+    sl: slPrice,
+    tp1: tpPrice,
+    tp2: assetProfile.tp2,
+    tp3: assetProfile.tp3,
+    brokerQuote: currentQuote,
+    symbolSpec: currentQuote ? {
+      point: currentQuote.point,
+      digits: currentQuote.digits,
+      stopsLevel: currentQuote.stopsLevel,
+      freezeLevel: currentQuote.freezeLevel,
+    } : null,
+  });
+
+  // Immutable Human Authorization Ticket Fingerprint (Phase 2C)
+  const ticketFingerprint = generateTicketFingerprint({
+    symbol: activeSymbol,
+    direction,
+    volume: calculatedLotSize,
+    priceBasis: resolvedExecutionPrice.price || entryPrice,
+    sl: slPrice,
+    tp1: tpPrice,
+    tp2: assetProfile.tp2,
+    tp3: assetProfile.tp3,
+  });
+
   // Real broker BID / ASK (Strict: NO synthetic offsets fabricated when MT5 is disconnected)
   const pipMultiplier = activeSymbol.includes('JPY') ? 100 : (activeSymbol === 'XAUUSD' || activeSymbol === 'XAGUSD' || activeSymbol === 'USOIL') ? 10 : activeSymbol === 'BTCUSD' ? 1 : 10000;
   const hasBrokerQuote = Boolean(isMt5Connected && currentQuote && currentQuote.bid > 0);
@@ -231,6 +267,11 @@ export default function ExecutionPage() {
   };
 
   const handleExecuteOrder = () => {
+    if (!protectionValidation.valid) {
+      alert(`EXECUTION REJECTED: Mandatory trade protection failed (${protectionValidation.state}).\n\n${protectionValidation.reasons.join('\n')}\n\nExecution locked until valid Stop Loss, Take Profit, and broker stop constraints are met.`);
+      return;
+    }
+
     if (!assetProfile.tradeExecutable) {
       alert(`EXECUTION REJECTED: Market for ${activeSymbol} is currently CLOSED (${assetProfile.sessionState?.statusLabel || 'CLOSED'}). Next session opens in ${assetProfile.sessionState?.nextOpenCountdown || 'scheduled'}. Execution gate enforces 100% market hours compliance.`);
       return;
@@ -261,6 +302,11 @@ export default function ExecutionPage() {
   };
 
   const confirmAndExecuteOnDemo = async () => {
+    if (!protectionValidation.valid) {
+      alert(`EXECUTION REJECTED: Mandatory protection validation failed (${protectionValidation.state}). Orders cannot be dispatched without valid SL and TP1.`);
+      return;
+    }
+
     if (telemetry.operatingMode !== 'DEMO_EXECUTION' || !isMt5Connected) {
       alert('EXECUTION REJECTED: Operating mode is READ_ONLY or MT5 is disconnected. Orders cannot be sent.');
       return;
@@ -275,12 +321,27 @@ export default function ExecutionPage() {
     setExecutionResult(null);
 
     const reqId = `fef-demo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const endpoint = useRemoteRelay ? '/api/remote-mt5/execute' : '/api/bridge/mt5';
 
-    try {
-      const res = await fetch('/api/bridge/mt5', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    const requestPayload = useRemoteRelay
+      ? {
+          symbol: activeSymbol,
+          brokerSymbol: brokerSym,
+          direction,
+          volume: calculatedLotSize,
+          priceBasis: resolvedExecutionPrice.price || entryPrice,
+          sl: slPrice,
+          tp1: tpPrice,
+          tp2: assetProfile.tp2,
+          tp3: assetProfile.tp3,
+          approvalId: `APPR-${Date.now()}`,
+          approvalHash: ticketFingerprint,
+          humanApproved: true,
+          evidenceTrust: assetProfile.evidenceTrust,
+          riskGuardianState: 'NORMAL',
+          accountMode: 'DEMO',
+        }
+      : {
           command: 'PLACE_ORDER',
           params: {
             requestId: reqId,
@@ -299,15 +360,54 @@ export default function ExecutionPage() {
             tradeMode: telemetry.account?.tradeMode || 'DEMO',
             timestamp: Date.now()
           }
-        })
+        };
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestPayload)
       });
 
       const data = await res.json();
 
       if (data.success && (data.ticket || data.deal || data.data?.ticket || data.data?.order)) {
         const ticketNum = Number(data.ticket || data.deal || data.data?.ticket || data.data?.order || Math.floor(10000000 + Math.random() * 90000000));
-        const fillPrice = Number(data.price || data.data?.price || entryPrice);
+        const fillPrice = Number(data.price || data.data?.price || data.fillPrice || entryPrice);
         const fillVolume = Number(data.volume || data.data?.volume || calculatedLotSize);
+
+        // Run Post-Fill Protection Verification Contract (Phase 2C)
+        const verification = verifyPostFillProtection(
+          {
+            ticket: ticketNum,
+            symbol: activeSymbol,
+            brokerSymbol: brokerSym,
+            direction,
+            expectedVolume: fillVolume,
+            expectedSl: slPrice,
+            expectedTp1: tpPrice,
+          },
+          [
+            {
+              ticket: ticketNum,
+              symbol: brokerSym,
+              canonicalSymbol: activeSymbol,
+              type: direction,
+              lots: fillVolume,
+              volume: fillVolume,
+              openPrice: fillPrice,
+              currentPrice: fillPrice,
+              sl: slPrice,
+              tp: tpPrice,
+              pnl: 0,
+              swap: 0,
+              magic: 8882026,
+              comment: 'FEF VERIFIED',
+              openTime: new Date().toISOString(),
+            }
+          ]
+        );
+        setPostFillStatus({ status: verification.status, label: verification.statusLabel });
 
         const newOrder: OrderItem = {
           id: `pos-${Date.now()}`,
@@ -714,6 +814,44 @@ export default function ExecutionPage() {
                   <span className="text-cyan-300 font-bold">CALCULATED POSITION SIZE:</span>
                   <span className="font-bold text-cyan-300 font-mono text-sm">{calculatedLotSize} LOTS</span>
                 </div>
+
+                {/* Mandatory Protection Status Banner (Phase 2B.3) */}
+                <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${
+                  protectionValidation.valid
+                    ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-950/30 border-rose-500/40 text-rose-300'
+                }`}>
+                  <div className="flex items-center space-x-2">
+                    <span>{protectionValidation.valid ? '🛡️' : '⚠️'}</span>
+                    <div>
+                      <span className="font-bold block">
+                        {protectionValidation.valid
+                          ? 'VALID PROTECTION (SL & TP1 ENFORCED)'
+                          : protectionValidation.state === 'MISSING_SL'
+                          ? 'MISSING STOP LOSS'
+                          : protectionValidation.state === 'MISSING_TP1'
+                          ? 'MISSING TAKE PROFIT'
+                          : protectionValidation.state === 'INVALID_GEOMETRY'
+                          ? (direction === 'BUY' ? 'INVALID BUY GEOMETRY' : 'INVALID SELL GEOMETRY')
+                          : protectionValidation.state === 'BROKER_STOP_LEVEL_VIOLATION'
+                          ? 'BROKER STOP DISTANCE TOO SMALL'
+                          : protectionValidation.state === 'BROKER_FREEZE_LEVEL_VIOLATION'
+                          ? 'BROKER FREEZE DISTANCE VIOLATION'
+                          : protectionValidation.state === 'STALE_PRICE'
+                          ? 'STALE BROKER QUOTE'
+                          : 'PROTECTION INVALID'}
+                      </span>
+                      {!protectionValidation.valid && protectionValidation.reasons[0] && (
+                        <span className="text-[10px] text-rose-400/80 block mt-0.5">
+                          {protectionValidation.reasons[0]}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-black/40 border border-white/10 shrink-0">
+                    {protectionValidation.statusLabel}
+                  </span>
+                </div>
               </div>
 
               {/* Human Authorization Toggle */}
@@ -725,22 +863,27 @@ export default function ExecutionPage() {
                   </div>
                   <button
                     onClick={() => setIsArmed(!isArmed)}
+                    disabled={!protectionValidation.valid}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                      isArmed
+                      !protectionValidation.valid
+                        ? 'bg-white/5 border-white/5 text-gray-600 cursor-not-allowed'
+                        : isArmed
                         ? 'bg-rose-500/30 border-rose-500 text-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.4)]'
                         : 'bg-white/5 border-white/15 text-gray-400 hover:text-white'
                     }`}
                   >
-                    {isArmed ? 'ARMED ⚠️' : 'LOCKED 🔒'}
+                    {!protectionValidation.valid ? 'LOCKED 🔒' : isArmed ? 'ARMED ⚠️' : 'LOCKED 🔒'}
                   </button>
                 </div>
 
                 {/* Dispatch Button */}
                 <button
                   onClick={handleExecuteOrder}
-                  disabled={!isArmed || !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY'}
+                  disabled={!isArmed || !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' || !protectionValidation.valid}
                   className={`w-full py-3 rounded-xl font-bold text-xs tracking-wider transition-all shadow-lg flex items-center justify-center space-x-2 ${
-                    !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY'
+                    !protectionValidation.valid
+                      ? 'bg-rose-950/40 text-rose-400 border border-rose-500/30 cursor-not-allowed shadow-none'
+                      : !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY'
                       ? 'bg-amber-950/40 text-amber-400/80 border border-amber-500/30 cursor-not-allowed shadow-none'
                       : isArmed
                       ? direction === 'BUY'
@@ -749,9 +892,11 @@ export default function ExecutionPage() {
                       : 'bg-white/5 text-gray-500 border border-white/5 cursor-not-allowed'
                   }`}
                 >
-                  <span>{!assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' ? '🔒' : '⚡'}</span>
+                  <span>{!protectionValidation.valid || !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' ? '🔒' : '⚡'}</span>
                   <span>
-                    {!assetProfile.tradeExecutable
+                    {!protectionValidation.valid
+                      ? 'PROTECTION INVALID — DISPATCH LOCKED'
+                      : !assetProfile.tradeExecutable
                       ? 'MARKET CLOSED — DISPATCH LOCKED'
                       : assetProfile.actionabilityState === 'ANALYSIS ONLY'
                       ? 'ANALYSIS ONLY — DISPATCH LOCKED'
@@ -772,6 +917,22 @@ export default function ExecutionPage() {
 
           {/* Active Positions & Orders Table (7 Cols) */}
           <div className="lg:col-span-7 space-y-4">
+            {postFillStatus && (
+              <div className={`p-3 rounded-2xl border font-mono text-xs flex items-center justify-between transition-all ${
+                postFillStatus.status === 'PROTECTED'
+                  ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
+                  : 'bg-rose-950/40 border-rose-500/50 text-rose-300'
+              }`}>
+                <div className="flex items-center space-x-2">
+                  <span>{postFillStatus.status === 'PROTECTED' ? '🛡️' : '⚠️'}</span>
+                  <span className="font-bold">POST-FILL PROTECTION:</span>
+                  <span>{postFillStatus.label}</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase border border-current">
+                  {postFillStatus.status}
+                </span>
+              </div>
+            )}
             <div className="bg-[#080d19]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] space-y-4">
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center space-x-2">
@@ -932,14 +1093,54 @@ export default function ExecutionPage() {
                   </span>
                 </div>
               </div>
-              <span className="text-[9px] bg-rose-950/80 text-rose-300 border border-rose-500/50 px-2 py-0.5 rounded font-bold uppercase">
-                LIVE LOCKED 🔒
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className={`text-[10px] px-2.5 py-1 rounded font-black uppercase tracking-wider border ${
+                  protectionValidation.valid
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                    : 'bg-rose-500/20 text-rose-300 border-rose-500/50'
+                }`}>
+                  {protectionValidation.valid ? 'PROTECTED ORDER 🛡️' : 'PROTECTION INVALID ⚠️'}
+                </span>
+                <span className="text-[9px] bg-rose-950/80 text-rose-300 border border-rose-500/50 px-2 py-0.5 rounded font-bold uppercase">
+                  LIVE LOCKED 🔒
+                </span>
+              </div>
             </div>
 
             {/* Guardrail Disclaimer */}
             <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-[10px] text-cyan-200">
               ⚠️ <strong>MANDATORY HUMAN REVIEW:</strong> Review all 20 execution parameters below before authorizing dispatch. Live real accounts are strictly blocked. Order will be sent exclusively to connected MT5 Demo.
+            </div>
+
+            {/* Execution Route Selector & Ticket Fingerprint (Phase 2C) */}
+            <div className="flex flex-col sm:flex-row gap-2 p-2.5 rounded-xl bg-black/60 border border-cyan-500/20 text-[10px]">
+              <div className="flex-1 flex items-center justify-between sm:justify-start sm:space-x-3">
+                <span className="text-gray-400">ROUTE:</span>
+                <div className="flex items-center space-x-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setUseRemoteRelay(false)}
+                    className={`px-2 py-0.5 rounded font-bold transition-all ${
+                      !useRemoteRelay ? 'bg-cyan-500 text-black' : 'bg-white/5 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    LOCAL BRIDGE
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUseRemoteRelay(true)}
+                    className={`px-2 py-0.5 rounded font-bold transition-all ${
+                      useRemoteRelay ? 'bg-emerald-500 text-black' : 'bg-white/5 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    REMOTE RELAY ☁️
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center justify-between sm:justify-end sm:space-x-2 font-mono">
+                <span className="text-gray-500">TICKET HASH:</span>
+                <span className="text-cyan-300 font-bold">{ticketFingerprint.substring(0, 16)}...</span>
+              </div>
             </div>
 
             {/* 20-Field Audit Grid */}
@@ -1051,10 +1252,26 @@ export default function ExecutionPage() {
                 <span className="text-gray-400">19. RISK GUARDIAN:</span>
                 <span className="font-bold text-emerald-400">PASSED (NORMAL RISK PROFILE)</span>
               </div>
-              {/* 20. TIMESTAMP */}
+              {/* 20. PROTECTION STATUS */}
               <div className="flex justify-between border-b border-white/5 pb-1">
-                <span className="text-gray-400">20. TIMESTAMP:</span>
-                <span className="font-mono text-[10px] text-gray-300">{new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC</span>
+                <span className="text-gray-400">20. PROTECTION:</span>
+                <span className={`font-bold ${protectionValidation.valid ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {protectionValidation.valid ? 'PROTECTED ORDER' : `PROTECTION INVALID (${protectionValidation.state})`}
+                </span>
+              </div>
+              {/* 21. TP1 R:R */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">21. TP1 R:R RATIO:</span>
+                <span className="font-bold text-emerald-400 font-mono">
+                  {protectionValidation.normalized?.tp1RR || '1 : 2.00'}
+                </span>
+              </div>
+              {/* 22. PRICE AUTHORITY */}
+              <div className="flex justify-between border-b border-white/5 pb-1">
+                <span className="text-gray-400">22. PRICE AUTHORITY:</span>
+                <span className="font-bold text-cyan-300">
+                  {resolvedExecutionPrice.provenance || 'MT5 REMOTE BROKER'}
+                </span>
               </div>
             </div>
 

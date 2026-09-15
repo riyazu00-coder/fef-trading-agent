@@ -193,6 +193,8 @@ export interface MT5QuoteData {
   freshness?: QuoteFreshnessState;
   ageMs?: number;
   freshnessReason?: string;
+  stopsLevel?: number;
+  freezeLevel?: number;
 }
 
 export interface MT5SymbolSpecification {
@@ -218,11 +220,13 @@ export interface MT5PositionItem {
   canonicalSymbol?: string;
   type: 'BUY' | 'SELL';
   lots: number;
+  volume?: number;
   openPrice: number;
   currentPrice: number;
   sl: number;
   tp: number;
   pnl: number;
+  profit?: number;
   swap: number;
   magic: number;
   comment: string;
