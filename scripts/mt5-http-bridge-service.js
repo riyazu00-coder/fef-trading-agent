@@ -72,6 +72,7 @@ const bridgeState = {
   symbolSpecs: [],
   specsBySymbol: {},
   sessions: {},
+  candles: {},
   journal: [],
 };
 
@@ -337,6 +338,38 @@ function evaluateQuoteFreshness(symbol, quote, nowMs = Date.now()) {
     ageMs,
     reason: 'LIVE_FEED_UPDATING'
   };
+}
+
+// Candlestick validation helper
+function validateCandles(candles, timeframe) {
+  if (!Array.isArray(candles) || candles.length === 0) {
+    return { valid: false, reason: 'Candle payload is empty or not an array' };
+  }
+
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    if (typeof c.timestamp !== 'number' || isNaN(c.timestamp) || c.timestamp <= 0) {
+      return { valid: false, reason: `Candle index ${i} has invalid timestamp: ${c.timestamp}` };
+    }
+    if (typeof c.open !== 'number' || typeof c.high !== 'number' || typeof c.low !== 'number' || typeof c.close !== 'number') {
+      return { valid: false, reason: `Candle index ${i} has non-numeric OHLC values` };
+    }
+    if (c.open <= 0 || c.high <= 0 || c.low <= 0 || c.close <= 0) {
+      return { valid: false, reason: `Candle index ${i} has non-positive OHLC values` };
+    }
+    if (c.high < c.low || c.high < c.open || c.high < c.close || c.low > c.open || c.low > c.close) {
+      return { valid: false, reason: `Candle index ${i} has corrupt bounds: H=${c.high}, L=${c.low}, O=${c.open}, C=${c.close}` };
+    }
+
+    if (i > 0) {
+      const prev = candles[i - 1];
+      if (c.timestamp <= prev.timestamp) {
+        return { valid: false, reason: `Candles not in strictly ascending chronological order at index ${i}: prev=${prev.timestamp}, curr=${c.timestamp}` };
+      }
+    }
+  }
+
+  return { valid: true, count: candles.length };
 }
 
 // HTTP Request Handler
@@ -700,6 +733,81 @@ async function handleHttpRequest(req, res) {
       bridgeState.sessions[body.session.brokerSymbol] = body.session;
     }
     return sendJson(res, 200, { success: true, storedSession: true });
+  }
+
+  // =========================================================================
+  // 7b. POST /mt5/candles (From FEF_HTTP_Bridge.mq5)
+  // =========================================================================
+  if (req.method === 'POST' && (urlPath === '/mt5/candles' || urlPath === '/mt5/rates')) {
+    const symbol = body.canonicalSymbol || body.symbol;
+    const timeframe = (body.timeframe || 'H1').toUpperCase();
+    const candles = body.candles;
+
+    if (!symbol) {
+      return sendJson(res, 400, { success: false, error: { code: 'MISSING_SYMBOL', message: 'Symbol is required' } });
+    }
+
+    const val = validateCandles(candles, timeframe);
+    if (!val.valid) {
+      return sendJson(res, 400, { success: false, error: { code: 'INVALID_CANDLES', message: val.reason } });
+    }
+
+    if (!bridgeState.candles) bridgeState.candles = {};
+    if (!bridgeState.candles[symbol]) bridgeState.candles[symbol] = {};
+    bridgeState.candles[symbol][timeframe] = {
+      symbol,
+      brokerSymbol: body.brokerSymbol || symbol,
+      timeframe,
+      count: candles.length,
+      updatedAt: Date.now(),
+      candles,
+    };
+
+    return sendJson(res, 200, {
+      success: true,
+      symbol,
+      timeframe,
+      count: candles.length,
+      firstTime: candles[0].timestamp,
+      lastTime: candles[candles.length - 1].timestamp,
+    });
+  }
+
+  // =========================================================================
+  // 7c. GET /api/candles (Query verified OHLC from Next.js / Technical Engine)
+  // =========================================================================
+  if (req.method === 'GET' && (urlPath === '/api/candles' || urlPath === '/mt5/candles')) {
+    const parsedUrl = new URL(req.url, `http://${HOST}:${PORT}`);
+    const symbol = parsedUrl.searchParams.get('symbol') || 'XAUUSD';
+    const timeframe = (parsedUrl.searchParams.get('timeframe') || 'H1').toUpperCase();
+
+    const entry = (bridgeState.candles && bridgeState.candles[symbol] && bridgeState.candles[symbol][timeframe]) || null;
+
+    if (!entry) {
+      return sendJson(res, 200, {
+        success: false,
+        symbol,
+        timeframe,
+        state: 'UNAVAILABLE',
+        count: 0,
+        candles: [],
+        error: { code: 'CANDLES_UNAVAILABLE', message: `No verified candles available for ${symbol} on ${timeframe}` },
+      });
+    }
+
+    const now = Date.now();
+    const lastCandleTime = entry.candles[entry.candles.length - 1].timestamp;
+    const ageMs = now - lastCandleTime;
+
+    return sendJson(res, 200, {
+      success: true,
+      symbol,
+      timeframe,
+      count: entry.count,
+      updatedAt: entry.updatedAt,
+      ageMs,
+      candles: entry.candles,
+    });
   }
 
   // =========================================================================
@@ -1373,6 +1481,40 @@ async function handleHttpRequest(req, res) {
       });
     }
 
+    if (command === 'GET_CANDLES') {
+      const sym = body.symbol || (params && params.symbol) || 'XAUUSD';
+      const tf = ((body.params && body.params.timeframe) || body.timeframe || (params && params.timeframe) || 'H1').toUpperCase();
+      const entry = (bridgeState.candles && bridgeState.candles[sym] && bridgeState.candles[sym][tf]) || null;
+
+      if (!entry) {
+        return sendJson(res, 200, {
+          reqId,
+          command: 'GET_CANDLES',
+          success: false,
+          state: 'UNAVAILABLE',
+          data: { symbol: sym, timeframe: tf, count: 0, candles: [] },
+          error: { code: 'CANDLES_UNAVAILABLE', message: `No verified candles available for ${sym} on ${tf}` },
+          timestamp: Date.now(),
+        });
+      }
+
+      return sendJson(res, 200, {
+        reqId,
+        command: 'GET_CANDLES',
+        success: true,
+        state: 'VERIFIED_LIVE',
+        data: {
+          symbol: sym,
+          brokerSymbol: entry.brokerSymbol,
+          timeframe: tf,
+          count: entry.count,
+          updatedAt: entry.updatedAt,
+          candles: entry.candles,
+        },
+        timestamp: Date.now(),
+      });
+    }
+
     return sendJson(res, 200, {
       reqId,
       command,
@@ -1442,4 +1584,5 @@ module.exports = {
   getAuthoritativeOperatingMode,
   isMarketSessionOpen,
   evaluateQuoteFreshness,
+  validateCandles,
 };

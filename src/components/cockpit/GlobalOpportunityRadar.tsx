@@ -278,19 +278,19 @@ export const GlobalOpportunityRadar: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
               <div className="p-2 rounded-lg bg-black/30 border border-white/5">
                 <div className="text-[9px] text-gray-500 uppercase">ENTRY ZONE</div>
-                <div className="text-cyan-300 font-bold">{topOpp.entryZone[0]} - {topOpp.entryZone[1]}</div>
+                <div className="text-cyan-300 font-bold">{topOpp.entryZone && Array.isArray(topOpp.entryZone) ? `${topOpp.entryZone[0]} - ${topOpp.entryZone[1]}` : 'AWAITING STRUCTURE'}</div>
               </div>
               <div className="p-2 rounded-lg bg-black/30 border border-white/5">
                 <div className="text-[9px] text-gray-500 uppercase">INVALIDATION / SL</div>
-                <div className="text-rose-400 font-bold">{topOpp.stopLoss}</div>
+                <div className="text-rose-400 font-bold">{topOpp.stopLoss != null ? topOpp.stopLoss : 'MANDATORY (PENDING)'}</div>
               </div>
               <div className="p-2 rounded-lg bg-black/30 border border-white/5">
                 <div className="text-[9px] text-gray-500 uppercase">TARGET 1 (TP1)</div>
-                <div className="text-emerald-400 font-bold">{topOpp.tp1}</div>
+                <div className="text-emerald-400 font-bold">{topOpp.tp1 != null ? topOpp.tp1 : 'MANDATORY (PENDING)'}</div>
               </div>
               <div className="p-2 rounded-lg bg-black/30 border border-white/5">
                 <div className="text-[9px] text-gray-500 uppercase">ESTIMATED R:R</div>
-                <div className="text-white font-bold">{topOpp.rr}</div>
+                <div className="text-white font-bold">{topOpp.rr || 'N/A'}</div>
               </div>
             </div>
 

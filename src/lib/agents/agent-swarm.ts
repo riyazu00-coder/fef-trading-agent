@@ -1,5 +1,11 @@
 import { AgentState, AgentDialogueMessage, TradeSetup, DecisionStatus } from './agent-types';
 
+/**
+ * Phase 2D: DEMO_FIXTURE — STATIC AGENT STATES FOR VISUALIZATION/FALLBACK ONLY.
+ * These are static demonstration fixtures used strictly for cinematic UI fallback
+ * when live agent pipeline telemetry is not yet active.
+ * They MUST NOT be used for production trade decisions or execution authorization.
+ */
 export const INITIAL_AGENTS: AgentState[] = [
   {
     type: 'TECHNICAL',

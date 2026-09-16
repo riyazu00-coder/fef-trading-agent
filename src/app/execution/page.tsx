@@ -202,11 +202,11 @@ export default function ExecutionPage() {
   const slPrice = assetProfile.stopLoss;
   const tpPrice = assetProfile.tp1;
   const sizingReferencePrice = resolvedSizingPrice.price || entryPrice;
-  const slDistance = Math.abs(sizingReferencePrice - slPrice);
+  const slDistance = slPrice != null ? Math.abs(sizingReferencePrice - slPrice) : 0;
   const riskAmount = (accountBalance * riskPercent) / 100;
   
   // Computed dynamic lot size based on risk and distance
-  const calculatedLotSize = slDistance > 0 ? Math.max(0.01, Number((riskAmount / (slDistance * 100)).toFixed(2))) : 0.10;
+  const calculatedLotSize = slDistance > 0 ? Math.max(0.01, Number((riskAmount / (slDistance * 100)).toFixed(2))) : 0.01;
 
   // Mandatory SL / TP1 Trade Protection Evaluation (Phase 2B.3)
   const protectionValidation = validateTradeProtection({
@@ -804,11 +804,11 @@ export default function ExecutionPage() {
                 </div>
                 <div className="bg-black/40 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
                   <span className="text-rose-400 font-bold">STOP LOSS (SL):</span>
-                  <span className="font-bold text-rose-400 font-mono">${slPrice.toFixed(2)}</span>
+                  <span className="font-bold text-rose-400 font-mono">{slPrice != null ? `$${slPrice.toFixed(2)}` : 'MANDATORY (PENDING)'}</span>
                 </div>
                 <div className="bg-black/40 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
                   <span className="text-emerald-400 font-bold">TAKE PROFIT (TP):</span>
-                  <span className="font-bold text-emerald-400 font-mono">${tpPrice.toFixed(2)}</span>
+                  <span className="font-bold text-emerald-400 font-mono">{tpPrice != null ? `$${tpPrice.toFixed(2)}` : 'MANDATORY (PENDING)'}</span>
                 </div>
                 <div className="bg-cyan-950/20 border border-cyan-500/30 p-2.5 rounded-xl flex justify-between items-center">
                   <span className="text-cyan-300 font-bold">CALCULATED POSITION SIZE:</span>
@@ -1200,12 +1200,16 @@ export default function ExecutionPage() {
               {/* 9. STOP LOSS */}
               <div className="flex justify-between border-b border-white/5 pb-1">
                 <span className="text-gray-400">9. STOP LOSS:</span>
-                <span className="font-bold text-rose-400">${slPrice.toFixed(2)} ({slDistance.toFixed(2)} pts)</span>
+                <span className="font-bold text-rose-400">{slPrice != null ? `$${slPrice.toFixed(2)} (${slDistance.toFixed(2)} pts)` : 'MANDATORY (PENDING)'}</span>
               </div>
               {/* 10. TP1 / TP2 / TP3 */}
               <div className="flex justify-between border-b border-white/5 pb-1">
                 <span className="text-gray-400">10. TP1 / TP2 / TP3:</span>
-                <span className="font-bold text-emerald-400">${tpPrice.toFixed(2)} / ${assetProfile.tp2 || (tpPrice * 1.005).toFixed(2)} / ${assetProfile.tp3 || (tpPrice * 1.01).toFixed(2)}</span>
+                <span className="font-bold text-emerald-400">
+                  {tpPrice != null
+                    ? `$${tpPrice.toFixed(2)} / ${assetProfile.tp2 || (tpPrice * 1.005).toFixed(2)} / ${assetProfile.tp3 || (tpPrice * 1.01).toFixed(2)}`
+                    : 'MANDATORY (PENDING)'}
+                </span>
               </div>
               {/* 11. LOT SIZE */}
               <div className="flex justify-between border-b border-white/5 pb-1">
@@ -1240,7 +1244,7 @@ export default function ExecutionPage() {
               {/* 17. EVIDENCE TRUST */}
               <div className="flex justify-between border-b border-white/5 pb-1">
                 <span className="text-gray-400">17. EVIDENCE TRUST:</span>
-                <span className="font-bold text-cyan-300">{assetProfile.evidenceTrust || 85}% ({assetProfile.actionabilityState || 'ACTIONABLE'})</span>
+                <span className="font-bold text-cyan-300">{typeof assetProfile.evidenceTrust === 'number' ? `${assetProfile.evidenceTrust}%` : 'N/A'} ({assetProfile.actionabilityState || 'ANALYSIS ONLY'})</span>
               </div>
               {/* 18. AI CONFIDENCE */}
               <div className="flex justify-between border-b border-white/5 pb-1">

@@ -322,58 +322,10 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
 }
 
 /**
- * Baseline initial seed notifications
+ * Phase 2D: Initial notification state is always empty.
+ * Notifications are ONLY generated from genuine radar opportunity transitions
+ * detected by evaluateRadarTransitions(). No synthetic seeds.
  */
 function getInitialNotifications(): RadarNotification[] {
-  const now = Date.now();
-  return [
-    {
-      id: 'init-1',
-      symbol: 'XAUUSD',
-      timestamp: 'Just now',
-      createdTimeMs: now - 30000,
-      title: 'XAUUSD — STRONG BUY OPPORTUNITY',
-      message: 'Opportunity Score 94/100. 14/15 Swarm Agents aligned. Optimal entry zone reached at 4,344 - 4,348.',
-      newState: 'STRONG BUY OPPORTUNITY',
-      score: 94,
-      read: false,
-      priority: 'CRITICAL',
-    },
-    {
-      id: 'init-2',
-      symbol: 'XAGUSD',
-      timestamp: '14m ago',
-      createdTimeMs: now - 840000,
-      title: 'XAGUSD — SMT Divergence Confirmed',
-      message: 'Silver printing higher high while Gold consolidates. Approaching breakout trigger at 64.95.',
-      newState: 'BUY OPPORTUNITY',
-      score: 86,
-      read: false,
-      priority: 'HIGH',
-    },
-    {
-      id: 'init-3',
-      symbol: 'USOIL',
-      timestamp: '38m ago',
-      createdTimeMs: now - 2280000,
-      title: 'USOIL — Event Risk Shock Buffer',
-      message: 'EIA Inventory release in 1h 15m. Risk Guardian enforces 0.50% account equity maximum exposure.',
-      newState: 'WAIT',
-      score: 62,
-      read: true,
-      priority: 'NORMAL',
-    },
-    {
-      id: 'init-4',
-      symbol: 'USDCAD',
-      timestamp: '1h 10m ago',
-      createdTimeMs: now - 4200000,
-      title: 'USDCAD — Setup Invalidated',
-      message: 'H4 Bullish FVG failed on soft US inflation prints. Risk Guardian pre-emptively closed trade.',
-      newState: 'NO TRADE',
-      score: 34,
-      read: true,
-      priority: 'NORMAL',
-    },
-  ];
+  return [];
 }

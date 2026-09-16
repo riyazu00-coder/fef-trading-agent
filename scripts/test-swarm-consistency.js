@@ -119,13 +119,18 @@ TEST_SYMBOLS.forEach((symbol) => {
     });
   });
 
-  runTest(`${symbol}: trade setup contains entry, SL, TP1-3, RR, and invalidation`, () => {
-    assert(profile.entryZone && profile.entryZone.length === 2, 'entryZone must be a tuple of 2 prices');
-    assert(typeof profile.stopLoss === 'number', 'stopLoss must be a number');
-    assert(typeof profile.tp1 === 'number', 'tp1 must be a number');
-    assert(typeof profile.tp2 === 'number', 'tp2 must be a number');
-    assert(typeof profile.tp3 === 'number', 'tp3 must be a number');
-    assert(typeof profile.rr === 'string' && profile.rr.includes('1 :'), 'rr must be valid format');
+  runTest(`${symbol}: trade setup contains entry, SL, TP1-3, RR, and invalidation (or null if awaiting verified structure)`, () => {
+    // Phase 2D Truthfulness: When verified OHLC structure is not available, levels must be null (no hardcoded offsets)
+    if (profile.entryZone !== null) {
+      assert(Array.isArray(profile.entryZone) && profile.entryZone.length === 2, 'entryZone must be a tuple of 2 prices');
+      assert(typeof profile.stopLoss === 'number', 'stopLoss must be a number');
+      assert(typeof profile.tp1 === 'number', 'tp1 must be a number');
+      assert(typeof profile.rr === 'string' && profile.rr.includes('1 :'), 'rr must be valid format');
+    } else {
+      assert(profile.entryZone === null, 'entryZone must be null when awaiting verified structure');
+      assert(profile.stopLoss === null, 'stopLoss must be null when awaiting verified structure');
+      assert(profile.tp1 === null, 'tp1 must be null when awaiting verified structure');
+    }
     assert(typeof profile.invalidation === 'string' && profile.invalidation.length > 5, 'invalidation clause required');
   });
 
@@ -229,14 +234,18 @@ runTest('Opportunity Score (0-100) is mathematically distinct from AI Confidence
   assert(hasDifference, 'Opportunity Score must be mathematically distinct from AI Confidence');
 });
 
-runTest('Best Current Opportunity spotlight has full actionable blueprint targets', () => {
+runTest('Best Current Opportunity spotlight has full actionable blueprint targets (or null if awaiting verified structure)', () => {
   const radar = generateGlobalRadarIntelligence(INITIAL_LIVE_ASSETS, 'H1');
   const top = radar.topOpportunity;
   assert(top.symbol, 'Top opportunity missing symbol');
-  assert(Array.isArray(top.entryZone) && top.entryZone.length === 2, 'Top opportunity missing entryZone');
-  assert(typeof top.stopLoss === 'number', 'Top opportunity missing stopLoss');
-  assert(typeof top.tp1 === 'number', 'Top opportunity missing tp1');
-  assert(typeof top.rr === 'string' && top.rr.includes(':'), 'Top opportunity missing rr');
+  if (top.entryZone !== null) {
+    assert(Array.isArray(top.entryZone) && top.entryZone.length === 2, 'Top opportunity missing entryZone');
+    assert(typeof top.stopLoss === 'number', 'Top opportunity missing stopLoss');
+    assert(typeof top.tp1 === 'number', 'Top opportunity missing tp1');
+    assert(typeof top.rr === 'string' && top.rr.includes(':'), 'Top opportunity missing rr');
+  } else {
+    assert(top.entryZone === null, 'Top opportunity entryZone must be null when awaiting verified structure');
+  }
   assert(Array.isArray(top.whyRankedReasons) && top.whyRankedReasons.length > 0, 'Top opportunity missing whyRankedReasons');
 });
 

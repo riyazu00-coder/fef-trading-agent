@@ -226,6 +226,45 @@ export class MT5HttpClient {
     return this.sendCommand<MT5BrokerSessionInfo>('GET_BROKER_SESSIONS', undefined, symbol);
   }
 
+  /**
+   * Retrieve verified OHLC candles from the local MT5 bridge.
+   * Returns UNAVAILABLE if the EA has not yet pushed candles for the requested symbol/timeframe.
+   */
+  public async getCandles(symbol: string, timeframe: string): Promise<{
+    success: boolean;
+    state: string;
+    symbol: string;
+    timeframe: string;
+    count: number;
+    updatedAt?: number;
+    ageMs?: number;
+    candles: Array<{ timestamp: number; open: number; high: number; low: number; close: number; tickVolume: number }>;
+    error?: { code: string; message: string };
+  }> {
+    const startTime = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+      const res = await fetch(
+        `${this.config.baseUrl}/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.config.token}`,
+            'x-bridge-token': this.config.token,
+          },
+          signal: controller.signal,
+        }
+      );
+      clearTimeout(timeout);
+      if (res.ok) {
+        return await res.json();
+      }
+      return { success: false, state: 'UNAVAILABLE', symbol, timeframe, count: 0, candles: [], error: { code: 'BRIDGE_ERROR', message: `HTTP ${res.status}` } };
+    } catch (err: any) {
+      return { success: false, state: 'BRIDGE_OFFLINE', symbol, timeframe, count: 0, candles: [], error: { code: 'BRIDGE_OFFLINE', message: err?.message || 'Bridge unreachable' } };
+    }
+  }
+
   public async placeDemoOrder(payload: DemoOrderPayload): Promise<BridgeResponsePayload<DemoExecutionResult>> {
     return this.sendCommand<DemoExecutionResult>('PLACE_ORDER', payload as any, payload.brokerSymbol);
   }

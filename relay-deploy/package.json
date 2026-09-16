@@ -1,0 +1,12 @@
+{
+  "name": "fef-remote-relay-service",
+  "version": "2.0.0",
+  "private": true,
+  "main": "fef-remote-relay-service.js",
+  "scripts": {
+    "start": "node fef-remote-relay-service.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

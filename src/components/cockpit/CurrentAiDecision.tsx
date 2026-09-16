@@ -152,17 +152,22 @@ export const CurrentAiDecision: React.FC = () => {
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Entry Zone</span>
           <span className="text-[#F8FAFC] font-mono font-bold">
-            ${assetProfile.entryZone[0]} - ${assetProfile.entryZone[1]}
+            {assetProfile.entryZone && Array.isArray(assetProfile.entryZone)
+              ? `$${assetProfile.entryZone[0]} - $${assetProfile.entryZone[1]}`
+              : 'Awaiting Structure'}
           </span>
         </div>
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Stop Loss</span>
-          <span className="text-[#FB7185] font-mono font-bold">${assetProfile.stopLoss}</span>
+          <span className="text-[#FB7185] font-mono font-bold">
+            {assetProfile.stopLoss != null ? `$${assetProfile.stopLoss}` : 'Mandatory (Pending)'}
+          </span>
         </div>
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Targets</span>
           <span className="text-[#34D399] font-mono font-bold">
-            TP1 ${assetProfile.tp1} &bull; TP2 ${assetProfile.tp2}
+            {assetProfile.tp1 != null ? `TP1 $${assetProfile.tp1}` : 'TP1: Mandatory (Pending)'}
+            {assetProfile.tp2 != null ? ` • TP2 $${assetProfile.tp2}` : ''}
           </span>
         </div>
         <div className="flex items-center justify-between text-[#CBD5E1]">
@@ -213,7 +218,7 @@ export const CurrentAiDecision: React.FC = () => {
             <span>{buttonLabel}</span>
           </button>
           <button
-            onClick={() => alert(`Setup for ${activeSymbol}:\nEntry: ${assetProfile.entryZone[0]} - ${assetProfile.entryZone[1]}\nSL: ${assetProfile.stopLoss}\nTP: ${assetProfile.tp1}`)}
+            onClick={() => alert(`Setup for ${activeSymbol}:\nEntry: ${assetProfile.entryZone && Array.isArray(assetProfile.entryZone) ? `${assetProfile.entryZone[0]} - ${assetProfile.entryZone[1]}` : 'Awaiting Structure'}\nSL: ${assetProfile.stopLoss ?? 'Mandatory (Pending)'}\nTP: ${assetProfile.tp1 ?? 'Mandatory (Pending)'}`)}
             className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 transition-all cursor-pointer"
           >
             Modify

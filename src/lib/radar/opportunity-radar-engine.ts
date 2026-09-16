@@ -69,11 +69,11 @@ export interface RadarOpportunityItem {
 export interface AttentionQueueItem {
   id: string;
   symbol: string;
-  urgency: 'ACT NOW' | 'WAITING FOR CONFIRMATION' | 'EVENT RISK' | 'DEVELOPING';
+  urgency: 'ACT NOW' | 'WAITING FOR CONFIRMATION' | 'EVENT RISK' | 'DEVELOPING' | 'MONITORING';
   headline: string;
   detail: string;
   eta: string;
-  badgeColor: 'emerald' | 'amber' | 'rose' | 'cyan';
+  badgeColor: 'emerald' | 'amber' | 'rose' | 'cyan' | 'slate';
 }
 
 export interface DevelopingSetupItem {
@@ -81,9 +81,9 @@ export interface DevelopingSetupItem {
   name: string;
   pattern: string;
   triggerCondition: string;
-  readinessPct: number; // e.g. 75%
+  readinessPct: number;
   estimatedRR: string;
-  direction: 'LONG' | 'SHORT';
+  direction: 'LONG' | 'SHORT' | 'UNDETERMINED';
 }
 
 export interface InvalidatedSetupItem {
@@ -192,20 +192,26 @@ export function calculateOpportunityScore(
 
   // 3. Entry Proximity to Institutional Zone (up to 25 pts)
   const p = asset.price;
-  const [eLow, eHigh] = profile.entryZone;
-  const zoneMid = (eLow + eHigh) / 2;
-  const zoneSpread = Math.abs(eHigh - eLow) || (p * 0.005);
-  const distFromZone = Math.abs(p - zoneMid) / zoneSpread;
+  if (profile.entryZone && Array.isArray(profile.entryZone) && profile.entryZone.length === 2) {
+    const [eLow, eHigh] = profile.entryZone;
+    const zoneMid = (eLow + eHigh) / 2;
+    const zoneSpread = Math.abs(eHigh - eLow) || (p * 0.005);
+    const distFromZone = Math.abs(p - zoneMid) / zoneSpread;
 
-  if (distFromZone <= 1.2) {
-    score += 18;
-    reasons.push(`Price is active inside optimal institutional entry zone (${eLow} - ${eHigh})`);
-  } else if (distFromZone <= 2.5) {
-    score += 8;
-    reasons.push(`Approaching entry mitigation zone (${eLow} - ${eHigh})`);
+    if (distFromZone <= 1.2) {
+      score += 18;
+      reasons.push(`Price is active inside optimal institutional entry zone (${eLow} - ${eHigh})`);
+    } else if (distFromZone <= 2.5) {
+      score += 8;
+      reasons.push(`Approaching entry mitigation zone (${eLow} - ${eHigh})`);
+    } else {
+      score -= 12;
+      reasons.push(`Extended from ideal entry; pullback required before trigger`);
+    }
   } else {
-    score -= 12;
-    reasons.push(`Extended from ideal entry; pullback required before trigger`);
+    // Structure analysis pending — entry zone not yet established
+    score -= 10;
+    reasons.push(`Structure analysis pending — awaiting verified entry zone`);
   }
 
   // 4. Liquidity & Volatility Quality (up to 15 pts)
@@ -370,134 +376,63 @@ export function generateGlobalRadarIntelligence(
 
   // Requirement: Closed assets can rank for setup quality but NEVER rank as best immediately executable trade
   const topExecutableOpportunity = opportunities.find((o) => o.tradeExecutable);
-  const topOpportunity = topExecutableOpportunity || opportunities[0] || {
-    rank: 1,
-    symbol: 'XAUUSD',
-    name: 'Gold Spot / USD',
-    category: 'METALS' as RadarCategory,
-    price: 4349.70,
-    change24h: 0.85,
-    state: 'STRONG BUY OPPORTUNITY' as RadarOpportunityState,
-    opportunityScore: 94,
-    setupQuality: 94,
-    tradeExecutable: true,
-    executabilityScore: 100,
-    marketState: 'OPEN',
-    aiConfidence: 89,
-    timeframe: 'INTRADAY' as RadarTimeframeType,
-    riskLevel: 'LOW' as RadarRiskLevel,
-    entryZone: [4344.20, 4348.20] as [number, number],
-    stopLoss: 4334.70,
-    tp1: 4367.70,
-    tp2: 4383.70,
-    tp3: 4401.70,
-    rr: '1:3.6',
-    regime: 'Bullish Expansion (London Liquidity Cleared)',
-    catalysts: ['DXY rejection', 'Physical central bank gold reserves', 'Negative 10Y real yields'],
-    invalidation: 'H1 candle close below 4334.70',
-    whyRankedReasons: [
-      '14/15 Swarm Agents aligned in directional consensus',
-      'Asymmetric 1:3.6 R:R with tight structural invalidation',
-      'Price active inside optimal institutional entry zone',
-      'Deep LBMA & Interbank liquidity'
-    ]
-  };
+  // Phase 2D: NO fallback fabricated object. If no executable opportunity exists, use best available or null.
+  // This is the truthful equivalent: the system must report NO ACTIONABLE OPPORTUNITY rather than invent one.
+  const topOpportunity = topExecutableOpportunity || opportunities[0] || null;
 
-  // Build Market Attention Queue (Triage "Where to look next?")
-  const isTopExecutable = topOpportunity.tradeExecutable;
-  const attentionQueue: AttentionQueueItem[] = [
-    {
+  // Build Market Attention Queue — derived ONLY from real-ranked opportunities.
+  // Phase 2D: No hardcoded/fictional symbols, prices, ETA text, or intelligence commentary.
+  const attentionQueue: AttentionQueueItem[] = [];
+  if (topOpportunity) {
+    const isTopExecutable = topOpportunity.tradeExecutable;
+    attentionQueue.push({
       id: 'att-1',
       symbol: topOpportunity.symbol,
       urgency: isTopExecutable ? 'ACT NOW' : 'DEVELOPING',
-      headline: isTopExecutable 
-        ? `${topOpportunity.symbol} Hit Optimal Entry Zone` 
-        : `${topOpportunity.symbol} Setup Active (${topOpportunity.marketState || 'CLOSED'})`,
-      detail: isTopExecutable 
-        ? `Opportunity Score ${topOpportunity.opportunityScore}/100. Structure confirmed with ${topOpportunity.rr} R:R. Target 1: ${topOpportunity.tp1}.`
-        : `Setup Quality ${topOpportunity.opportunityScore}/100. Market closed — execution barred until session opens.`,
-      eta: isTopExecutable ? 'Immediate (Active Session)' : 'Awaiting Session Open',
-      badgeColor: isTopExecutable ? 'emerald' : 'amber'
-    },
-    {
-      id: 'att-2',
-      symbol: opportunities.find((o) => o.symbol === 'XAGUSD')?.symbol || 'XAGUSD',
-      urgency: 'WAITING FOR CONFIRMATION',
-      headline: 'XAGUSD SMT Divergence vs Gold',
-      detail: 'Silver printing higher high while Gold consolidates. Awaiting 15-minute CHoCH for confirmation.',
-      eta: 'Within 25-40 min',
-      badgeColor: 'cyan'
-    },
-    {
-      id: 'att-3',
-      symbol: opportunities.find((o) => o.symbol === 'USOIL')?.symbol || 'USOIL',
-      urgency: 'EVENT RISK',
-      headline: 'USOIL Pre-EIA Inventory Buffer',
-      detail: 'Crucial support held at $98.48. EIA inventory release in 1h 15m. Risk Guardian mandates position size cap at 0.5%.',
-      eta: 'Event in 1h 15m',
-      badgeColor: 'amber'
-    },
-    {
-      id: 'att-4',
-      symbol: opportunities.find((o) => o.symbol === 'USDJPY')?.symbol || 'USDJPY',
-      urgency: 'DEVELOPING',
-      headline: 'USDJPY Liquidity Sweep at 154.20',
-      detail: 'Asian high liquidity taken. Institutional order flow turning bearish on BOJ verbal intervention tone.',
-      eta: 'Developing over H1',
-      badgeColor: 'rose'
-    }
-  ];
+      headline: isTopExecutable
+        ? `${topOpportunity.symbol} — Top Ranked Executable Opportunity`
+        : `${topOpportunity.symbol} Setup Developing (${topOpportunity.marketState || 'CLOSED'})`,
+      detail: isTopExecutable
+        ? `Opportunity Score ${topOpportunity.opportunityScore}/100. R:R ${topOpportunity.rr || 'N/A'}. TP1: ${topOpportunity.tp1 ?? 'N/A'}.`
+        : `Setup Score ${topOpportunity.opportunityScore}/100. Market session closed — execution gated until session opens.`,
+      eta: isTopExecutable ? 'Active Session' : 'Awaiting Session Open',
+      badgeColor: isTopExecutable ? 'emerald' : 'amber',
+    });
+  }
+  // Additional attention items: next 3 ranked non-top opportunities if they exist (making up to 4 items)
+  const secondaryItems = opportunities.filter(o => topOpportunity ? o.symbol !== topOpportunity.symbol : true).slice(0, 3);
+  secondaryItems.forEach((opp, idx) => {
+    attentionQueue.push({
+      id: `att-${idx + 2}`,
+      symbol: opp.symbol,
+      urgency: opp.tradeExecutable ? 'DEVELOPING' : 'MONITORING',
+      headline: `${opp.symbol} — Rank #${opp.rank} Setup (Score ${opp.opportunityScore}/100)`,
+      detail: `State: ${opp.state}. Market: ${opp.marketState || 'UNKNOWN'}.${opp.rr ? ` R:R ${opp.rr}` : ''}`,
+      eta: opp.tradeExecutable ? 'Executable' : 'Session closed',
+      badgeColor: opp.tradeExecutable ? 'cyan' : 'slate',
+    });
+  });
 
-  // Developing Setups (Upcoming patterns prior to trigger)
-  const developingSetups: DevelopingSetupItem[] = [
-    {
-      symbol: 'XAGUSD',
-      name: 'Silver Spot / USD',
-      pattern: 'H1 Bullish Order Block + SMT Bullish Divergence',
-      triggerCondition: 'Break above 64.95 with displacement',
-      readinessPct: 82,
-      estimatedRR: '1:4.1',
-      direction: 'LONG'
-    },
-    {
-      symbol: 'USDJPY',
-      name: 'US Dollar / Yen',
-      pattern: 'Bearish Liquidity Sweep & Institutional Rejection',
-      triggerCondition: 'M15 candle close below 153.60',
-      readinessPct: 68,
-      estimatedRR: '1:3.2',
-      direction: 'SHORT'
-    },
-    {
-      symbol: 'EURUSD',
-      name: 'Euro / US Dollar',
-      pattern: 'London Low Sweep with Transatlantic Yield Support',
-      triggerCondition: 'Retest of 1.1592 demand pocket',
-      readinessPct: 74,
-      estimatedRR: '1:2.8',
-      direction: 'LONG'
-    }
-  ];
+  // Phase 2D: Developing setups derived from opportunities in WATCH/approaching states.
+  // No hardcoded fictional patterns, trigger conditions, or R:R.
+  const developingSetups: DevelopingSetupItem[] = opportunities
+    .filter(o => o.state.includes('WATCH') || o.opportunityScore >= 60)
+    .slice(0, 4)
+    .map(o => ({
+      symbol: o.symbol,
+      name: o.name,
+      pattern: o.regime || 'Structure Being Analyzed',
+      triggerCondition: 'Awaiting verified trigger from market structure engine',
+      readinessPct: o.opportunityScore,
+      estimatedRR: o.rr || 'N/A',
+      direction: (o.state.includes('BUY') ? 'LONG' : o.state.includes('SELL') ? 'SHORT' : 'UNDETERMINED') as 'LONG' | 'SHORT' | 'UNDETERMINED',
+    }));
 
-  // Recently Invalidated Setups (Transparent audit trail of failed ideas)
-  const recentlyInvalidated: InvalidatedSetupItem[] = [
-    {
-      symbol: 'USDCAD',
-      setupName: 'H4 Bullish Fair Value Gap Retest',
-      invalidatedAt: '42m ago',
-      reason: 'Aggressive US Dollar selloff punctured lower boundary (1.3830) on soft PPI data.',
-      lossMitigation: 'Risk Guardian closed pre-emptively at -0.42R before stop loss hit.'
-    },
-    {
-      symbol: 'GBPUSD',
-      setupName: 'M15 Asian Range Breakout Short',
-      invalidatedAt: '2h 15m ago',
-      reason: 'Bank of England hawkish commentary reversed downside momentum back into range.',
-      lossMitigation: 'Break-even stop preserved capital (0.00% equity drawdown).'
-    }
-  ];
+  // Phase 2D: Recently invalidated is always empty at startup.
+  // Only real-time engine lifecycle updates populate this list.
+  const recentlyInvalidated: InvalidatedSetupItem[] = [];
 
-  // Market Regime Map
+  // Market Regime Map — derived from real opportunities only
   const regimeMap: RegimeMapItem[] = opportunities.map((opp) => {
     const isBull = opp.state.includes('BUY');
     const isBear = opp.state.includes('SELL');
@@ -508,7 +443,7 @@ export function generateGlobalRadarIntelligence(
       regime: opp.regime,
       volatility: opp.riskLevel === 'HIGH' ? 'High ATR' : opp.riskLevel === 'ELEVATED' ? 'Elevated ATR' : 'Normal / Low',
       session: 'Active Institutional',
-      bias: isBull ? 'BULLISH' : isBear ? 'BEARISH' : 'NEUTRAL'
+      bias: isBull ? 'BULLISH' : isBear ? 'BEARISH' : 'NEUTRAL',
     };
   });
 
@@ -531,8 +466,8 @@ export function generateGlobalRadarIntelligence(
       buyOpportunities,
       sellOpportunities,
       watchlistCount,
-      highestScoreAsset: topOpportunity.symbol,
-      highestScore: topOpportunity.opportunityScore
-    }
+      highestScoreAsset: topOpportunity?.symbol ?? 'NONE',
+      highestScore: topOpportunity?.opportunityScore ?? 0,
+    },
   };
 }

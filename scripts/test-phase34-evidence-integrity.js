@@ -294,14 +294,20 @@ runTest('src/app/agents/page.tsx: Zero unverified 2.1% tail-risk claim', () => {
 // ---------------------------------------------------------------------------
 console.log('\n[TEST GROUP 6] Preservation of Real Systems, Session Logic & Risk Guardian');
 
-runTest('XAUUSD maintains verified Risk Guardian stop-loss and risk envelope', () => {
+runTest('XAUUSD maintains Risk Guardian envelope (and reports truthful trust / null SL when awaiting structure)', () => {
   const xau = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD']);
   const rg = xau.agents.find((a) => a.type === 'RISK_GUARDIAN');
   assert(rg, 'Risk Guardian agent must exist');
-  assert(rg.evidenceTrustScore >= 70, `Risk Guardian trust score must be >= 70, got ${rg.evidenceTrustScore}`);
-  assert.strictEqual(rg.provenanceBadge, 'DERIVED');
-  assert(xau.stopLoss > 0, 'Valid stop loss required');
-  assert(xau.rr.includes('1 :'), 'Valid R:R required');
+  // Phase 2D Truthfulness: When waiting for verified structure, SL is null and trust is guarded
+  if (xau.stopLoss !== null) {
+    assert(rg.evidenceTrustScore >= 70, `Risk Guardian trust score must be >= 70, got ${rg.evidenceTrustScore}`);
+    assert.strictEqual(rg.provenanceBadge, 'DERIVED');
+    assert(xau.stopLoss > 0, 'Valid stop loss required');
+    assert(xau.rr.includes('1 :'), 'Valid R:R required');
+  } else {
+    assert(xau.stopLoss === null, 'Stop loss must be null until verified structure is analyzed');
+    assert(rg.status === 'CAUTION' || rg.status === 'ONLINE');
+  }
 });
 
 runTest('Session Engine (Phase 30/31) temporal logic remains 100% active', () => {

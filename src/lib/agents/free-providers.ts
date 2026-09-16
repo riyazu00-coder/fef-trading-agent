@@ -1,22 +1,28 @@
 import { MarketAsset, EconomicEvent } from './agent-types';
 
+/**
+ * Phase 2D: DEMO_FIXTURE — NOT LIVE DATA.
+ * These are static demonstration assets used ONLY in demo mode and unit tests.
+ * isLive is explicitly false. These values MUST NOT be used in production
+ * intelligence decisions, agent evidence scoring, or execution authorization.
+ * For live prices, use the MT5 broker quote via mt5HttpClient.getQuote().
+ */
+export const DEMO_FIXTURE_WARNING = 'STATIC_DEMO_FIXTURE — NOT LIVE. Do not use in production intelligence paths.';
+
 export const FREE_MARKET_ASSETS: MarketAsset[] = [
-  { symbol: 'XAUUSD', name: 'Gold Spot / US Dollar', price: 4349.70, change: -0.85, category: 'COMMODITY', correlationToGold: 'STRONG_POSITIVE', isLive: true },
-  { symbol: 'DXY', name: 'US Dollar Index', price: 104.18, change: -0.36, category: 'CURRENCY', correlationToGold: 'STRONG_NEGATIVE', isLive: true },
-  { symbol: 'US10Y', name: 'US 10-Year Treasury Yield', price: 4.214, change: -1.40, category: 'BOND', correlationToGold: 'STRONG_NEGATIVE', isLive: true },
-  { symbol: 'US02Y', name: 'US 2-Year Treasury Yield', price: 4.462, change: -0.85, category: 'BOND', correlationToGold: 'MODERATE_NEGATIVE', isLive: true },
-  { symbol: 'XAGUSD', name: 'Silver Spot', price: 64.62, change: +1.28, category: 'COMMODITY', correlationToGold: 'STRONG_POSITIVE', isLive: true },
-  { symbol: 'VIX', name: 'CBOE Volatility Index', price: 14.82, change: -2.10, category: 'EQUITY', correlationToGold: 'NEUTRAL', isLive: true },
-  { symbol: 'SPX', name: 'S&P 500 Index', price: 5468.20, change: +0.28, category: 'EQUITY', correlationToGold: 'MODERATE_POSITIVE', isLive: true },
-  { symbol: 'BTCUSD', name: 'Bitcoin / USD', price: 77366.00, change: +1.48, category: 'CRYPTO', correlationToGold: 'MODERATE_POSITIVE', isLive: true },
-  { symbol: 'USOIL', name: 'WTI Crude Oil', price: 100.05, change: -2.37, category: 'COMMODITY', correlationToGold: 'MODERATE_POSITIVE', isLive: true }
+  { symbol: 'XAUUSD', name: 'Gold Spot / US Dollar', price: 0, change: 0, category: 'COMMODITY', correlationToGold: 'STRONG_POSITIVE', isLive: false },
+  { symbol: 'DXY', name: 'US Dollar Index', price: 0, change: 0, category: 'CURRENCY', correlationToGold: 'STRONG_NEGATIVE', isLive: false },
+  { symbol: 'US10Y', name: 'US 10-Year Treasury Yield', price: 0, change: 0, category: 'BOND', correlationToGold: 'STRONG_NEGATIVE', isLive: false },
+  { symbol: 'US02Y', name: 'US 2-Year Treasury Yield', price: 0, change: 0, category: 'BOND', correlationToGold: 'MODERATE_NEGATIVE', isLive: false },
+  { symbol: 'XAGUSD', name: 'Silver Spot', price: 0, change: 0, category: 'COMMODITY', correlationToGold: 'STRONG_POSITIVE', isLive: false },
+  { symbol: 'VIX', name: 'CBOE Volatility Index', price: 0, change: 0, category: 'EQUITY', correlationToGold: 'NEUTRAL', isLive: false },
+  { symbol: 'SPX', name: 'S&P 500 Index', price: 0, change: 0, category: 'EQUITY', correlationToGold: 'MODERATE_POSITIVE', isLive: false },
+  { symbol: 'BTCUSD', name: 'Bitcoin / USD', price: 0, change: 0, category: 'CRYPTO', correlationToGold: 'MODERATE_POSITIVE', isLive: false },
+  { symbol: 'USOIL', name: 'WTI Crude Oil', price: 0, change: 0, category: 'COMMODITY', correlationToGold: 'MODERATE_POSITIVE', isLive: false },
 ];
 
 export const FREE_ECONOMIC_CALENDAR: EconomicEvent[] = [
-  { id: 'ev-1', time: '18:30 GMT', currency: 'USD', title: 'Core PCE Price Index (MoM)', impact: 'CRITICAL', countdown: 'T - 1h 45m', forecast: '0.2%', previous: '0.3%' },
-  { id: 'ev-2', time: '19:15 GMT', currency: 'USD', title: 'Fed Governor Speech (FOMC)', impact: 'HIGH', countdown: 'T - 2h 30m' },
-  { id: 'ev-3', time: '21:00 GMT', currency: 'USD', title: '10-Year Bond Auction', impact: 'MEDIUM', countdown: 'T - 4h 15m' },
-  { id: 'ev-4', time: 'Tomorrow', currency: 'USD', title: 'Non-Farm Payrolls (NFP Preview)', impact: 'CRITICAL', countdown: 'T - 22h 00m', forecast: '185K', previous: '206K' }
+  { id: 'ev-1', time: 'DATA LIMITED', currency: 'USD', title: 'Economic calendar unavailable — no live news API connected', impact: 'CRITICAL', countdown: 'UNAVAILABLE' },
 ];
 
 export interface FreeVisionAnalysisResult {
@@ -44,42 +50,41 @@ export interface FreeVisionAnalysisResult {
   supportingEvidence: string[];
   opposingEvidence: string[];
   confirmationRequired: string;
+  // Phase 2D provenance flag
+  isDemoFixture: true;
+  productionEligible: false;
 }
 
-// Free client-side zero-cost vision parsing simulator
-export function analyzeChartImageOffline(fileName: string): FreeVisionAnalysisResult {
-  const isGoldLikely = fileName.toLowerCase().includes('gold') || fileName.toLowerCase().includes('xau') || true;
+/**
+ * Phase 2D: DEMO-ONLY SIMULATOR — BLOCKED FROM PRODUCTION DECISION PATHS.
+ * This function returns a static hardcoded result regardless of the chart image.
+ * It MUST NOT be used for evidence scoring, Evidence Trust calculation, or execution authorization.
+ * Use the Chart Analyzer (Vision Agent) with a real AI vision model for production.
+ */
+export function analyzeChartImageOffline(_fileName: string): FreeVisionAnalysisResult {
+  console.warn('[free-providers] analyzeChartImageOffline() is a DEMO SIMULATOR — results are static and MUST NOT be used in production intelligence decisions.');
   return {
-    symbolDetected: isGoldLikely ? 'XAUUSD' : 'UNKNOWN',
-    symbolConfidence: 94,
-    timeframeDetected: 'M15',
-    timeframeConfidence: 89,
-    chartQuality: 'EXCELLENT',
-    freshness: 'RECENT',
-    visiblePrice: '4349.70',
-    marketStructure: 'BULLISH',
-    detectedConcepts: [
-      { name: 'Sell-Side Liquidity Sweep', type: 'LIQUIDITY_SWEEP', zone: '4341.20', confidence: 91 },
-      { name: 'Bullish Change of Character (CHOCH)', type: 'CHOCH', zone: '4348.50', confidence: 88 },
-      { name: 'Bullish Fair Value Gap (FVG)', type: 'FVG', zone: '4346.80 - 4349.00', confidence: 85 },
-      { name: 'Demand Order Block (OB)', type: 'ORDER_BLOCK', zone: '4344.00 - 4348.00', confidence: 82 }
-    ],
-    opportunityState: 'BUY OPPORTUNITY',
-    possibleEntry: '4348.50 - 4351.00',
-    invalidation: '4343.80 (M15 candle close below swing low)',
-    stopLoss: '4343.80',
-    targets: ['4358.50 (TP1)', '4368.00 (TP2 - Buy-side Liquidity)', '4378.50 (TP3 - Daily Resistance)'],
-    estimatedRR: '1 : 2.85',
-    visionConfidence: 84,
-    supportingEvidence: [
-      'Clean wick rejection and sweep of Asian session lows',
-      'Strong bullish displacement leaving unmitigated M15 FVG',
-      'Price currently finding support inside the discount demand zone'
-    ],
-    opposingEvidence: [
-      'H4 overhead supply level remains active at 4368.00',
-      'High-impact economic release scheduled within 2 hours'
-    ],
-    confirmationRequired: 'Bullish M5 candle close confirming rejection from 4348 demand.'
+    symbolDetected: 'UNKNOWN',
+    symbolConfidence: 0,
+    timeframeDetected: 'UNKNOWN',
+    timeframeConfidence: 0,
+    chartQuality: 'POOR',
+    freshness: 'UNKNOWN',
+    visiblePrice: 'UNAVAILABLE',
+    marketStructure: 'RANGING',
+    detectedConcepts: [],
+    opportunityState: 'WAIT',
+    possibleEntry: 'UNAVAILABLE — Demo simulator, not real analysis',
+    invalidation: 'UNAVAILABLE',
+    stopLoss: 'UNAVAILABLE',
+    targets: ['UNAVAILABLE'],
+    estimatedRR: 'N/A',
+    visionConfidence: 0,
+    supportingEvidence: ['Chart image analysis requires a live AI vision model — not connected in Phase 2D.'],
+    opposingEvidence: ['All offline analysis results are static fixtures. Do not use for trading decisions.'],
+    confirmationRequired: 'Submit chart to a live AI vision endpoint for real analysis.',
+    isDemoFixture: true,
+    productionEligible: false,
   };
 }
+

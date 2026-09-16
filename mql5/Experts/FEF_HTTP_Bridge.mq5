@@ -36,6 +36,7 @@ datetime g_last_quotes_time    = 0;
 datetime g_last_positions_time = 0;
 datetime g_last_orders_time    = 0;
 datetime g_last_symbols_time   = 0;
+datetime g_last_candles_time   = 0;
 bool     g_bridge_connected    = false;
 
 //--- Tracked symbols for quote telemetry
@@ -624,6 +625,65 @@ void PushSymbolsAndSessions()
 }
 
 //+------------------------------------------------------------------+
+//| Push Real OHLC Rates / Candles (POST /mt5/candles)               |
+//+------------------------------------------------------------------+
+void PushCandlesForSymbol(string canonical, string brokerSym, ENUM_TIMEFRAMES period, string tfStr)
+{
+   if(!SymbolSelect(brokerSym, true)) return;
+
+   MqlRates rates[];
+   ArraySetAsSeries(rates, true);
+   int copied = CopyRates(brokerSym, period, 0, 35, rates);
+   if(copied <= 0) return;
+
+   int digits = (int)SymbolInfoInteger(brokerSym, SYMBOL_DIGITS);
+   string candlesJson = "[";
+
+   // Transmit in chronological order (oldest -> newest)
+   for(int i = copied - 1; i >= 0; i--)
+   {
+      if(i < copied - 1) candlesJson += ",";
+      candlesJson += "{";
+      candlesJson += "\"timestamp\":" + IntegerToString((long)rates[i].time * 1000) + ",";
+      candlesJson += "\"open\":" + DoubleToString(rates[i].open, digits) + ",";
+      candlesJson += "\"high\":" + DoubleToString(rates[i].high, digits) + ",";
+      candlesJson += "\"low\":" + DoubleToString(rates[i].low, digits) + ",";
+      candlesJson += "\"close\":" + DoubleToString(rates[i].close, digits) + ",";
+      candlesJson += "\"tickVolume\":" + IntegerToString(rates[i].tick_volume);
+      candlesJson += "}";
+   }
+   candlesJson += "]";
+
+   string payload = "{";
+   payload += "\"canonicalSymbol\":\"" + canonical + "\",";
+   payload += "\"brokerSymbol\":\"" + brokerSym + "\",";
+   payload += "\"timeframe\":\"" + tfStr + "\",";
+   payload += "\"candleCount\":" + IntegerToString(copied) + ",";
+   payload += "\"candles\":" + candlesJson + ",";
+   payload += "\"timestamp\":" + IntegerToString((long)TimeLocal() * 1000);
+   payload += "}";
+
+   string resp = "";
+   PostJson("/mt5/candles", payload, resp);
+}
+
+void PushCandles()
+{
+   // Push primary canonical assets across required initial timeframes: M5, M15, H1, H4
+   string prioritySymbols[] = { "XAUUSD", "EURUSD", "BTCUSD" };
+   for(int s = 0; s < ArraySize(prioritySymbols); s++)
+   {
+      string canon = prioritySymbols[s];
+      string brokerSym = ResolveBrokerSymbol(canon);
+
+      PushCandlesForSymbol(canon, brokerSym, PERIOD_M5, "M5");
+      PushCandlesForSymbol(canon, brokerSym, PERIOD_M15, "M15");
+      PushCandlesForSymbol(canon, brokerSym, PERIOD_H1, "H1");
+      PushCandlesForSymbol(canon, brokerSym, PERIOD_H4, "H4");
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Execute Controlled Demo Order (DEMO ONLY)                        |
 //+------------------------------------------------------------------+
 void HandlePendingOrder(string resp)
@@ -836,6 +896,13 @@ void OnTimer()
    {
       PushSymbolsAndSessions();
       g_last_symbols_time = now;
+   }
+
+   // 7. OHLC Candles every 10s
+   if(now - g_last_candles_time >= 10)
+   {
+      PushCandles();
+      g_last_candles_time = now;
    }
 }
 
