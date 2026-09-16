@@ -85,7 +85,16 @@ class ConnectivitySupervisor {
   async checkPortInUse(port) {
     return new Promise((resolve) => {
       const tester = http.get("http://127.0.0.1:" + port + "/api/status", { timeout: 1000 }, (res) => {
-        resolve(true);
+        let d = "";
+        res.on("data", c => d += c);
+        res.on("end", () => {
+          try {
+            const parsed = JSON.parse(d);
+            resolve(Boolean(parsed && (parsed.localBridge === "ONLINE" || parsed.success)));
+          } catch {
+            resolve(false);
+          }
+        });
       });
       tester.on("error", () => resolve(false));
       tester.on("timeout", () => { tester.destroy(); resolve(false); });
