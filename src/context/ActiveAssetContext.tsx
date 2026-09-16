@@ -54,10 +54,93 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   }, []);
 
-  // Poll live market endpoint every 5 seconds
+  // Poll live market endpoint and MT5 bridge telemetry
   const refreshData = useCallback(async () => {
     try {
       const updated = await fetchLiveMarketPrices();
+
+      // Query MT5 bridge telemetry to check for authoritative broker quotes
+      try {
+        let mt5Data: any = null;
+        let isMt5Connected = false;
+        let brokerName = 'Exness';
+
+        // 1. Check local HTTP bridge
+        const localRes = await fetch('/api/bridge/mt5?action=TELEMETRY', {
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        if (localRes.ok) {
+          const lData = await localRes.json();
+          if (lData.mt5Connected || lData.localBridge === 'ONLINE') {
+            mt5Data = lData;
+            isMt5Connected = Boolean(lData.mt5Connected);
+            brokerName = lData.broker || lData.terminal?.brokerName || 'Exness';
+          }
+        }
+
+        // 2. Check remote relay if local is not connected
+        if (!isMt5Connected) {
+          try {
+            const remoteRes = await fetch('/api/remote-mt5/telemetry', {
+              headers: { 'Cache-Control': 'no-cache' }
+            });
+            if (remoteRes.ok) {
+              const rData = await remoteRes.json();
+              if (rData.connected && rData.success) {
+                mt5Data = rData;
+                isMt5Connected = true;
+                brokerName = rData.broker || rData.terminal?.brokerName || 'Exness';
+              }
+            }
+          } catch {}
+        }
+
+        // Overlay MT5 quotes ONLY when connected AND fresh (<5000ms).
+        // If MT5 quote is stale (>=5000ms) or bridge disconnected, switch/retain reference fallback.
+        if (isMt5Connected && mt5Data?.quotes) {
+          const nowMs = Date.now();
+          const quotes: Record<string, any> = mt5Data.quotes;
+
+          for (const [symKey, refAsset] of Object.entries(updated)) {
+            const canonical = symKey.toUpperCase();
+            // Look up quote under canonical, alias, or lowercase
+            const quote = quotes[canonical] || quotes[`${canonical}m`] || quotes[symKey];
+            if (quote && typeof quote.bid === 'number' && typeof quote.ask === 'number' && quote.bid > 0 && quote.ask > 0) {
+              const quoteTime = quote.timestamp || (quote.time ? new Date(quote.time).getTime() : nowMs);
+              const quoteAgeMs = typeof quote.ageMs === 'number' ? quote.ageMs : Math.max(0, nowMs - quoteTime);
+              const isFresh = quoteAgeMs < 5000;
+
+              if (isFresh) {
+                // Preferred Behavior Option B: Fresh verified MT5 -> MT5_BROKER
+                const midPrice = Number(((quote.bid + quote.ask) / 2).toFixed(quote.digits || 2));
+                updated[symKey] = {
+                  ...refAsset,
+                  price: midPrice,
+                  bid: quote.bid,
+                  ask: quote.ask,
+                  spread: Number(quote.spread || (quote.ask - quote.bid)),
+                  source: 'MT5 Broker',
+                  provider: brokerName,
+                  feedStatus: 'LIVE',
+                  referencePrice: refAsset.referencePrice || refAsset.price,
+                  lastUpdated: 'Live MT5'
+                };
+              } else {
+                // Preferred Behavior Option B: MT5 stale -> REFERENCE_FEED / FALLBACK
+                // Keep reference price as primary, preserve raw broker telemetry in reference annotations
+                updated[symKey] = {
+                  ...refAsset,
+                  feedStatus: 'FALLBACK',
+                  lastUpdated: `Ref Fallback (MT5 Stale ${Math.round(quoteAgeMs / 1000)}s)`
+                };
+              }
+            }
+          }
+        }
+      } catch (bridgeErr) {
+        console.warn('Bridge telemetry overlay check error:', bridgeErr);
+      }
+
       setAllAssets(updated);
       setLastUpdated(new Date().toLocaleTimeString());
       setIsLive(true);

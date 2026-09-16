@@ -158,7 +158,7 @@ export const GlobalOpportunityRadar: React.FC = () => {
   };
 
   return (
-    <section className="w-full rounded-2xl ghost-glass-panel-elevated p-3 sm:p-5 flex flex-col space-y-4 font-sans text-gray-200 relative overflow-hidden">
+    <section id="opportunity-radar-card" className="w-full rounded-2xl ghost-glass-panel-elevated p-3 sm:p-5 flex flex-col space-y-4 font-sans text-gray-200 relative overflow-hidden">
       {/* Decorative ambient subtle glow */}
       <div className="absolute -top-24 -right-24 w-80 h-80 bg-cyan-600/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-24 -left-24 w-80 h-80 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />

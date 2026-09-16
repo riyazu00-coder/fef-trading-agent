@@ -21,7 +21,7 @@ export const CouncilDebateStream: React.FC = () => {
   };
 
   return (
-    <div className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-2.5 flex flex-col justify-between">
+    <div id="council-debate-card" className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-2.5 flex flex-col justify-between">
       <div className="flex items-center justify-between border-b border-white/10 pb-2">
         <div className="flex items-center space-x-2">
           <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

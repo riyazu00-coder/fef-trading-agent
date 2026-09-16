@@ -154,119 +154,60 @@ export const MasterTopNav: React.FC = () => {
 
   return (
     <>
-      <header className="ghost-glass-panel rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs relative z-30">
-        {/* Brand Identity: [ LOGO ] | [ CENTERED BRAND TEXT BLOCK ] */}
-        <div className="flex items-center space-x-3 sm:space-x-4 select-none">
-          {/* 1. Circular FEF Logo on Far Left */}
-          <Link
-            href="/cockpit"
-            className="relative flex-shrink-0 flex items-center justify-center group/logo cursor-pointer"
-            title="FEF Trading Solutions Home Cockpit"
-          >
-            <div className="relative w-[54px] h-[54px] sm:w-[60px] sm:h-[60px] flex items-center justify-center">
-              {/* Subtle ambient cyan/electric-blue/violet backlight glow */}
-              <div className="absolute inset-0 rounded-full bg-cyan-400/20 blur-md group-hover/logo:bg-cyan-400/35 transition-all pointer-events-none" />
-              <img
-                src="/images/fef-logo.png"
-                alt="FEF Trading Solutions Logo"
-                className="w-full h-full object-contain relative z-10 drop-shadow-[0_0_12px_rgba(34,211,238,0.45)] group-hover/logo:scale-105 transition-transform duration-200"
-              />
-            </div>
-          </Link>
-
-          {/* 2. Low-opacity glass-compatible subtle divider */}
-          <div
-            className="h-10 sm:h-12 w-[1px] bg-gradient-to-b from-transparent via-cyan-500/25 to-transparent flex-shrink-0"
-            aria-hidden="true"
-          />
-
-          {/* 3. Unified Centered Brand Text Block (All 3 lines share the exact same horizontal center axis) */}
-          <div className="flex flex-col items-center justify-center text-center">
-            {/* Line 1: Company Name */}
-            <Link
-              href="/cockpit"
-              className="group/title inline-block transition-opacity hover:opacity-95"
-            >
-              <h1 className="text-xs sm:text-[14px] font-extrabold text-[#F8FAFC] tracking-[0.1em] font-sans uppercase leading-tight text-center">
-                FEF <span className="text-[#22D3EE] font-bold">TRADING SOLUTIONS</span>
-              </h1>
-            </Link>
-
-            {/* Line 2: Tagline (Centered directly beneath company name, ~4-5px spacing) */}
-            <p className="text-[9.5px] sm:text-[10px] font-sans text-[#94A3B8] font-medium tracking-[0.03em] leading-tight mt-1 text-center whitespace-nowrap">
-              {BRAND_CONFIG.tagline}
-            </p>
-
-            {/* Line 3: Website (Centered directly beneath tagline, shares exact same center axis, ~4-5px spacing) */}
-            <a
-              href={BRAND_CONFIG.siteUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center space-x-1 mt-1 text-[10px] sm:text-[10.5px] font-mono font-bold text-[#67E8F9] hover:text-[#F8FAFC] transition-all hover:drop-shadow-[0_0_8px_rgba(34,211,238,0.7)] group/site leading-tight text-center cursor-pointer"
-              title={`Visit ${BRAND_CONFIG.domainDisplay}`}
-            >
-              <span className="text-[10px]">🌐</span>
-              <span className="underline decoration-[#22D3EE]/40 group-hover/site:decoration-[#22D3EE] underline-offset-2">
-                {BRAND_CONFIG.domainDisplay}
-              </span>
-              <span className="text-[8.5px] text-[#67E8F9]/80 group-hover/site:translate-x-0.5 group-hover/site:-translate-y-0.5 transition-transform">
-                ↗
-              </span>
-            </a>
+      <header className="ghost-glass-panel rounded-2xl px-3 sm:px-4 py-2 flex items-center justify-between gap-2.5 sm:gap-4 text-xs relative z-30 min-h-[58px]">
+        {/* =========================================================================
+            LEFT: APPROVED BRAND LOCKUP
+            [ EXISTING FEF ROUND LOGO ]  FEF
+                                         TRADING INTELLIGENCE
+                                         AI • MARKETS • RISK • EXECUTION
+           ========================================================================= */}
+        <Link
+          href="/cockpit"
+          className="flex items-center space-x-3 sm:space-x-3.5 select-none flex-shrink-0 group/brand cursor-pointer py-0.5"
+          title="FEF Trading Intelligence Cockpit"
+        >
+          {/* Circular FEF Logo (Original intact, prominent, directly LEFT of typography) */}
+          <div className="relative w-[50px] h-[50px] sm:w-[54px] sm:h-[54px] flex-shrink-0 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-cyan-400/25 blur-md group-hover/brand:bg-cyan-400/40 transition-all pointer-events-none" />
+            <img
+              src="/images/fef-logo.png"
+              alt="FEF Trading Intelligence Logo"
+              className="w-full h-full object-contain relative z-10 drop-shadow-[0_0_12px_rgba(34,211,238,0.5)] group-hover/brand:scale-105 transition-transform duration-200"
+            />
           </div>
-        </div>
 
-        {/* Real Route Navigation Tabs */}
-        <nav className="hidden lg:flex items-center space-x-1 bg-black/40 p-1 rounded-xl border border-white/10 font-sans">
-          {navTabs.map((tab) => {
-            const isRoot = pathname === '/' && tab.path === '/cockpit';
-            const isActive = pathname === tab.path || pathname.startsWith(tab.path + '/') || isRoot;
+          {/* Brand Typography Block */}
+          <div className="flex flex-col justify-center text-left select-none">
+            {/* Line 1: FEF (Dominant, clean futuristic geometric lettering, extended tracking, cyan/ice-blue/white glow) */}
+            <div className="text-[22px] sm:text-[25px] font-black tracking-[0.16em] font-sans uppercase leading-none text-transparent bg-clip-text bg-gradient-to-r from-white via-[#F0F9FF] to-[#67E8F9] drop-shadow-[0_0_14px_rgba(34,211,238,0.5)]">
+              FEF
+            </div>
 
-            return (
-              <Link
-                key={tab.name}
-                href={tab.path}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all text-xs flex items-center space-x-1.5 ${
-                  isActive
-                    ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50 shadow-[0_0_12px_rgba(34,211,238,0.35)] font-bold'
-                    : 'text-[#94A3B8] hover:text-[#CBD5E1] hover:bg-white/5'
-                }`}
-              >
-                <span>{tab.name}</span>
-                {tab.path === '/execution' && (
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
-                        ? 'bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(16,185,129,0.8)]'
-                        : isMt5Connected
-                          ? 'bg-amber-400'
-                          : 'bg-slate-500'
-                    }`}
-                    title={
-                      telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
-                        ? 'MT5 Demo Execution Active'
-                        : isMt5Connected
-                          ? 'MT5 Read-Only'
-                          : 'MT5 Standby'
-                    }
-                  />
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+            {/* Line 2: TRADING INTELLIGENCE (Prominent, wide tracking, high-tech cyan) */}
+            <div className="text-[9.5px] sm:text-[10.5px] font-black tracking-[0.22em] font-sans uppercase text-[#38BDF8] group-hover/brand:text-[#67E8F9] transition-colors leading-none mt-1">
+              TRADING INTELLIGENCE
+            </div>
 
-        {/* Search Bar, Telemetry Badges & Quick Action Controls */}
-        <div className="flex items-center space-x-2.5 sm:space-x-3">
-          {/* Ask FEF AI Search Field */}
+            {/* Line 3: AI • MARKETS • RISK • EXECUTION (Visible descriptor, wide tracking, muted ice-blue/grey) */}
+            <div className="text-[7px] sm:text-[8px] font-semibold tracking-[0.20em] font-mono text-[#94A3B8] group-hover/brand:text-[#CBD5E1] transition-colors leading-none mt-1 block">
+              AI • MARKETS • RISK • EXECUTION
+            </div>
+          </div>
+        </Link>
+
+        {/* =========================================================================
+            CENTER / FLEXIBLE AREA: SEARCH & OPERATIONAL CONTROLS
+           ========================================================================= */}
+        <div className="flex items-center space-x-2 sm:space-x-2.5 flex-shrink">
+          {/* Ask FEF AI Search Field (Dark glass, cyan accent) */}
           <form onSubmit={handleSearchSubmit} className="relative hidden md:flex items-center">
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Ask FEF AI anything... (e.g. Why gold is bullish?)"
-              className="bg-black/50 border border-white/10 focus:border-cyan-400/60 rounded-xl pl-8 pr-8 py-1.5 text-[11px] text-gray-200 placeholder-gray-500 w-52 xl:w-64 focus:w-72 transition-all outline-none"
+              placeholder="Ask FEF AI anything..."
+              className="bg-black/50 border border-white/10 hover:border-cyan-500/30 focus:border-cyan-400/70 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] rounded-xl pl-8 pr-7 py-1 text-[11px] text-gray-200 placeholder-gray-500 w-36 lg:w-44 xl:w-56 focus:w-64 transition-all outline-none"
             />
             <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -280,7 +221,8 @@ export const MasterTopNav: React.FC = () => {
             </button>
           </form>
 
-          {/* Active Symbol Market Session Badge */}
+          {/* Operational Indicators */}
+          {/* 1. Market / Session Status */}
           <MarketStatusBadge
             symbol={activeSymbol}
             sessionState={assetProfile.sessionState}
@@ -288,11 +230,11 @@ export const MasterTopNav: React.FC = () => {
             className="hidden sm:inline-flex"
           />
 
-          {/* Canonical MT5 Telemetry Operating Mode Pill (Desktop) */}
+          {/* 2. Canonical MT5 Status Pill */}
           {telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected ? (
             <Link
               href="/execution"
-              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9.5px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/40 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.15)]"
               title="MT5 Demo Execution Active (Controlled Micro-Lot Sizing)"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -301,7 +243,7 @@ export const MasterTopNav: React.FC = () => {
           ) : (
             <Link
               href="/settings"
-              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-amber-950/40 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-amber-100 font-mono text-[9.5px] transition-all cursor-pointer shadow-[0_0_10px_rgba(245,158,11,0.15)]"
+              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-amber-950/40 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-amber-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(245,158,11,0.15)]"
               title={isMt5Connected ? 'MT5 Connected in Read-Only Mode' : 'MT5 Bridge Standby'}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${isMt5Connected ? 'bg-amber-400' : 'bg-slate-500'}`} />
@@ -309,17 +251,17 @@ export const MasterTopNav: React.FC = () => {
             </Link>
           )}
 
-          {/* 24/7 Support Desk */}
+          {/* 3. 24/7 Institutional Support Desk */}
           <button
             onClick={() => setIsSupportOpen(true)}
-            className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white transition-all cursor-pointer font-mono text-[10px] shadow-[0_0_10px_rgba(0,240,255,0.15)]"
+            className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-cyan-950/40 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white transition-all cursor-pointer font-mono text-[9.5px] shadow-[0_0_10px_rgba(0,240,255,0.12)]"
             title="24/7 Institutional Support Desk"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-bold tracking-wider">● 24/7 SUPPORT</span>
+            <span className="font-bold tracking-wider">24/7 SUPPORT</span>
           </button>
 
-          {/* Bell notification & Radar Alert Trigger */}
+          {/* 4. Notification Bell & Radar Alert Trigger */}
           <button
             onClick={() => setIsDrawerOpen((prev) => !prev)}
             className="relative p-1.5 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-white transition-all cursor-pointer"
@@ -337,18 +279,63 @@ export const MasterTopNav: React.FC = () => {
             )}
           </button>
 
-          {/* User avatar / Settings profile link */}
+          {/* 5. Round FEF Support/Settings Icon */}
           <Link
             href="/settings"
-            className="flex items-center pl-2 border-l border-white/10 hover:opacity-90 transition-opacity cursor-pointer flex-shrink-0"
+            className="flex items-center hover:opacity-90 transition-opacity cursor-pointer flex-shrink-0"
             title="Settings & System Diagnostics"
           >
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-600 to-blue-800 border border-cyan-400/40 flex items-center justify-center font-bold text-[10px] text-white shadow-sm hover:border-cyan-400 transition-colors">
               FEF
             </div>
           </Link>
+        </div>
 
-          {/* Mobile Hamburger Menu Toggle Button */}
+        {/* =========================================================================
+            RIGHT: OPERATIONAL ROUTE NAVIGATION TABS
+            Brought down to the exact SAME HORIZONTAL LEVEL as the operational controls
+           ========================================================================= */}
+        <div className="flex items-center space-x-1.5 sm:space-x-2">
+          <nav className="hidden lg:flex items-center space-x-1 bg-black/40 p-1 rounded-xl border border-white/10 font-sans">
+            {navTabs.map((tab) => {
+              const isRoot = pathname === '/' && tab.path === '/cockpit';
+              const isActive = pathname === tab.path || pathname.startsWith(tab.path + '/') || isRoot;
+
+              return (
+                <Link
+                  key={tab.name}
+                  href={tab.path}
+                  className={`px-2.5 xl:px-3 py-1 rounded-lg font-medium transition-all text-xs flex items-center space-x-1.5 ${
+                    isActive
+                      ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50 shadow-[0_0_12px_rgba(34,211,238,0.35)] font-bold'
+                      : 'text-[#94A3B8] hover:text-[#CBD5E1] hover:bg-white/5 border border-transparent'
+                  }`}
+                >
+                  <span>{tab.name}</span>
+                  {tab.path === '/execution' && (
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
+                          ? 'bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(16,185,129,0.8)]'
+                          : isMt5Connected
+                            ? 'bg-amber-400'
+                            : 'bg-slate-500'
+                      }`}
+                      title={
+                        telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
+                          ? 'MT5 Demo Execution Active'
+                          : isMt5Connected
+                            ? 'MT5 Read-Only'
+                            : 'MT5 Standby'
+                      }
+                    />
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* Mobile Hamburger Menu Trigger */}
           <button
             onClick={() => setIsMobileMenuOpen((prev) => !prev)}
             className="lg:hidden p-2 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-white transition-all cursor-pointer"

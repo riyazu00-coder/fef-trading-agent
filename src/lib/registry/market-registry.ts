@@ -11,7 +11,7 @@
 
 export type MarketCategory = 'METALS' | 'FOREX' | 'INDICES' | 'COMMODITIES' | 'CRYPTO';
 
-export type MarketFeedStatus = 'LIVE' | 'DEMO' | 'DELAYED' | 'DATA LIMITED' | 'OFFLINE';
+export type MarketFeedStatus = 'LIVE' | 'DEMO' | 'DELAYED' | 'DATA LIMITED' | 'OFFLINE' | 'STALE' | 'FALLBACK';
 
 export interface MarketDefinition {
   symbol: string;

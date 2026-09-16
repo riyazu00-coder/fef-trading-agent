@@ -171,7 +171,7 @@ export const MarketSessionLiquidityMap: React.FC = () => {
   }, [activeAsset.price, activeSymbol]);
 
   return (
-    <div className="ghost-glass-panel rounded-2xl p-3.5 font-mono space-y-3 select-none">
+    <div id="liquidity-map-card" className="ghost-glass-panel rounded-2xl p-3.5 font-mono space-y-3 select-none">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 pb-2">
         <div className="flex items-center space-x-2">

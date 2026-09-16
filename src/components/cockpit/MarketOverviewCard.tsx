@@ -42,7 +42,7 @@ export const MarketOverviewCard: React.FC = () => {
     : `$${activeAsset.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
 
   return (
-    <div className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-3">
+    <div id="market-overview-card" className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 pb-2">
         <div className="flex items-center space-x-2">
@@ -124,7 +124,7 @@ export const MarketOverviewCard: React.FC = () => {
             {crossFeed && crossFeed.status !== 'UNAVAILABLE' && (
               <div className="flex items-center justify-between text-[8px] border-t border-emerald-500/20 pt-1 text-gray-300">
                 <span className="text-gray-400">
-                  Ref Feed: <strong className="text-gray-200">${activeAsset.price.toFixed(brokerCanonical.digits)}</strong> ({activeAsset.provider || 'Gold-API'})
+                  Ref Feed: <strong className="text-gray-200">${(activeAsset.referencePrice || activeAsset.price).toFixed(brokerCanonical.digits)}</strong> ({activeAsset.provider || 'Gold-API'})
                 </span>
                 <span className={`px-1.5 py-0.2 rounded font-bold ${
                   crossFeed.status === 'NORMAL_BASIS'

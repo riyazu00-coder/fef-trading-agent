@@ -4,8 +4,8 @@
  */
 
 export const BRAND_CONFIG = {
-  siteName: 'FEF Trading Solutions',
-  tagline: 'AI Intelligence • Risk Tools • Market Opportunities',
+  siteName: 'FEF Trading Intelligence',
+  tagline: 'AI • MARKETS • RISK • EXECUTION',
   siteUrl: process.env.NEXT_PUBLIC_SITE_URL || 'https://feftradingsolutions.com',
   domainDisplay: 'feftradingsolutions.com',
 };
