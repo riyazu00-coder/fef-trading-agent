@@ -218,8 +218,16 @@ export const CurrentAiDecision: React.FC = () => {
             <span>{buttonLabel}</span>
           </button>
           <button
-            onClick={() => alert(`Setup for ${activeSymbol}:\nEntry: ${assetProfile.entryZone && Array.isArray(assetProfile.entryZone) ? `${assetProfile.entryZone[0]} - ${assetProfile.entryZone[1]}` : 'Awaiting Structure'}\nSL: ${assetProfile.stopLoss ?? 'Mandatory (Pending)'}\nTP: ${assetProfile.tp1 ?? 'Mandatory (Pending)'}`)}
+            onClick={() => {
+              const calcElem = document.getElementById('smart-position-calculator') || document.querySelector('[data-card="position-calculator"]');
+              if (calcElem) {
+                calcElem.scrollIntoView({ behavior: 'smooth' });
+              } else {
+                window.location.hash = '#smart-position-calculator';
+              }
+            }}
             className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 transition-all cursor-pointer"
+            title="Modify parameters in Smart Position Calculator"
           >
             Modify
           </button>

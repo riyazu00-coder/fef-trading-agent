@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { resolvePriceForPurpose } from '@/lib/price/price-authority';
 
 export const ExecutionControlCard: React.FC = () => {
+  const router = useRouter();
   const { activeSymbol, assetProfile } = useActiveAsset();
   const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
   const [riskPercent, setRiskPercent] = useState('0.50%');
@@ -28,9 +30,40 @@ export const ExecutionControlCard: React.FC = () => {
   const handleDeploy = () => {
     if (!isTradeExecutable) return; // Strict frontend gate
     setIsExecuting(true);
+
+    if (isMt5Connected && telemetry.operatingMode === 'DEMO_EXECUTION') {
+      // Direct user to verified execution gateway
+      setTimeout(() => {
+        setIsExecuting(false);
+        router.push('/execution');
+      }, 500);
+      return;
+    }
+
+    // Paper simulation execution
     setTimeout(() => {
       setIsExecuting(false);
       setExecuted(true);
+      if (typeof window !== 'undefined') {
+        const paperTrade = {
+          id: `sim-${Date.now()}`,
+          ticket: Math.floor(90000000 + Math.random() * 9000000),
+          symbol: activeSymbol,
+          type: direction,
+          openPrice: execResolution.effectivePrice || 4345.0,
+          lots: 0.5,
+          sl: assetProfile?.stopLoss || 0,
+          tp: assetProfile?.tp1 || 0,
+          openTime: new Date().toISOString(),
+          status: 'SIMULATED_DEMO',
+          comment: 'FEF PAPER GATE'
+        };
+        try {
+          const existing = JSON.parse(window.localStorage.getItem('fef_paper_positions') || '[]');
+          existing.unshift(paperTrade);
+          window.localStorage.setItem('fef_paper_positions', JSON.stringify(existing.slice(0, 50)));
+        } catch {}
+      }
       setTimeout(() => setExecuted(false), 3000);
     }, 800);
   };

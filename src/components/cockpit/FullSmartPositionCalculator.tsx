@@ -310,7 +310,7 @@ export const FullSmartPositionCalculator: React.FC = () => {
   const riskChips = [0.25, 0.50, 1.00, 1.50, 2.00];
 
   return (
-    <div className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-3 relative select-none w-full border border-cyan-500/20 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
+    <div id="smart-position-calculator" className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-3 relative select-none w-full border border-cyan-500/20 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
       {/* Flash Notice Feedback Banner */}
       {flashNotice && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-3 py-1 bg-cyan-950/90 border border-cyan-400 text-cyan-200 text-[10px] rounded-full shadow-[0_0_15px_rgba(0,240,255,0.4)] animate-bounce font-sans">
