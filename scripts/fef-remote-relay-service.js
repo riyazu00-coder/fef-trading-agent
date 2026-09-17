@@ -40,6 +40,33 @@ const processedRequestIds = new Set(); // requestId -> idempotency history
 const processedApprovalIds = new Set(); // approvalId -> duplicate approval history
 const executionWaiters = new Map(); // requestId -> { resolve, timer }
 
+// Candle Store: key = `${deviceId}:${symbol}:${timeframe}` -> CandleSnapshot
+const candleSnapshots = new Map();
+
+const TIMEFRAME_DURATION_MS = {
+  M5: 5 * 60 * 1000,
+  M15: 15 * 60 * 1000,
+  H1: 60 * 60 * 1000,
+  H4: 4 * 60 * 60 * 1000,
+  D1: 24 * 60 * 60 * 1000,
+};
+
+function isCandleFresh(timeframe, lastCandleTimestamp, lastReceivedAt) {
+  const now = Date.now();
+  const tf = (timeframe || '').toUpperCase();
+  const duration = TIMEFRAME_DURATION_MS[tf] || (60 * 60 * 1000);
+
+  // Maximum allowed age since the relay received this batch from the connector
+  const maxReceiveAge = Math.max(duration * 3, 15 * 60 * 1000);
+  const receiveAge = now - lastReceivedAt;
+
+  // Maximum allowed age for the last closed candle during trading hours (up to 5 bars + 72h weekend buffer)
+  const maxCandleAge = Math.max(duration * 5, 72 * 60 * 60 * 1000);
+  const candleAge = Math.max(0, now - (lastCandleTimestamp || 0));
+
+  return receiveAge < maxReceiveAge && candleAge < maxCandleAge;
+}
+
 function hashAuthToken(token, salt = 'fef-device-salt-v1') {
   return crypto.createHash('sha256').update(`${salt}:${token}`).digest('hex');
 }
@@ -308,6 +335,68 @@ const server = http.createServer(async (req, res) => {
       pendingOrders: telemetry ? telemetry.pendingOrders : [],
       sessions: telemetry ? (telemetry.sessions || {}) : {},
       timestamp: now,
+    });
+  }
+
+  // GET /device/:id/candles (V1.1.1 Secure MT5 OHLC Cloud Relay)
+  const candlesMatch = pathname.match(/^\/device\/([^\/]+)\/candles$/);
+  if (req.method === 'GET' && candlesMatch) {
+    const deviceId = candlesMatch[1];
+    const device = registeredDevices.get(deviceId);
+    const sym = (parsedUrl.searchParams.get('symbol') || 'XAUUSD').toUpperCase().trim();
+    const tf = (parsedUrl.searchParams.get('timeframe') || 'H1').toUpperCase().trim();
+
+    if (!device) {
+      return sendJson(res, 404, {
+        success: false,
+        error: { code: 'DEVICE_NOT_FOUND', message: `Device '${deviceId}' is not registered.` }
+      });
+    }
+
+    const key = `${deviceId}:${sym}:${tf}`;
+    const entry = candleSnapshots.get(key);
+    const now = Date.now();
+    const isSocketOpen = activeSockets.has(deviceId);
+
+    if (!entry || !entry.candles || entry.candles.length === 0) {
+      return sendJson(res, 200, {
+        success: false,
+        state: 'UNAVAILABLE',
+        symbol: sym,
+        timeframe: tf,
+        count: 0,
+        provider: 'NONE',
+        broker: device.broker || 'UNKNOWN',
+        server: device.server || 'UNKNOWN',
+        source: 'MT5_BROKER_OHLC',
+        provenance: 'UNAVAILABLE',
+        updatedAt: now,
+        ageMs: 0,
+        isStale: true,
+        freshness: 'UNAVAILABLE',
+        candles: [],
+        error: { code: 'OHLC_UNAVAILABLE', message: `No verified broker OHLC currently available on relay for ${sym} on ${tf}.` }
+      });
+    }
+
+    const isFresh = isSocketOpen && isCandleFresh(tf, entry.sourceLastCandleAt, entry.lastReceivedAt);
+
+    return sendJson(res, 200, {
+      success: true,
+      state: isFresh ? 'VERIFIED' : 'STALE',
+      provider: entry.broker || device.broker || 'Exness Technologies Ltd',
+      broker: entry.broker || device.broker || 'Exness Technologies Ltd',
+      server: entry.server || device.server || 'Exness-MT5Trial16',
+      source: 'MT5_BROKER_OHLC',
+      provenance: isFresh ? 'LIVE_MT5' : 'DERIVED',
+      symbol: sym,
+      timeframe: tf,
+      count: entry.candles.length,
+      updatedAt: entry.lastReceivedAt,
+      ageMs: Math.max(0, now - entry.lastReceivedAt),
+      freshness: isFresh ? 'FRESH' : 'STALE',
+      isStale: !isFresh,
+      candles: entry.candles,
     });
   }
 
@@ -595,6 +684,135 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
+    // 3. Candles Ingest (V1.1.1 Secure MT5 OHLC Cloud Relay)
+    if (msg.type === 'CANDLES_SNAPSHOT' || msg.type === 'CANDLES') {
+      const payload = msg.payload || msg;
+      const { symbol, timeframe, candles, broker, server, schemaVersion } = payload;
+
+      const normSym = (symbol || '').toUpperCase().trim();
+      const normTf = (timeframe || '').toUpperCase().trim();
+      const validTfs = ['M5', 'M15', 'H1', 'H4', 'D1'];
+
+      if (!normSym || !validTfs.includes(normTf) || !Array.isArray(candles) || candles.length === 0) {
+        ws.send(JSON.stringify({
+          type: 'CANDLES_REJECTED',
+          code: 'INVALID_CANDLE_PAYLOAD',
+          message: 'Symbol, valid timeframe (M5, M15, H1, H4, D1), and non-empty candles array required.',
+          symbol: normSym,
+          timeframe: normTf,
+        }));
+        return;
+      }
+
+      // Max batch limit
+      if (candles.length > 300) {
+        ws.send(JSON.stringify({
+          type: 'CANDLES_REJECTED',
+          code: 'PAYLOAD_TOO_LARGE',
+          message: 'Candle count exceeds max limit of 300.',
+          symbol: normSym,
+          timeframe: normTf,
+        }));
+        return;
+      }
+
+      // Structural validation of each candle
+      const now = Date.now();
+      const maxFutureToleranceMs = 120_000;
+      let prevTs = 0;
+      let valid = true;
+      let rejectReason = '';
+
+      for (let i = 0; i < candles.length; i++) {
+        const c = candles[i];
+        if (
+          typeof c.timestamp !== 'number' ||
+          typeof c.open !== 'number' ||
+          typeof c.high !== 'number' ||
+          typeof c.low !== 'number' ||
+          typeof c.close !== 'number' ||
+          isNaN(c.timestamp) || isNaN(c.open) || isNaN(c.high) || isNaN(c.low) || isNaN(c.close)
+        ) {
+          valid = false;
+          rejectReason = `Non-numeric OHLC values at index ${i}`;
+          break;
+        }
+
+        if (c.high < c.low) {
+          valid = false;
+          rejectReason = `High (${c.high}) < Low (${c.low}) at index ${i}`;
+          break;
+        }
+
+        if (c.high < c.open || c.high < c.close || c.low > c.open || c.low > c.close) {
+          valid = false;
+          rejectReason = `Corrupt OHLC bounds at index ${i}`;
+          break;
+        }
+
+        if (c.timestamp > now + maxFutureToleranceMs) {
+          valid = false;
+          rejectReason = `Future timestamp ${c.timestamp} exceeds tolerance at index ${i}`;
+          break;
+        }
+
+        if (i > 0 && c.timestamp <= prevTs) {
+          valid = false;
+          rejectReason = `Non-ascending timestamp at index ${i} (${c.timestamp} <= ${prevTs})`;
+          break;
+        }
+
+        prevTs = c.timestamp;
+      }
+
+      if (!valid) {
+        ws.send(JSON.stringify({
+          type: 'CANDLES_REJECTED',
+          code: 'MALFORMED_CANDLES',
+          message: rejectReason,
+          symbol: normSym,
+          timeframe: normTf,
+        }));
+        return;
+      }
+
+      // Store verified candle series per device:symbol:timeframe
+      const key = `${authenticatedDeviceId}:${normSym}:${normTf}`;
+      const sanitizedCandles = candles.map(c => ({
+        timestamp: c.timestamp,
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+        tickVolume: Number(c.tickVolume || 0),
+      }));
+
+      candleSnapshots.set(key, {
+        deviceId: authenticatedDeviceId,
+        symbol: normSym,
+        timeframe: normTf,
+        broker: broker || device.broker || 'Exness Technologies Ltd',
+        server: server || device.server || 'Exness-MT5Trial16',
+        candles: sanitizedCandles,
+        count: sanitizedCandles.length,
+        lastReceivedAt: now,
+        sourceLastCandleAt: sanitizedCandles[sanitizedCandles.length - 1].timestamp,
+        schemaVersion: schemaVersion || '1.0',
+        provenance: 'LIVE_MT5',
+      });
+
+      device.lastSeen = now;
+
+      ws.send(JSON.stringify({
+        type: 'CANDLES_ACK',
+        symbol: normSym,
+        timeframe: normTf,
+        count: sanitizedCandles.length,
+        timestamp: now,
+      }));
+      return;
+    }
+
     // 3. Heartbeat
     if (msg.type === 'HEARTBEAT') {
       device.lastSeen = Date.now();
@@ -654,9 +872,11 @@ module.exports = {
   wss,
   registeredDevices,
   telemetrySnapshots,
+  candleSnapshots,
   activeSockets,
   processedRequestIds,
   processedApprovalIds,
   executionWaiters,
   hashAuthToken,
+  isCandleFresh,
 };

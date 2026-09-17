@@ -83,6 +83,84 @@ function fetchLocalBridgeStatus() {
   });
 }
 
+function fetchLocalBridgeCandles(symbol = 'XAUUSD', timeframe = 'H1') {
+  return new Promise((resolve) => {
+    const url = new URL(`/mt5/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`, LOCAL_BRIDGE_URL);
+    const req = http.request(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${LOCAL_BRIDGE_TOKEN}`,
+        'x-bridge-token': LOCAL_BRIDGE_TOKEN,
+      },
+      timeout: 2500,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => (data += chunk));
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(null);
+    });
+    req.end();
+  });
+}
+
+const lastCandleFingerprint = new Map();
+
+async function syncCandlesForTimeframe(symbol = 'XAUUSD', timeframe = 'H1', force = false) {
+  if (!isConnectedToRelay || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+  const res = await fetchLocalBridgeCandles(symbol, timeframe);
+  if (!res || !res.success || !Array.isArray(res.candles) || res.candles.length === 0) return;
+
+  const lastCandle = res.candles[res.candles.length - 1];
+  const fp = `${lastCandle.timestamp}:${lastCandle.close}:${res.candles.length}`;
+  const key = `${symbol}:${timeframe}`;
+
+  if (!force && lastCandleFingerprint.get(key) === fp) {
+    return; // Deduplicated
+  }
+
+  lastCandleFingerprint.set(key, fp);
+
+  const payload = {
+    deviceId: DEVICE_ID,
+    broker: 'Exness Technologies Ltd',
+    server: 'Exness-MT5Trial16',
+    symbol,
+    timeframe,
+    candles: res.candles,
+    generatedAt: Date.now(),
+    sourceTimestamp: res.updatedAt || Date.now(),
+    schemaVersion: '1.0',
+  };
+
+  try {
+    ws.send(JSON.stringify({
+      type: 'CANDLES_SNAPSHOT',
+      payload,
+    }));
+  } catch (err) {
+    console.error(`[FEF-CONNECTOR] Error sending ${symbol} ${timeframe} candles:`, err.message);
+  }
+}
+
+async function syncAllCandles(force = false) {
+  const tfs = ['M5', 'M15', 'H1', 'H4', 'D1'];
+  for (const tf of tfs) {
+    await syncCandlesForTimeframe('XAUUSD', tf, force);
+  }
+}
+
 function dispatchLocalBridgeCommand(payload) {
   return new Promise((resolve) => {
     const url = new URL('/api/command', LOCAL_BRIDGE_URL);
@@ -190,6 +268,10 @@ function connectToRelay() {
         isConnectedToRelay = true;
         console.log(`✓ [FEF-CONNECTOR] Authenticated with relay (Device: ${msg.publicDeviceId || DEVICE_ID})`);
         startTelemetryStream();
+        // Bootstrap candle snapshot across all 5 timeframes immediately upon authentication
+        syncAllCandles(true).catch((err) => {
+          console.error('[FEF-CONNECTOR] Error in initial candle bootstrap:', err.message);
+        });
         return;
       }
 
@@ -202,6 +284,16 @@ function connectToRelay() {
 
       if (msg.type === 'TELEMETRY_ACK' || msg.type === 'HEARTBEAT_ACK') {
         // Telemetry acknowledged
+        return;
+      }
+
+      if (msg.type === 'CANDLES_ACK') {
+        // Candles acknowledged by relay
+        return;
+      }
+
+      if (msg.type === 'CANDLES_REJECTED') {
+        console.warn(`[FEF-CONNECTOR] Relay rejected candles for ${msg.symbol} ${msg.timeframe}: ${msg.message}`);
         return;
       }
 
@@ -440,8 +532,22 @@ function startTelemetryStream() {
       type: 'TELEMETRY',
       snapshot,
     }));
+
+    // Timeframe-aware periodic candle synchronization
+    candleTickCount++;
+    if (candleTickCount % 4 === 0) {
+      syncCandlesForTimeframe('XAUUSD', 'M5', false).catch(() => {});
+      syncCandlesForTimeframe('XAUUSD', 'M15', false).catch(() => {});
+    }
+    if (candleTickCount % 16 === 0) {
+      syncCandlesForTimeframe('XAUUSD', 'H1', false).catch(() => {});
+      syncCandlesForTimeframe('XAUUSD', 'H4', false).catch(() => {});
+      syncCandlesForTimeframe('XAUUSD', 'D1', false).catch(() => {});
+    }
   }, POLL_INTERVAL_MS);
 }
+
+let candleTickCount = 0;
 
 function stopTelemetryStream() {
   if (pollTimer) {
