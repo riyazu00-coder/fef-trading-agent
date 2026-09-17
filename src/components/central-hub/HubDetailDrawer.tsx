@@ -60,7 +60,11 @@ export const HubDetailDrawer: React.FC<HubDetailDrawerProps> = ({
               </div>
               <div>
                 <span className="text-gray-400 text-[8.5px]">Confidence Score:</span>
-                <p className="text-cyan-300 font-bold text-[9px]">{selectedAgent.confidence}%</p>
+                <p className="text-cyan-300 font-bold text-[9px]">
+                  {selectedAgent.status === 'DATA LIMITED' || selectedAgent.confidence === 0
+                    ? `${selectedAgent.confidence}% (DATA LIMITED)`
+                    : `${selectedAgent.confidence}%`}
+                </p>
               </div>
               <div>
                 <span className="text-gray-400 text-[8.5px]">Evidence Trust:</span>

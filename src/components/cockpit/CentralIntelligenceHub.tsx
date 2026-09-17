@@ -133,12 +133,19 @@ export const CentralIntelligenceHub: React.FC = () => {
           <span className="flex items-center space-x-1 text-[#22D3EE]">
             <span className="w-1.5 h-1.5 rounded-full bg-[#22D3EE]" />
             <span className="font-sans text-[#CBD5E1]">
-              Confluence: <strong className="text-[#F8FAFC] font-mono font-bold">{assetProfile.confidence}%</strong>
+              Confluence:{' '}
+              {assetProfile.confidence === 0 ? (
+                <strong className="text-amber-300 font-mono font-bold">INSUFFICIENT EVIDENCE</strong>
+              ) : (
+                <strong className="text-[#F8FAFC] font-mono font-bold">{assetProfile.confidence}%</strong>
+              )}
             </span>
           </span>
           <span className="flex items-center space-x-1 text-[#34D399] font-sans">
             <span className="w-1.5 h-1.5 rounded-full bg-[#34D399]" />
-            <span className="font-mono font-bold">15 / 15 Agents Synced</span>
+            <span className="font-mono font-bold">
+              {15 - dataLimitedCount} / 15 Data Ready
+            </span>
           </span>
           {dataLimitedCount > 0 && (
             <span className="text-[8px] bg-amber-950/60 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded">

@@ -107,7 +107,14 @@ export const CurrentAiDecision: React.FC = () => {
               {assetProfile.setupDirection}
             </div>
             <div className="text-[9.5px] font-sans text-[#94A3B8] flex flex-wrap items-center gap-1.5">
-              <span>Confidence: <strong className="text-[#F8FAFC] font-mono font-bold">{assetProfile.confidence}%</strong></span>
+              <span>
+                Confidence:{' '}
+                {assetProfile.confidence === 0 ? (
+                  <strong className="text-amber-300 font-mono font-bold">INSUFFICIENT EVIDENCE</strong>
+                ) : (
+                  <strong className="text-[#F8FAFC] font-mono font-bold">{assetProfile.confidence}%</strong>
+                )}
+              </span>
               {assetProfile.evidenceTrust !== undefined && (
                 <>
                   <span className="text-gray-600">&bull;</span>

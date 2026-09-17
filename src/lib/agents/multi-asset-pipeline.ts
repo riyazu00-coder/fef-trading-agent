@@ -162,7 +162,7 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, _tim
 
   // DATA_LIMITED agent overrides — honest default for all agents without live data feeds
   const dataLimitedOverrides: Partial<Record<AgentType, Partial<AgentState>>> = {
-    TECHNICAL:     { bias: 'NEUTRAL', confidence: 0, status: 'ONLINE', lastOpinion: 'Awaiting verified OHLC candles from MT5 broker. No structure analysis yet.', evidence: ['MT5 candle feed: PENDING'], keyRisk: 'No data', invalidation: 'N/A' },
+    TECHNICAL:     { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Awaiting verified OHLC candles from MT5 broker. No structure analysis yet.', evidence: ['MT5 candle feed: PENDING'], keyRisk: 'No data', invalidation: 'N/A' },
     MACRO:         { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'No live macro feed connected. Economic calendar data unavailable.', evidence: ['Live macro API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' },
     CORRELATION:   { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Intermarket correlation unavailable. Requires multi-asset OHLC feed.', evidence: ['Multi-asset feed: PENDING'], keyRisk: 'N/A', invalidation: 'N/A' },
     NEWS:          { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'No live news API connected. Economic wire monitoring unavailable.', evidence: ['News API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' },
@@ -188,8 +188,9 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, _tim
     volatility: 'ATR: PENDING CANDLES',
     newsRisk: 'DATA LIMITED — No live news feed',
     liquidity: 'Broker specification available',
-    // Phase 2D: NO hardcoded entry/SL/TP offsets. These are null until a real blueprint is generated.
-    setupDirection: isPos ? 'WATCH FOR BUY' : 'WATCH FOR SELL',
+    // Phase 2D / V1.0.1 Truthfulness: Missing/insufficient data defaults to WAIT, NOT directional WATCH.
+    // Directional WATCH requires actual eligible bullish/bearish evidence.
+    setupDirection: 'WAIT',
     confidence: 0,
     entryZone: null as any,   // Will be set by trade-blueprint-engine when verified structure exists
     stopLoss: null as any,    // Mandatory SL gate enforces real value before execution
@@ -212,7 +213,7 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, _tim
       { time: '00:00:01', agent: 'TECHNICAL AGENT', text: `Phase 2D: ${symbol} awaiting verified OHLC candles from MT5 broker before structure analysis.`, status: 'DATA LIMITED' as any },
       { time: '00:00:02', agent: 'MACRO AGENT', text: `No live macro economic feed connected for ${symbol}. Macro stance DATA LIMITED.`, status: 'DATA LIMITED' as any },
       { time: '00:00:03', agent: 'RISK GUARDIAN', text: `Risk Guardian armed. Execution locked until verified structure blueprint exists.`, status: 'CAUTION' as any },
-      { time: '00:00:04', agent: 'FINAL DECISION', text: `Council standing by. Evidence Trust below threshold — posture: ${isPos ? 'WATCH FOR BUY' : 'WATCH FOR SELL'}.`, status: 'DATA LIMITED' as any },
+      { time: '00:00:04', agent: 'FINAL DECISION', text: `Council standing by. Evidence Trust below threshold — posture: WAIT (INSUFFICIENT EVIDENCE).`, status: 'DATA LIMITED' as any },
     ],
   };
 }
@@ -573,7 +574,35 @@ export function generateAssetIntelligence(
     marketState: sessionState.marketState
   });
 
+  // V1.0.1 Directional Evidence Gating:
+  // WATCH FOR BUY requires eligible verified bullish directional evidence.
+  // WATCH FOR SELL requires eligible verified bearish directional evidence.
+  // Risk Guardian CAUTION alone must NEVER determine market direction.
+  const eligibleBullishCount = assembledAgents.filter((a) => {
+    if (a.bias !== 'BULLISH') return false;
+    if (a.status === 'DATA LIMITED' || a.status === 'OFFLINE' || a.status === 'ERROR') return false;
+    return a.evidenceRecords?.some((e) => e.decisionEligible && e.verified);
+  }).length;
+
+  const eligibleBearishCount = assembledAgents.filter((a) => {
+    if (a.bias !== 'BEARISH') return false;
+    if (a.status === 'DATA LIMITED' || a.status === 'OFFLINE' || a.status === 'ERROR') return false;
+    return a.evidenceRecords?.some((e) => e.decisionEligible && e.verified);
+  }).length;
+
   let effectiveSetupDirection = detail.setupDirection;
+
+  if (detail.setupDirection.includes('BUY') && eligibleBullishCount === 0) {
+    effectiveSetupDirection = 'WAIT';
+  } else if (detail.setupDirection.includes('SELL') && eligibleBearishCount === 0) {
+    effectiveSetupDirection = 'WAIT';
+  }
+
+  // If majority of council is DATA LIMITED or evidence trust is insufficient (< 40)
+  // and no directional votes exist, enforce WAIT
+  if (consensusTrust.limitedAgentCount + consensusTrust.unavailableAgentCount >= 10 && eligibleBullishCount === 0 && eligibleBearishCount === 0) {
+    effectiveSetupDirection = 'WAIT';
+  }
 
   if (!tradeExecutable) {
     if (sessionState.marketState === 'PRE_OPEN') {
@@ -669,9 +698,10 @@ export function generateAssetIntelligence(
     : baseDebate;
 
   // Compute dynamic average confidence across the 15 voting council agents
+  // V1.0.1 Truthfulness: Do NOT fallback to synthetic 50. If totalConfidence is 0, return 0.
   const votingAgents = assembledAgents.slice(0, 15);
   const totalConfidence = votingAgents.reduce((sum, a) => sum + (a.confidence || 0), 0);
-  const avgConfidence = Math.round(totalConfidence / (votingAgents.length || 1)) || 50;
+  const avgConfidence = Math.round(totalConfidence / (votingAgents.length || 1));
 
   return {
     symbol: normSymbol,

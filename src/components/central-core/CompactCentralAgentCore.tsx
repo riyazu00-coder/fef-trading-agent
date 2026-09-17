@@ -32,10 +32,13 @@ export function CompactCentralAgentCore({
   const selectedAgent = agents.find((a) => a.type === activeAgentType) || null;
 
   // Calculate consensus stats
-  const bullishCount = agents.filter((a) => a.bias === 'BULLISH').length;
-  const cautionCount = agents.filter((a) => a.bias === 'CAUTION' || a.bias === 'WAIT').length;
-  const neutralCount = agents.filter((a) => a.bias === 'NEUTRAL').length;
+  const bullishCount = agents.filter((a) => a.bias === 'BULLISH' && a.status !== 'DATA LIMITED').length;
+  const bearishCount = agents.filter((a) => a.bias === 'BEARISH' && a.status !== 'DATA LIMITED').length;
+  const cautionCount = agents.filter((a) => (a.bias === 'CAUTION' || a.bias === 'WAIT') && a.status !== 'DATA LIMITED').length;
+  const dataLimitedCount = agents.filter((a) => a.status === 'DATA LIMITED').length;
+  const neutralCount = agents.filter((a) => a.bias === 'NEUTRAL' && a.status !== 'DATA LIMITED').length;
   const avgConfidence = Math.round(agents.reduce((acc, a) => acc + a.confidence, 0) / (agents.length || 1));
+  const dynamicDirection = bullishCount > bearishCount && bullishCount >= 3 ? 'BULLISH' : bearishCount > bullishCount && bearishCount >= 3 ? 'BEARISH' : 'NEUTRAL / WAIT';
 
   const getBiasColor = (bias: string) => {
     switch (bias) {
@@ -247,12 +250,20 @@ export function CompactCentralAgentCore({
           </div>
 
           <div className="text-[10px] text-gray-100 font-bold tracking-wide mt-1 drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">
-            SYNTHESIZED DIRECTION: <span className="text-emerald-300 font-black drop-shadow-[0_0_8px_rgba(16,185,129,0.7)]">BULLISH</span>
+            SYNTHESIZED DIRECTION:{' '}
+            <span className={`font-black drop-shadow-[0_0_8px_rgba(16,185,129,0.7)] ${
+              dynamicDirection === 'BULLISH' ? 'text-emerald-300' : dynamicDirection === 'BEARISH' ? 'text-rose-300' : 'text-amber-300'
+            }`}>
+              {dynamicDirection}
+            </span>
           </div>
 
-          <div className="flex items-center space-x-1.5 text-[8.5px]">
+          <div className="flex flex-wrap items-center justify-center gap-1 text-[8.5px]">
             <span className="bg-emerald-950/60 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-400/50 backdrop-blur-sm shadow-[0_0_6px_rgba(16,185,129,0.4)]">
               {bullishCount} Bullish
+            </span>
+            <span className="bg-rose-950/60 text-rose-300 px-1.5 py-0.5 rounded border border-rose-400/50 backdrop-blur-sm shadow-[0_0_6px_rgba(244,63,94,0.4)]">
+              {bearishCount} Bearish
             </span>
             <span className="bg-amber-950/60 text-amber-300 px-1.5 py-0.5 rounded border border-amber-400/50 backdrop-blur-sm shadow-[0_0_6px_rgba(251,191,36,0.4)]">
               {cautionCount} Caution
@@ -260,6 +271,11 @@ export function CompactCentralAgentCore({
             <span className="bg-cyan-950/60 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-400/50 backdrop-blur-sm shadow-[0_0_6px_rgba(0,240,255,0.4)]">
               {neutralCount} Neutral
             </span>
+            {dataLimitedCount > 0 && (
+              <span className="bg-slate-900/60 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700/50 backdrop-blur-sm">
+                {dataLimitedCount} Data Ltd
+              </span>
+            )}
           </div>
         </div>
 

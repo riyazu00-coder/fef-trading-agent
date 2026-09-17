@@ -178,7 +178,7 @@ console.log('\n[TEST GROUP 3] 15-Council Consensus Trust & Specialist Observer I
 runTest('15-agent consensus computes distinct Council Confidence and Evidence Trust', () => {
   const profile = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
   assert.strictEqual(profile.agents.length, 15, 'Exactly 15 council agents must be present');
-  assert(typeof profile.confidence === 'number' && profile.confidence > 0, 'Council confidence exists');
+  assert(typeof profile.confidence === 'number' && profile.confidence >= 0, 'Council confidence exists');
   assert(typeof profile.evidenceTrust === 'number', 'Evidence trust exists');
   assert(typeof profile.verifiedAgentCount === 'number', 'Verified agent count exists');
   assert.strictEqual(typeof profile.actionabilityState, 'string', 'Actionability state exists');

@@ -106,8 +106,8 @@ export const HubRiskWarningStrip: React.FC<HubRiskWarningStripProps> = ({
 
         <div className="bg-black/40 rounded px-1 py-0.5 border border-white/5 truncate">
           <span className="text-gray-500 block text-[6.5px] uppercase">CONSENSUS</span>
-          <strong className="text-emerald-300 truncate block">
-            {confluenceScore}%
+          <strong className={`truncate block ${confluenceScore === 0 ? 'text-amber-300 text-[6.5px]' : 'text-emerald-300'}`}>
+            {confluenceScore === 0 ? 'INSUFFICIENT' : `${confluenceScore}%`}
           </strong>
         </div>
 

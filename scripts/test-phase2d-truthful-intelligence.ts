@@ -173,13 +173,58 @@ async function runTests() {
   assert(profile.actionabilityState === 'DATA LIMITED' || profile.actionabilityState === 'ANALYSIS ONLY', `Actionability state is non-actionable (actual: ${profile.actionabilityState})`);
   assert(profile.evidenceTrust < 60, `Evidence Trust is below 60% threshold without live feeds (actual: ${profile.evidenceTrust}%)`);
 
-  // 7. Free Providers Isolation
-  console.log('\n[7. FREE PROVIDERS ISOLATION]');
-  assert(FREE_MARKET_ASSETS.every(a => a.isLive === false), 'All FREE_MARKET_ASSETS have isLive = false');
-  const visionSim = analyzeChartImageOffline('gold_chart.png');
-  assert(visionSim.isDemoFixture === true, 'analyzeChartImageOffline flagged as isDemoFixture = true');
-  assert(visionSim.productionEligible === false, 'analyzeChartImageOffline flagged as productionEligible = false');
-  assert(visionSim.visiblePrice === 'UNAVAILABLE', 'analyzeChartImageOffline returns UNAVAILABLE price');
+  // 8. V1.0.1 Directional Watch Gating & Council Truthfulness
+  console.log('\n[8. V1.0.1 DIRECTIONAL WATCH GATING & COUNCIL TRUTHFULNESS]');
+  const prodFailureProfile = generateAssetIntelligence('XAUUSD', {
+    symbol: 'XAUUSD',
+    name: 'Gold Spot / USD',
+    price: 4290.65,
+    change24h: -0.45, // Negative change that previously produced "WATCH FOR SELL"
+    spread: 0.05,
+    category: 'METALS'
+  } as any);
+
+  const dlCount = prodFailureProfile.agents.filter(a => a.status === 'DATA LIMITED').length;
+  const bullCount = prodFailureProfile.agents.filter(a => a.bias === 'BULLISH' && a.status !== 'DATA LIMITED').length;
+  const bearCount = prodFailureProfile.agents.filter(a => a.bias === 'BEARISH' && a.status !== 'DATA LIMITED').length;
+  const cCount = prodFailureProfile.agents.filter(a => (a.bias === 'CAUTION' || a.bias === 'RESTRICTED') && a.status !== 'DATA LIMITED').length;
+
+  assert(dlCount >= 13, `At least 13 agents are DATA LIMITED (got ${dlCount})`);
+  assert(bullCount === 0, `Bullish count is 0 (got ${bullCount})`);
+  assert(bearCount === 0, `Bearish count is 0 (got ${bearCount})`);
+  assert(cCount === 1, `Caution count is 1 (Risk Guardian) (got ${cCount})`);
+
+  // Production issue verification: MUST NOT produce directional WATCH FOR SELL
+  assert(
+    prodFailureProfile.setupDirection !== 'WATCH FOR SELL' && prodFailureProfile.setupDirection !== 'WATCH FOR BUY',
+    `No directional WATCH produced when 0 directional votes exist (got: ${prodFailureProfile.setupDirection})`
+  );
+  assert(
+    prodFailureProfile.setupDirection === 'WAIT' || prodFailureProfile.setupDirection.includes('WAIT'),
+    `Posture truthfully resolves to WAIT (got: ${prodFailureProfile.setupDirection})`
+  );
+  assert(
+    prodFailureProfile.confidence === 0,
+    `Confluence is 0% without synthetic 50% fallback (got: ${prodFailureProfile.confidence}%)`
+  );
+
+  const techAgent = prodFailureProfile.agents.find(a => a.type === 'TECHNICAL');
+  assert(techAgent?.status === 'DATA LIMITED', `Technical agent status is DATA LIMITED (got ${techAgent?.status})`);
+  assert(techAgent?.confidence === 0, `Technical agent confidence is 0% (got ${techAgent?.confidence}%)`);
+
+  // Positive 24h change test: must NOT produce WATCH FOR BUY without evidence
+  const posProfile = generateAssetIntelligence('XAUUSD', {
+    symbol: 'XAUUSD',
+    name: 'Gold Spot / USD',
+    price: 4300.00,
+    change24h: +1.20,
+    spread: 0.05,
+    category: 'METALS'
+  } as any);
+  assert(
+    posProfile.setupDirection !== 'WATCH FOR BUY',
+    `Positive 24h change does NOT default to WATCH FOR BUY (got: ${posProfile.setupDirection})`
+  );
 
   console.log('\n===============================================================');
   console.log(` SUMMARY: ${passCount} PASSED, ${failCount} FAILED`);

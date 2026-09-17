@@ -39,9 +39,11 @@ export const OrchestratorCore: React.FC<OrchestratorCoreProps> = ({
 
   const currentState = CORE_STATES[coreStateIndex];
 
-  const bullishCount = profile.agents.filter((a) => a.bias === 'BULLISH').length;
-  const cautionCount = profile.agents.filter((a) => a.bias === 'CAUTION' || a.bias === 'RESTRICTED').length;
-  const neutralCount = profile.agents.filter((a) => a.bias === 'NEUTRAL' || a.bias === 'BEARISH').length;
+  const bullishCount = profile.agents.filter((a) => a.bias === 'BULLISH' && a.status !== 'DATA LIMITED').length;
+  const bearishCount = profile.agents.filter((a) => a.bias === 'BEARISH' && a.status !== 'DATA LIMITED').length;
+  const cautionCount = profile.agents.filter((a) => (a.bias === 'CAUTION' || a.bias === 'RESTRICTED') && a.status !== 'DATA LIMITED').length;
+  const dataLimitedCount = profile.agents.filter((a) => a.status === 'DATA LIMITED').length;
+  const neutralCount = profile.agents.filter((a) => a.bias === 'NEUTRAL' && a.status !== 'DATA LIMITED').length;
 
   const isBuy = profile.setupDirection.includes('BUY');
   const isSell = profile.setupDirection.includes('SELL');
@@ -152,7 +154,7 @@ export const OrchestratorCore: React.FC<OrchestratorCoreProps> = ({
         </div>
 
         <div className="text-[7px] text-gray-400 font-mono tracking-tighter uppercase">
-          SYNTHESIZING CONFLUENCE ({profile.confidence}%)
+          {profile.confidence === 0 ? 'CONFLUENCE: INSUFFICIENT EVIDENCE' : `SYNTHESIZING CONFLUENCE (${profile.confidence}%)`}
         </div>
       </div>
 
@@ -169,9 +171,12 @@ export const OrchestratorCore: React.FC<OrchestratorCoreProps> = ({
           </span>
         </div>
 
-        <div className="flex items-center justify-center space-x-1 mt-0.5 text-[7.5px] font-mono">
+        <div className="flex flex-wrap items-center justify-center gap-1 mt-0.5 text-[7.5px] font-mono">
           <span className="px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-500/40 font-bold">
             {bullishCount} Bullish
+          </span>
+          <span className="px-1.5 py-0.2 rounded bg-rose-950/60 text-rose-300 border border-rose-500/40 font-bold">
+            {bearishCount} Bearish
           </span>
           <span className="px-1.5 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-500/40 font-bold">
             {cautionCount} Caution
@@ -179,6 +184,11 @@ export const OrchestratorCore: React.FC<OrchestratorCoreProps> = ({
           <span className="px-1.5 py-0.2 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-500/40 font-bold">
             {neutralCount} Neutral
           </span>
+          {dataLimitedCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded bg-slate-900/60 text-slate-400 border border-slate-700/40 font-bold">
+              {dataLimitedCount} Data Ltd
+            </span>
+          )}
         </div>
       </div>
     </div>
