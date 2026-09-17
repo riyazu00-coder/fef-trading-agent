@@ -13,6 +13,8 @@
 import { LiveMarketAsset, INITIAL_LIVE_ASSETS } from '../providers/real-market-api';
 import { generateAssetIntelligence, AssetIntelligenceProfile } from '../agents/multi-asset-pipeline';
 import { MarketCategory } from '../registry/market-registry';
+import { OHLCCandle } from '../market/canonical-market-snapshot';
+import { EvidenceClassification } from '../evidence/agent-evidence';
 
 export type RadarOpportunityState =
   | 'STRONG BUY OPPORTUNITY'
@@ -316,13 +318,22 @@ export function calculateOpportunityScore(
  */
 export function generateGlobalRadarIntelligence(
   assets: Record<string, LiveMarketAsset> = INITIAL_LIVE_ASSETS,
-  currentTimeframe: string = 'H1'
+  currentTimeframe: string = 'H1',
+  activeCandles?: {
+    symbol: string;
+    candles: OHLCCandle[];
+    provenance?: EvidenceClassification;
+    provider?: string;
+  }
 ): GlobalRadarIntelligence {
   const symbols = Object.keys(assets);
 
   const opportunities: RadarOpportunityItem[] = symbols.map((sym) => {
     const liveAsset = assets[sym];
-    const profile = generateAssetIntelligence(sym, liveAsset, currentTimeframe);
+    const isMatched = activeCandles && activeCandles.symbol === sym && Array.isArray(activeCandles.candles) && activeCandles.candles.length >= 10;
+    const profile = isMatched
+      ? generateAssetIntelligence(sym, liveAsset, currentTimeframe, activeCandles.candles, activeCandles.provenance, activeCandles.provider)
+      : generateAssetIntelligence(sym, liveAsset, currentTimeframe);
     const { score, setupQuality, tradeExecutable, marketState, state, riskLevel, timeframe, whyReasons } = calculateOpportunityScore(profile, liveAsset);
 
     return {
