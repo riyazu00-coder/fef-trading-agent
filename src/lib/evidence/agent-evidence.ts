@@ -10,10 +10,13 @@ import { AgentType, AgentState } from '@/lib/agents/agent-types';
 import { MarketSessionState } from '@/lib/session/market-session-engine';
 
 /**
- * The 11 Canonical Evidence Classifications
+ * The Canonical Evidence Classifications
  */
 export type EvidenceClassification =
   | 'LIVE_MT5'            // Measured directly via verified local MT5 WebRequest/HTTP telemetry
+  | 'INDEPENDENT_VERIFIED' // Measured directly via verified independent public market feed (Binance spot, Yahoo FX/Indices)
+  | 'INDEPENDENT_REFERENCE'// Reference/proxy market feed (e.g. PAXG proxy for gold, CME futures proxy) — strictly non-executable
+  | 'DERIVED_FROM_VERIFIED'// Mathematically computed from verified independent OHLC or telemetry
   | 'LIVE_EXTERNAL'       // Measured via connected public market API (Gold-API, Binance, open.er-api)
   | 'DELAYED_EXTERNAL'    // Public API feed with known timestamp delay (> 60s)
   | 'CACHED'              // Cached memory snapshot within acceptable TTL
@@ -28,6 +31,8 @@ export type EvidenceClassification =
 export type ProvenanceBadgeType =
   | 'LIVE'
   | 'MT5'
+  | 'INDEPENDENT'
+  | 'REFERENCE'
   | 'DERIVED'
   | 'INFERENCE'
   | 'DATA LIMITED'
@@ -56,15 +61,18 @@ export interface AgentEvidence {
  * Maximum acceptable freshness thresholds in milliseconds
  */
 export const FRESHNESS_POLICIES: Record<EvidenceClassification, number> = {
-  LIVE_MT5: 60_000,          // 60 seconds for broker telemetry
-  LIVE_EXTERNAL: 120_000,     // 2 minutes for public price feeds
-  DELAYED_EXTERNAL: 900_000,  // 15 minutes for delayed wire/macro data
-  CACHED: 300_000,            // 5 minutes for cached profiles
-  DERIVED: 300_000,           // Derived from recent price within 5 mins
-  MODEL_INFERENCE: 600_000,   // 10 minutes
-  HEURISTIC: 600_000,         // 10 minutes
-  SIMULATED: 0,               // Never fresh for production
-  HARDCODED: 0,               // Never fresh for production
+  LIVE_MT5: 60_000,              // 60 seconds for broker telemetry
+  INDEPENDENT_VERIFIED: 120_000, // 2 minutes for verified independent public market feeds
+  INDEPENDENT_REFERENCE: 300_000,// 5 minutes for reference/proxy feeds (PAXG, CME Futures)
+  DERIVED_FROM_VERIFIED: 300_000,// 5 minutes for mathematical analysis derived from verified OHLC
+  LIVE_EXTERNAL: 120_000,         // 2 minutes for public price feeds
+  DELAYED_EXTERNAL: 900_000,      // 15 minutes for delayed wire/macro data
+  CACHED: 300_000,                // 5 minutes for cached profiles
+  DERIVED: 300_000,               // Derived from recent price within 5 mins
+  MODEL_INFERENCE: 600_000,       // 10 minutes
+  HEURISTIC: 600_000,             // 10 minutes
+  SIMULATED: 0,                   // Never fresh for production
+  HARDCODED: 0,                   // Never fresh for production
   UNAVAILABLE: 0,
   UNKNOWN: 0,
 };
@@ -73,7 +81,9 @@ export const FRESHNESS_POLICIES: Record<EvidenceClassification, number> = {
  * Evaluates whether a piece of evidence is eligible to participate in a production trading decision.
  * 
  * Rules:
- * - LIVE_MT5, LIVE_EXTERNAL, DERIVED: Eligible when fresh.
+ * - LIVE_MT5, LIVE_EXTERNAL, INDEPENDENT_VERIFIED: Eligible when fresh.
+ * - DERIVED, DERIVED_FROM_VERIFIED: Eligible when derived from fresh verified telemetry/OHLC.
+ * - INDEPENDENT_REFERENCE: Verified context/structure, but non-executable (ineligible for automated broker execution).
  * - DELAYED_EXTERNAL, CACHED: Eligible only if within freshness policy window.
  * - MODEL_INFERENCE, HEURISTIC: Ineligible to masquerade as observed facts; provide contextual bias only.
  * - SIMULATED, HARDCODED, UNAVAILABLE, UNKNOWN: Strictly ineligible.
@@ -84,7 +94,8 @@ export function isEvidenceDecisionEligible(
 ): { eligible: boolean; verified: boolean; reason: string } {
   switch (classification) {
     case 'LIVE_MT5':
-    case 'LIVE_EXTERNAL': {
+    case 'LIVE_EXTERNAL':
+    case 'INDEPENDENT_VERIFIED': {
       const maxAge = FRESHNESS_POLICIES[classification];
       if (freshnessMs > maxAge) {
         return {
@@ -93,11 +104,12 @@ export function isEvidenceDecisionEligible(
           reason: `Stale live feed: ${Math.round(freshnessMs / 1000)}s exceeds limit of ${maxAge / 1000}s`
         };
       }
-      return { eligible: true, verified: true, reason: 'Fresh verified live telemetry' };
+      return { eligible: true, verified: true, reason: 'Fresh verified market feed' };
     }
 
-    case 'DERIVED': {
-      const maxAge = FRESHNESS_POLICIES.DERIVED;
+    case 'DERIVED':
+    case 'DERIVED_FROM_VERIFIED': {
+      const maxAge = FRESHNESS_POLICIES[classification];
       if (freshnessMs > maxAge) {
         return {
           eligible: false,
@@ -105,7 +117,20 @@ export function isEvidenceDecisionEligible(
           reason: `Stale derived computation: ${Math.round(freshnessMs / 1000)}s`
         };
       }
-      return { eligible: true, verified: true, reason: 'Mathematically derived from verified price' };
+      return { eligible: true, verified: true, reason: 'Mathematically derived from verified price/OHLC' };
+    }
+
+    case 'INDEPENDENT_REFERENCE': {
+      const maxAge = FRESHNESS_POLICIES.INDEPENDENT_REFERENCE;
+      if (freshnessMs > maxAge) {
+        return {
+          eligible: false,
+          verified: false,
+          reason: `Stale reference proxy: ${Math.round(freshnessMs / 1000)}s`
+        };
+      }
+      // Reference/proxy market feed: verified for market intelligence, strictly non-executable
+      return { eligible: false, verified: true, reason: 'Verified market reference / proxy (non-executable)' };
     }
 
     case 'DELAYED_EXTERNAL':
@@ -168,12 +193,18 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
         earnedScore += 1.0;
         verifiedCount += 1;
         break;
+      case 'INDEPENDENT_VERIFIED':
       case 'LIVE_EXTERNAL':
         earnedScore += 0.95;
         verifiedCount += 1;
         break;
+      case 'DERIVED_FROM_VERIFIED':
       case 'DERIVED':
         earnedScore += 0.90;
+        verifiedCount += 1;
+        break;
+      case 'INDEPENDENT_REFERENCE':
+        earnedScore += 0.80;
         verifiedCount += 1;
         break;
       case 'DELAYED_EXTERNAL':
@@ -205,9 +236,11 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
   let badge: ProvenanceBadgeType = 'UNAVAILABLE';
   if (evidences.some((e) => e.classification === 'LIVE_MT5')) {
     badge = 'MT5';
-  } else if (evidences.some((e) => e.classification === 'LIVE_EXTERNAL')) {
-    badge = 'LIVE';
-  } else if (evidences.some((e) => e.classification === 'DERIVED')) {
+  } else if (evidences.some((e) => e.classification === 'INDEPENDENT_VERIFIED' || e.classification === 'LIVE_EXTERNAL')) {
+    badge = 'INDEPENDENT';
+  } else if (evidences.some((e) => e.classification === 'INDEPENDENT_REFERENCE')) {
+    badge = 'REFERENCE';
+  } else if (evidences.some((e) => e.classification === 'DERIVED_FROM_VERIFIED' || e.classification === 'DERIVED')) {
     badge = 'DERIVED';
   } else if (evidences.some((e) => e.classification === 'MODEL_INFERENCE' || e.classification === 'HEURISTIC')) {
     badge = 'INFERENCE';

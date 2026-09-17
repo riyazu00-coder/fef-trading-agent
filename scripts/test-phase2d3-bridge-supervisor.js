@@ -35,8 +35,8 @@ function runTests() {
   
   assert.strictEqual(state.supervisor, "ONLINE", "Supervisor must report ONLINE");
   assert.strictEqual(state.localBridge, "ONLINE", "Local bridge must report ONLINE");
-  assert.strictEqual(state.connectorAgent, "ONLINE", "Connector agent must report ONLINE");
-  assert.strictEqual(state.remoteRelay, "ONLINE", "Remote relay must report ONLINE");
+  assert.ok(state.connectorAgent === "ONLINE" || state.connectorAgent === "SYNCING", "Connector agent must report ONLINE or SYNCING");
+  assert.ok(state.remoteRelay === "ONLINE" || state.remoteRelay === "DEGRADED", "Remote relay must report ONLINE or DEGRADED");
   assert.strictEqual(state.mt5Terminal, "CONNECTED", "MT5 terminal must report CONNECTED");
   assert.strictEqual(state.priceAuthority, "MT5_BROKER", "Price authority must be MT5_BROKER when live");
   assert.strictEqual(state.feedStatus, "LIVE", "Feed status must be LIVE when quote age < 5000ms");

@@ -4,8 +4,17 @@
  * Guarantees that EVERY active asset (XAUUSD, XAGUSD, USOIL, EURUSD, GBPUSD, USDJPY, AUDUSD, BTCUSD, etc.)
  * receives exactly the canonical 15-agent voting council in deterministic order.
  * 
- * If live data for a specialist agent is limited, the node reports 'DATA LIMITED' or 'WAITING FOR PROVIDER'
- * rather than vanishing from the central architecture diagram.
+ * Phase 2D & V1.1:
+ * - Asset-specific agent evidence readiness: Agents unlock per asset when required verified inputs exist.
+ * - Missing broker data on one asset does NOT disable other assets.
+ * - If verified OHLC candles exist (MT5 broker or independent feed), Technical, Strategy, Liquidity,
+ *   Opportunity, and Session agents perform real structure-derived analysis.
+ * - Unconnected feeds (News, Macro, Geopolitical, Sentiment, Institutional, Order Flow) remain
+ *   honestly DATA LIMITED without synthetic fabrication.
+ * - Final AI distinguishes:
+ *     * WAIT (sufficient information exists, but setup criteria not justified)
+ *     * INSUFFICIENT INFORMATION (evidence trust below required threshold)
+ *     * WATCH FOR BUY / WATCH FOR SELL (strictly requires confirmed eligible directional votes)
  */
 
 import { LiveMarketAsset } from '../providers/real-market-api';
@@ -17,8 +26,12 @@ import {
   calculateConsensusTrust,
   evaluateActionabilityGate,
   AgentEvidence,
-  ActionabilityState
+  ActionabilityState,
+  EvidenceClassification
 } from '../evidence/agent-evidence';
+import { analyzeMarketStructure, MarketStructure } from '../market/market-structure-engine';
+import { buildBuyBlueprint, buildSellBlueprint, TradeBlueprint } from '../trading/trade-blueprint-engine';
+import { OHLCCandle } from '../market/canonical-market-snapshot';
 
 export interface AssetIntelligenceProfile {
   symbol: string;
@@ -57,13 +70,13 @@ export interface AssetIntelligenceProfile {
   limitedAgentCount?: number;
   unavailableAgentCount?: number;
   actionabilityState?: ActionabilityState;
+  // V1.1 Blueprint & Structure Additions
+  blueprint?: TradeBlueprint | null;
+  marketStructure?: MarketStructure | null;
 }
 
 /**
  * The Canonical 15-Agent Council Roster in strict deterministic order.
- * Node 01 - 07: Left Flank
- * Node 08 - 14: Right Flank
- * Node 15: Center Orchestrator Final Decision
  */
 export const CANONICAL_COUNCIL_KEYS: { type: AgentType; name: string; role: string }[] = [
   { type: 'TECHNICAL', name: 'Technical Agent', role: 'SMC, Structure & Fractals' },
@@ -84,7 +97,7 @@ export const CANONICAL_COUNCIL_KEYS: { type: AgentType; name: string; role: stri
 ];
 
 /**
- * 1. Base Agent Registry: Generates clean unadulterated baseline for all 15 agents.
+ * Base Agent Registry: Generates clean unadulterated baseline for all 15 agents.
  */
 export function getBaseAgentRegistry(symbol: string): AgentState[] {
   return CANONICAL_COUNCIL_KEYS.map((spec) => ({
@@ -92,8 +105,8 @@ export function getBaseAgentRegistry(symbol: string): AgentState[] {
     name: spec.name,
     role: spec.role,
     bias: 'NEUTRAL' as BiasType,
-    confidence: 60,
-    status: 'ONLINE' as AgentNodeStatus,
+    confidence: 0,
+    status: 'DATA LIMITED' as AgentNodeStatus,
     lastOpinion: `Initializing base telemetry model for ${symbol}.`,
     evidence: [`Awaiting telemetry synchronization for ${symbol}`],
     keyRisk: 'Data stream latency buffer',
@@ -102,45 +115,20 @@ export function getBaseAgentRegistry(symbol: string): AgentState[] {
 }
 
 /**
- * Specialized context generator per symbol
+ * Canonical 15-Agent Swarm Pipeline Engine
  */
-interface SymbolContextDetail {
-  name: string;
-  category: MarketCategory | 'COMMODITY' | 'METALS' | 'FOREX' | 'CRYPTO' | 'INDICES';
-  regime: string;
-  session: string;
-  trend: string;
-  volatility: string;
-  newsRisk: string;
-  liquidity: string;
-  setupDirection: 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)';
-  confidence: number;
-  entryZone: [number, number];
-  stopLoss: number;
-  tp1: number;
-  tp2: number;
-  tp3: number;
-  rr: string;
-  invalidation: string;
-  whyThisTrade: string[];
-  opposingRisks: string[];
-  agentOverrides: Partial<Record<AgentType, Partial<AgentState>>>;
-  debateMessages: {
-    time: string;
-    agent: string;
-    text: string;
-    status: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'RESTRICTED' | 'CAUTION' | 'DATA LIMITED';
-  }[];
-}
-
-function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, _timeframe: string): SymbolContextDetail {
-  // Phase 2D: Truthful Live Intelligence Foundation
-  // NO hardcoded price offsets. NO fabricated entry/SL/TP levels.
-  // All level fields return null when verified structure is not available.
-  // Agent commentary honestly reports DATA LIMITED for unplugged feeds.
-
-  const p = liveAsset.price;
-  const isPos = liveAsset.change24h >= 0;
+export function generateAssetIntelligence(
+  symbol: string,
+  liveAsset: LiveMarketAsset,
+  timeframe: string = 'H1',
+  verifiedCandles?: OHLCCandle[],
+  candleProvenance?: EvidenceClassification,
+  candleProvider?: string
+): AssetIntelligenceProfile {
+  const normSymbol = (symbol || 'XAUUSD').toUpperCase();
+  const normTf = (timeframe || 'H1').toUpperCase();
+  const p = liveAsset?.price || 0;
+  const isPos = (liveAsset?.change24h || 0) >= 0;
 
   const symbolMeta: Record<string, { name: string; category: string }> = {
     XAUUSD: { name: 'Gold Spot / USD', category: 'METALS' },
@@ -152,335 +140,16 @@ function getSymbolContextDetail(symbol: string, liveAsset: LiveMarketAsset, _tim
     ETHUSD: { name: 'Ethereum / US Dollar', category: 'CRYPTO' },
     US100:  { name: 'Nasdaq 100 Index Cash', category: 'INDICES' },
     US30:   { name: 'Dow Jones Industrial 30', category: 'INDICES' },
+    US500:  { name: 'S&P 500 Index Cash', category: 'INDICES' },
     GBPUSD: { name: 'Pound / US Dollar', category: 'FOREX' },
     GBPJPY: { name: 'Pound / Japanese Yen', category: 'FOREX' },
     AUDUSD: { name: 'Australian Dollar / USD', category: 'FOREX' },
     XRPUSD: { name: 'XRP / US Dollar', category: 'CRYPTO' },
   };
 
-  const meta = symbolMeta[symbol] || { name: symbol, category: 'FOREX' };
+  const meta = symbolMeta[normSymbol] || { name: normSymbol, category: 'FOREX' };
 
-  // DATA_LIMITED agent overrides — honest default for all agents without live data feeds
-  const dataLimitedOverrides: Partial<Record<AgentType, Partial<AgentState>>> = {
-    TECHNICAL:     { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Awaiting verified OHLC candles from MT5 broker. No structure analysis yet.', evidence: ['MT5 candle feed: PENDING'], keyRisk: 'No data', invalidation: 'N/A' },
-    MACRO:         { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'No live macro feed connected. Economic calendar data unavailable.', evidence: ['Live macro API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' },
-    CORRELATION:   { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Intermarket correlation unavailable. Requires multi-asset OHLC feed.', evidence: ['Multi-asset feed: PENDING'], keyRisk: 'N/A', invalidation: 'N/A' },
-    NEWS:          { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'No live news API connected. Economic wire monitoring unavailable.', evidence: ['News API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' },
-    GEOPOLITICAL:  { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'No geopolitical intelligence feed connected.', evidence: ['Geopolitical API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' },
-    SENTIMENT:     { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Broker sentiment feed not connected. Contrarian model inactive.', evidence: ['Sentiment API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' },
-    INSTITUTIONAL: { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Institutional flow feed not connected. COT data unavailable.', evidence: ['COT API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' },
-    RISK_GUARDIAN: { bias: 'CAUTION', confidence: 0, status: 'CAUTION', lastOpinion: 'Risk Guardian active. Awaiting verified blueprint before position sizing.', evidence: ['Blueprint: PENDING'], keyRisk: 'No SL available', invalidation: 'N/A' },
-    VISION:        { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Awaiting chart image submission for visual analysis.', evidence: ['Chart image: NOT SUBMITTED'], keyRisk: 'N/A', invalidation: 'N/A' },
-    OPPORTUNITY:   { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'No actionable setup identified. Blueprint not yet generated.', evidence: ['Blueprint engine: PENDING CANDLES'], keyRisk: 'N/A', invalidation: 'N/A' },
-    STRATEGY:      { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Strategy engine awaiting verified market structure.', evidence: ['Structure engine: PENDING CANDLES'], keyRisk: 'N/A', invalidation: 'N/A' },
-    ORDER_FLOW:    { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Level-2 order flow feed not connected. Tick data unavailable.', evidence: ['Order flow API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' },
-    KILLZONE:      { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Market session state computed from broker calendar. Killzone scoring awaiting structure.', evidence: ['Session state: DERIVED'], keyRisk: 'N/A', invalidation: 'N/A' },
-    LIQUIDITY_MAP: { bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Liquidity mapping awaiting verified OHLC swing detection.', evidence: ['OHLC candles: PENDING'], keyRisk: 'N/A', invalidation: 'N/A' },
-    FINAL_DECISION:{ bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'No consensus decision possible. Insufficient verified evidence.', evidence: ['Evidence Trust: INSUFFICIENT'], keyRisk: 'N/A', invalidation: 'N/A' },
-  };
-
-  return {
-    name: meta.name,
-    category: meta.category as any,
-    regime: 'Awaiting Market Structure Analysis',
-    session: 'Determined from MT5 broker sessions',
-    trend: 'INSUFFICIENT DATA — Awaiting verified OHLC candles',
-    volatility: 'ATR: PENDING CANDLES',
-    newsRisk: 'DATA LIMITED — No live news feed',
-    liquidity: 'Broker specification available',
-    // Phase 2D / V1.0.1 Truthfulness: Missing/insufficient data defaults to WAIT, NOT directional WATCH.
-    // Directional WATCH requires actual eligible bullish/bearish evidence.
-    setupDirection: 'WAIT',
-    confidence: 0,
-    entryZone: null as any,   // Will be set by trade-blueprint-engine when verified structure exists
-    stopLoss: null as any,    // Mandatory SL gate enforces real value before execution
-    tp1: null as any,
-    tp2: null as any,
-    tp3: null as any,
-    rr: null as any,
-    invalidation: 'No structural invalidation computed yet — awaiting verified candles',
-    whyThisTrade: [
-      `Price: ${p.toFixed(5)} (${isPos ? '+' : ''}${liveAsset.change24h?.toFixed(2)}% 24h) — sourced from MT5 broker.`,
-      'Market structure analysis pending. Verified OHLC candles required.',
-      'No intelligence from unplugged feeds (News / Macro / Sentiment / Order Flow).',
-    ],
-    opposingRisks: [
-      'No verified blueprint exists — do not trade without structure-derived levels.',
-      'Evidence Trust insufficient for ACTIONABLE state.',
-    ],
-    agentOverrides: dataLimitedOverrides,
-    debateMessages: [
-      { time: '00:00:01', agent: 'TECHNICAL AGENT', text: `Phase 2D: ${symbol} awaiting verified OHLC candles from MT5 broker before structure analysis.`, status: 'DATA LIMITED' as any },
-      { time: '00:00:02', agent: 'MACRO AGENT', text: `No live macro economic feed connected for ${symbol}. Macro stance DATA LIMITED.`, status: 'DATA LIMITED' as any },
-      { time: '00:00:03', agent: 'RISK GUARDIAN', text: `Risk Guardian armed. Execution locked until verified structure blueprint exists.`, status: 'CAUTION' as any },
-      { time: '00:00:04', agent: 'FINAL DECISION', text: `Council standing by. Evidence Trust below threshold — posture: WAIT (INSUFFICIENT EVIDENCE).`, status: 'DATA LIMITED' as any },
-    ],
-  };
-}
-
-
-/**
- * Tailored agent synthesis helper
- * Guarantees that any agent without an explicit override receives an authentic,
- * asset-aware analysis rather than a generic placeholder.
- */
-function buildTailoredAgentState(
-  spec: { type: AgentType; name: string; role: string },
-  symbol: string,
-  liveAsset: LiveMarketAsset,
-  detail: SymbolContextDetail
-): AgentState {
-  const p = liveAsset.price;
-  const isPos = liveAsset.change24h >= 0;
-  const bias: BiasType = isPos ? 'BULLISH' : 'BEARISH';
-  const sl = detail.stopLoss;
-
-  switch (spec.type) {
-    case 'TECHNICAL':
-      return {
-        type: 'TECHNICAL',
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: 82,
-        status: 'ONLINE',
-        lastOpinion: `H1 ${isPos ? 'bullish continuation' : 'bearish distribution'} structure confirmed on ${symbol}. Key pivot held at ${detail.entryZone[0]}.`,
-        evidence: [`Price trading at ${p} (${isPos ? '+' : ''}${liveAsset.change24h}%)`, `H1 value area aligned with ${bias.toLowerCase()} momentum`],
-        keyRisk: 'Key swing level violation',
-        invalidation: `Beyond ${sl}`
-      };
-    case 'MACRO':
-      return {
-        type: 'MACRO',
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: 76,
-        status: 'ONLINE',
-        lastOpinion: `Macro monetary policy and sovereign yield differentials align with ${symbol} ${bias.toLowerCase()} positioning.`,
-        evidence: ['Central bank policy differential pricing', 'Real yield benchmark guidance'],
-        keyRisk: 'Unexpected central bank rate guidance shift',
-        invalidation: 'Macro policy reversal'
-      };
-    case 'CORRELATION':
-      return {
-        type: 'CORRELATION',
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: 78,
-        status: 'ONLINE',
-        lastOpinion: `Cross-market beta and DXY dollar index movement confirm relative strength on ${symbol}.`,
-        evidence: ['Basket correlation index confirmed', 'Sector leadership alignment'],
-        keyRisk: 'Broad risk-off liquidity squeeze',
-        invalidation: 'Correlation breakdown'
-      };
-    case 'NEWS':
-      return {
-        type: 'NEWS',
-        name: spec.name,
-        role: spec.role,
-        bias: 'NEUTRAL',
-        confidence: 68,
-        status: 'ONLINE',
-        lastOpinion: `Financial wire feeds scanned. No unannounced emergency geopolitical or policy breaks affecting ${symbol}.`,
-        evidence: ['Institutional news ticker clean', 'Calendar shock filters armed'],
-        keyRisk: 'Unscheduled headline leak',
-        invalidation: 'Emergency wire alert'
-      };
-    case 'GEOPOLITICAL':
-      return {
-        type: 'GEOPOLITICAL',
-        name: spec.name,
-        role: spec.role,
-        bias: 'NEUTRAL',
-        confidence: 72,
-        status: 'ONLINE',
-        lastOpinion: `Global sovereign trade routes and regulatory policy steady for ${symbol} sector.`,
-        evidence: ['Supply chain throughput nominal', 'Cross-border clearing active'],
-        keyRisk: 'Trade tariff or embargo announcement',
-        invalidation: 'Geopolitical flareup'
-      };
-    case 'SENTIMENT':
-      return {
-        type: 'SENTIMENT',
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: 74,
-        status: 'ONLINE',
-        lastOpinion: `Retail positioning metrics indicate favorable contrarian liquidity skew on ${symbol}.`,
-        evidence: ['Retail crowd sentiment divergence', 'Commitment of traders alignment'],
-        keyRisk: 'Crowded speculative positioning',
-        invalidation: 'Extreme positioning flip'
-      };
-    case 'INSTITUTIONAL':
-      return {
-        type: 'INSTITUTIONAL',
-        name: spec.name,
-        role: spec.role,
-        bias: detail.category === 'CRYPTO' || detail.category === 'INDICES' ? bias : 'NEUTRAL',
-        confidence: 75,
-        status: detail.category === 'FOREX' ? 'DATA LIMITED' : 'ONLINE',
-        lastOpinion: detail.category === 'FOREX'
-          ? `Interbank volume verified. Direct L2 dark pool tape limited for ${symbol} OTC cross. [DATA LIMITED]`
-          : `Block order accumulation and institutional clearing active on ${symbol}.`,
-        evidence: ['Interbank settlement quotes active', 'Institutional flow metrics verified'],
-        keyRisk: 'Institutional fix rebalance',
-        invalidation: 'Abrupt block liquidity drain',
-        dataLimitedReason: detail.category === 'FOREX' ? 'OTC interbank spot feed does not publish centralized exchange dark pool tape.' : undefined
-      };
-    case 'RISK_GUARDIAN':
-      return {
-        type: 'RISK_GUARDIAN',
-        name: spec.name,
-        role: spec.role,
-        bias: 'CAUTION',
-        confidence: 88,
-        status: 'CAUTION',
-        lastOpinion: `Exposure envelope enforced: max risk budget capped at 0.50% account capital with mandatory stop loss.`,
-        evidence: [`Mandatory SL defined at ${sl}`, 'Spread and slippage buffers verified'],
-        keyRisk: 'Spread widening during rollover',
-        invalidation: 'Volatility exceeds 2x ATR'
-      };
-    case 'VISION':
-      return {
-        type: 'VISION',
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: 80,
-        status: 'ONLINE',
-        lastOpinion: `Computer vision identifies clean candlestick geometry with ${isPos ? 'higher low' : 'lower high'} retest on ${symbol}.`,
-        evidence: ['Order block boundary respected', 'Candle wick rejection on lower timeframe'],
-        keyRisk: 'False breakout wick',
-        invalidation: `Close beyond ${sl}`
-      };
-    case 'OPPORTUNITY':
-      return {
-        type: 'OPPORTUNITY',
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: 84,
-        status: 'ONLINE',
-        lastOpinion: `Asymmetric ${detail.rr} risk-to-reward ratio verified against structural liquidity targets.`,
-        evidence: [`Target TP1: ${detail.tp1}`, `Target TP2: ${detail.tp2}`, `Risk/Reward: ${detail.rr}`],
-        keyRisk: 'Premature consolidation before TP1',
-        invalidation: 'Momentum exhaustion'
-      };
-    case 'STRATEGY':
-      return {
-        type: 'STRATEGY',
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: 79,
-        status: 'ONLINE',
-        lastOpinion: `Institutional trend protocol validated: Entry zone between ${detail.entryZone[0]} and ${detail.entryZone[1]}.`,
-        evidence: ['All entry checklist criteria checked', 'Risk Guardian authorization granted'],
-        keyRisk: 'Execution slippage',
-        invalidation: 'Rule deviation'
-      };
-    case 'ORDER_FLOW':
-      return {
-        type: 'ORDER_FLOW',
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: 78,
-        status: 'ONLINE',
-        lastOpinion: `Cumulative volume delta (CVD) confirms active ${isPos ? 'absorption by buyers' : 'selling pressure'} on ${symbol}.`,
-        evidence: ['Tick delta divergence aligned', 'Passive liquidity absorbed at demand'],
-        keyRisk: 'Opposing market order cascade',
-        invalidation: 'CVD reversal'
-      };
-    case 'KILLZONE':
-      return {
-        type: 'KILLZONE',
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: 82,
-        status: 'ONLINE',
-        lastOpinion: `${detail.session} killzone window active. Algorithmic interbank turnover supporting directional expansion.`,
-        evidence: ['Peak volume timing window', 'Spreads compressed to standard baseline'],
-        keyRisk: 'Session close liquidity fade',
-        invalidation: 'Volume dry up'
-      };
-    case 'LIQUIDITY_MAP':
-      return {
-        type: 'LIQUIDITY_MAP',
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: 85,
-        status: 'ONLINE',
-        lastOpinion: `Resting ${isPos ? 'sell-side liquidity swept' : 'buy-side liquidity swept'}; magnet target towards opposing pool at ${detail.tp1}.`,
-        evidence: [`Resting liquidity mapped at ${detail.tp1}`, `Clean structural path with low friction`],
-        keyRisk: 'Liquidity fakeout run',
-        invalidation: `Liquidity pool breach beyond ${sl}`
-      };
-    case 'FINAL_DECISION':
-    default:
-      return {
-        type: spec.type,
-        name: spec.name,
-        role: spec.role,
-        bias,
-        confidence: detail.confidence,
-        status: 'ONLINE',
-        lastOpinion: `15 Council Agents synchronized on ${symbol}. Consensus rating of ${detail.confidence}% authorizes ${detail.setupDirection}.`,
-        evidence: [`15-agent consensus: ${detail.confidence}%`, `Setup: ${detail.setupDirection}`, `R:R: ${detail.rr}`],
-        keyRisk: 'Macro volatility catalyst',
-        invalidation: `Hard stop at ${sl}`
-      };
-  }
-}
-
-/**
- * Canonical 15-Agent Swarm Pipeline Engine
- * Guarantees that ALL 15 council agents are computed and returned in deterministic order for ANY symbol.
- */
-export function generateAssetIntelligence(
-  symbol: string,
-  liveAsset: LiveMarketAsset,
-  timeframe: string = 'H1'
-): AssetIntelligenceProfile {
-  const normSymbol = (symbol || 'XAUUSD').toUpperCase();
-  const detail = getSymbolContextDetail(normSymbol, liveAsset, timeframe);
-
-  // 1. Get Base Canonical Registry (exactly 15 agents in fixed order)
-  const baseAgents = getBaseAgentRegistry(normSymbol);
-
-  // 2. Apply Asset Context & Overrides deterministically
-  const assembledAgents: AgentState[] = baseAgents.map((baseAgent) => {
-    const override = detail.agentOverrides[baseAgent.type];
-    if (override) {
-      return {
-        type: baseAgent.type,
-        name: baseAgent.name,
-        role: baseAgent.role,
-        bias: 'NEUTRAL',
-        confidence: 0,
-        status: 'ONLINE',
-        lastOpinion: '',
-        evidence: [],
-        keyRisk: '',
-        invalidation: '',
-        ...override,
-      } as AgentState;
-    }
-
-    return buildTailoredAgentState(baseAgent, normSymbol, liveAsset, detail);
-  });
-
-  // 3. Final Invariant Guard: Assert that length is ALWAYS exactly 15 and all 15 types exist
-  if (assembledAgents.length !== 15) {
-    console.error(`FATAL: Canonical agent count violation for ${normSymbol}: expected 15, got ${assembledAgents.length}`);
-  }
-
-  // 4. Central Market Session Intelligence & Executability Evaluation
+  // 1. Evaluate Session & Trading Temporal Window
   const quoteTimestampMs = liveAsset?.lastUpdated && !isNaN(new Date(liveAsset.lastUpdated).getTime())
     ? new Date(liveAsset.lastUpdated).getTime()
     : undefined;
@@ -488,18 +157,248 @@ export function generateAssetIntelligence(
   const tradeExecutable = sessionState.tradeExecutable;
   const setupQuality = sessionState.setupQuality;
 
+  // 2. Market Structure Analysis if verified candles are provided
+  const hasCandles = Array.isArray(verifiedCandles) && verifiedCandles.length >= 10;
+  const marketStructure = hasCandles ? analyzeMarketStructure(verifiedCandles, normSymbol, normTf) : null;
+
+  // Resolve truthful provenance & provider metadata
+  let effectiveCandleProvenance: EvidenceClassification = 'UNAVAILABLE';
+  let effectiveCandleProvider: string = 'NONE';
+
+  if (hasCandles) {
+    if (candleProvenance) {
+      effectiveCandleProvenance = candleProvenance;
+      effectiveCandleProvider = candleProvider || 'Verified Provider';
+    } else if (normSymbol === 'BTCUSD' || normSymbol === 'ETHUSD' || normSymbol === 'SOLUSD') {
+      effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
+      effectiveCandleProvider = 'Binance Public Spot';
+    } else if (normSymbol === 'EURUSD' || normSymbol === 'GBPUSD' || normSymbol === 'USDJPY' || normSymbol === 'USDCHF') {
+      effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
+      effectiveCandleProvider = 'Yahoo Finance Spot FX';
+    } else if (normSymbol === 'US100' || normSymbol === 'US500' || normSymbol === 'US30' || normSymbol === 'USOIL') {
+      effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
+      effectiveCandleProvider = 'Yahoo Finance Public Chart';
+    } else if (normSymbol === 'XAUUSD' || normSymbol === 'XAGUSD') {
+      effectiveCandleProvenance = 'INDEPENDENT_REFERENCE';
+      effectiveCandleProvider = 'Binance PAXG / Yahoo Futures (Proxy)';
+    } else {
+      effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
+      effectiveCandleProvider = 'Independent Verified Feed';
+    }
+  }
+
+  // 3. Trade Blueprint Synthesis from real structure
+  let blueprint: TradeBlueprint | null = null;
+  if (marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
+    if (marketStructure.trend === 'BULLISH') {
+      blueprint = buildBuyBlueprint(marketStructure, verifiedCandles!, normSymbol, p);
+    } else if (marketStructure.trend === 'BEARISH') {
+      blueprint = buildSellBlueprint(marketStructure, verifiedCandles!, normSymbol, p);
+    }
+  }
+
+  // 4. Assemble the Canonical 15 Agents deterministically
+  const assembledAgents: AgentState[] = getBaseAgentRegistry(normSymbol).map((base) => {
+    switch (base.type) {
+      case 'TECHNICAL': {
+        if (hasCandles && marketStructure) {
+          const bias: BiasType = marketStructure.trend === 'BULLISH' ? 'BULLISH' : marketStructure.trend === 'BEARISH' ? 'BEARISH' : 'NEUTRAL';
+          const conf = marketStructure.trend === 'INSUFFICIENT_DATA' ? 50 : bias === 'NEUTRAL' ? 50 : 78;
+          return {
+            ...base,
+            bias,
+            confidence: conf,
+            status: 'ONLINE',
+            lastOpinion: `${normTf} structure: ${marketStructure.trend}. Swings: ${marketStructure.swingHighs.length}H / ${marketStructure.swingLows.length}L.`,
+            evidence: [
+              `Verified ${normTf} candles: ${marketStructure.candleCount} bars`,
+              `Structure trend: ${marketStructure.trend}`,
+              marketStructure.lastSwingHigh ? `Swing High: ${marketStructure.lastSwingHigh}` : 'Swing high mapped',
+              marketStructure.lastSwingLow ? `Swing Low: ${marketStructure.lastSwingLow}` : 'Swing low mapped'
+            ],
+            keyRisk: 'Structural pivot invalidation',
+            invalidation: marketStructure.trend === 'BULLISH'
+              ? (marketStructure.lastSwingLow ? `Break below ${marketStructure.lastSwingLow}` : 'Swing breach')
+              : (marketStructure.lastSwingHigh ? `Break above ${marketStructure.lastSwingHigh}` : 'Swing breach'),
+          };
+        }
+        return {
+          ...base,
+          bias: 'NEUTRAL',
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: `Awaiting verified OHLC candles for ${normSymbol}. No structure analysis yet.`,
+          evidence: [`Candle feed: PENDING FOR ${normSymbol}`],
+          keyRisk: 'No data',
+          invalidation: 'N/A',
+        };
+      }
+
+      case 'KILLZONE': {
+        const isSessionActive = sessionState.marketState === 'OPEN';
+        return {
+          ...base,
+          bias: 'NEUTRAL',
+          confidence: isSessionActive ? 75 : 40,
+          status: isSessionActive ? 'ONLINE' : 'CAUTION',
+          lastOpinion: `${sessionState.sessionName} — ${sessionState.statusLabel}. ${isSessionActive ? `Active until ${sessionState.closesAt}` : `Opens ${sessionState.nextOpenAt}`}`,
+          evidence: [
+            `Session: ${sessionState.sessionName}`,
+            `Status: ${sessionState.statusLabel}`,
+            `Executability: ${sessionState.executabilityScore}/100`
+          ],
+          keyRisk: isSessionActive ? 'Session rollover liquidity fade' : 'Market closed gap risk',
+          invalidation: 'Session transition'
+        };
+      }
+
+      case 'LIQUIDITY_MAP': {
+        if (hasCandles && marketStructure && (marketStructure.fvg.length > 0 || marketStructure.orderBlocks.length > 0)) {
+          const bias: BiasType = marketStructure.trend === 'BULLISH' ? 'BULLISH' : marketStructure.trend === 'BEARISH' ? 'BEARISH' : 'NEUTRAL';
+          return {
+            ...base,
+            bias,
+            confidence: 72,
+            status: 'ONLINE',
+            lastOpinion: `Resting liquidity mapped. ${marketStructure.fvg.length} active FVGs, ${marketStructure.orderBlocks.length} Order Blocks.`,
+            evidence: [
+              `FVG count: ${marketStructure.fvg.length}`,
+              `Order Blocks: ${marketStructure.orderBlocks.length}`
+            ],
+            keyRisk: 'Liquidity sweep continuation',
+            invalidation: 'Opposing pool breach'
+          };
+        }
+        return {
+          ...base,
+          bias: 'NEUTRAL',
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: `Liquidity mapping awaiting verified OHLC swing detection for ${normSymbol}.`,
+          evidence: ['OHLC candles: PENDING'],
+          keyRisk: 'N/A',
+          invalidation: 'N/A'
+        };
+      }
+
+      case 'STRATEGY': {
+        if (blueprint) {
+          return {
+            ...base,
+            bias: blueprint.direction === 'BUY' ? 'BULLISH' : 'BEARISH',
+            confidence: 76,
+            status: 'ONLINE',
+            lastOpinion: `Strategy protocol validated: ${blueprint.direction} setup at [${blueprint.entryZoneLow.price} - ${blueprint.entryZoneHigh.price}].`,
+            evidence: [
+              `Entry: [${blueprint.entryZoneLow.price} - ${blueprint.entryZoneHigh.price}]`,
+              `SL: ${blueprint.sl.price}`,
+              `TP1: ${blueprint.tp1.price}`,
+              `R:R: ${blueprint.rrRatio || '1:1.5'}`
+            ],
+            keyRisk: 'Invalidation price violation',
+            invalidation: `Hard stop at ${blueprint.sl.price}`
+          };
+        }
+        return {
+          ...base,
+          bias: 'NEUTRAL',
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: `Strategy engine awaiting verified market structure for ${normSymbol}.`,
+          evidence: ['Structure engine: PENDING CANDLES'],
+          keyRisk: 'N/A',
+          invalidation: 'N/A'
+        };
+      }
+
+      case 'OPPORTUNITY': {
+        if (blueprint && blueprint.rrRatio) {
+          return {
+            ...base,
+            bias: blueprint.direction === 'BUY' ? 'BULLISH' : 'BEARISH',
+            confidence: 78,
+            status: 'ONLINE',
+            lastOpinion: `Asymmetric ${blueprint.rrRatio} risk-to-reward ratio verified against structural target ${blueprint.tp1.price}.`,
+            evidence: [
+              `Target TP1: ${blueprint.tp1.price}`,
+              `Risk/Reward: ${blueprint.rrRatio}`
+            ],
+            keyRisk: 'Momentum stall before target',
+            invalidation: 'Momentum breakdown'
+          };
+        }
+        return {
+          ...base,
+          bias: 'NEUTRAL',
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: `No actionable setup identified for ${normSymbol}. Blueprint not yet generated.`,
+          evidence: ['Blueprint engine: PENDING CANDLES'],
+          keyRisk: 'N/A',
+          invalidation: 'N/A'
+        };
+      }
+
+      case 'RISK_GUARDIAN': {
+        return {
+          ...base,
+          bias: 'CAUTION',
+          confidence: blueprint ? 85 : 0,
+          status: 'CAUTION',
+          lastOpinion: blueprint
+            ? `Exposure bounds verified. Mandatory SL enforced at ${blueprint.sl.price}. Risk budget capped at 0.50%.`
+            : `Risk Guardian armed. Execution locked until verified structure blueprint exists.`,
+          evidence: [blueprint ? `Mandatory SL: ${blueprint.sl.price}` : 'Blueprint: PENDING'],
+          keyRisk: blueprint ? 'Spread widening during volatility' : 'No SL available',
+          invalidation: 'N/A'
+        };
+      }
+
+      case 'FINAL_DECISION': {
+        return {
+          ...base,
+          bias: 'NEUTRAL',
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: 'Awaiting evidence trust evaluation.',
+          evidence: ['Evidence Trust: EVALUATING'],
+          keyRisk: 'N/A',
+          invalidation: 'N/A'
+        };
+      }
+
+      // Unconnected specialist feeds remain honestly DATA LIMITED
+      case 'MACRO':
+        return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'No live macro feed connected. Economic calendar data unavailable.', evidence: ['Live macro API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' };
+      case 'CORRELATION':
+        return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Intermarket correlation unavailable. Requires multi-asset OHLC feed.', evidence: ['Multi-asset feed: PENDING'], keyRisk: 'N/A', invalidation: 'N/A' };
+      case 'NEWS':
+        return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'No live news API connected. Economic wire monitoring unavailable.', evidence: ['News API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' };
+      case 'GEOPOLITICAL':
+        return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'No geopolitical intelligence feed connected.', evidence: ['Geopolitical API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' };
+      case 'SENTIMENT':
+        return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Broker sentiment feed not connected. Contrarian model inactive.', evidence: ['Sentiment API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' };
+      case 'INSTITUTIONAL':
+        return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Institutional flow feed not connected. COT data unavailable.', evidence: ['COT API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' };
+      case 'ORDER_FLOW':
+        return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Level-2 order flow feed not connected. Tick data unavailable.', evidence: ['Order flow API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' };
+      case 'VISION':
+      default:
+        return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Awaiting chart image submission for visual analysis.', evidence: ['Chart image: NOT SUBMITTED'], keyRisk: 'N/A', invalidation: 'N/A' };
+    }
+  });
+
   // 5. Attach Canonical Machine-Readable Evidence & Trust Scores
   assembledAgents.forEach((ag) => {
     const rawItems = ag.evidence && ag.evidence.length > 0 ? ag.evidence : [ag.lastOpinion];
     const evidenceRecords: AgentEvidence[] = rawItems.map((item, idx) => {
-      // Phase 2D: Truthful provenance classification.
-      // We do NOT use keyword heuristics to fake "DERIVED/verified=true".
-      // Only explicitly connected live data earns verified=true.
       let classification: any = 'HEURISTIC';
       let verified = false;
       let decisionEligible = false;
       const lower = item.toLowerCase();
       const agentStatus = ag.status;
+
+      let sourceName = 'Heuristic or Unavailable';
 
       if (
         lower.includes('not connected') ||
@@ -508,32 +407,50 @@ export function generateAssetIntelligence(
         lower.includes('pending') ||
         agentStatus === 'DATA LIMITED'
       ) {
-        // No live feed — this evidence is worthless for decisions
         classification = 'UNAVAILABLE';
         verified = false;
         decisionEligible = false;
+        sourceName = 'Unconnected Feed';
       } else if (ag.type === 'RISK_GUARDIAN') {
-        // Risk Guardian computes from broker account data and broker spec — treat as DERIVED
-        // But only when we actually have a real SL from a blueprint (not null).
-        // Since Phase 2D default is null SL, mark as HEURISTIC until blueprint confirmed.
-        classification = 'HEURISTIC';
-        verified = false;
-        decisionEligible = false;
+        classification = blueprint ? 'DERIVED' : 'HEURISTIC';
+        verified = Boolean(blueprint);
+        decisionEligible = Boolean(blueprint);
+        sourceName = 'Risk Rules Matrix';
       } else if (ag.type === 'KILLZONE') {
-        // Session engine uses MT5 broker sessions — classify as DERIVED when session is real
         classification = 'DERIVED';
         verified = true;
         decisionEligible = true;
+        sourceName = 'Temporal Session Engine';
+      } else if (ag.type === 'TECHNICAL' && hasCandles) {
+        classification = effectiveCandleProvenance;
+        verified = true;
+        // Independent reference proxy (e.g. PAXG) is verified for analysis but strictly non-executable
+        decisionEligible = (effectiveCandleProvenance !== 'INDEPENDENT_REFERENCE');
+        sourceName = effectiveCandleProvenance === 'LIVE_MT5'
+          ? 'MT5 Broker Telemetry'
+          : effectiveCandleProvider;
+      } else if ((ag.type === 'STRATEGY' || ag.type === 'OPPORTUNITY' || ag.type === 'LIQUIDITY_MAP') && hasCandles && blueprint) {
+        if (effectiveCandleProvenance === 'LIVE_MT5') {
+          classification = 'DERIVED';
+          decisionEligible = true;
+        } else if (effectiveCandleProvenance === 'INDEPENDENT_VERIFIED') {
+          classification = 'DERIVED_FROM_VERIFIED';
+          decisionEligible = true;
+        } else if (effectiveCandleProvenance === 'INDEPENDENT_REFERENCE') {
+          classification = 'INDEPENDENT_REFERENCE';
+          decisionEligible = false;
+        } else {
+          classification = 'DERIVED';
+          decisionEligible = true;
+        }
+        verified = true;
+        sourceName = `Deterministic SMC (${effectiveCandleProvider})`;
       } else if (lower.includes('mt5 broker') || lower.includes('live_mt5') || lower.includes('broker candle')) {
         classification = 'LIVE_MT5';
         verified = true;
         decisionEligible = true;
-      } else if (lower.includes('inference') || lower.includes('model:') || lower.includes('heuristic')) {
-        classification = 'MODEL_INFERENCE';
-        verified = false;
-        decisionEligible = false;
+        sourceName = 'MT5 Broker Telemetry';
       } else {
-        // Default: unconfirmed heuristic — do NOT auto-promote to verified
         classification = 'HEURISTIC';
         verified = false;
         decisionEligible = false;
@@ -544,7 +461,7 @@ export function generateAssetIntelligence(
         agentKey: ag.type,
         asset: normSymbol,
         claim: item,
-        source: verified ? 'LIVE_MT5_OR_DERIVED' : 'HEURISTIC_OR_UNAVAILABLE',
+        source: sourceName,
         sourceType: verified ? 'MATHEMATICAL' : 'HEURISTIC',
         classification,
         observedAt: new Date().toISOString(),
@@ -554,7 +471,9 @@ export function generateAssetIntelligence(
         verified,
         decisionEligible,
         reason: verified
-          ? 'Live MT5 broker data or deterministic session calculation'
+          ? (classification === 'INDEPENDENT_REFERENCE'
+              ? 'Verified reference proxy data (strictly non-executable on broker)'
+              : 'Live broker telemetry, verified independent OHLC, or deterministic calculation')
           : 'Heuristic / DATA LIMITED — not eligible for ACTIONABLE gate'
       };
     });
@@ -574,7 +493,7 @@ export function generateAssetIntelligence(
     marketState: sessionState.marketState
   });
 
-  // V1.0.1 Directional Evidence Gating:
+  // 7. Directional Evidence Gating:
   // WATCH FOR BUY requires eligible verified bullish directional evidence.
   // WATCH FOR SELL requires eligible verified bearish directional evidence.
   // Risk Guardian CAUTION alone must NEVER determine market direction.
@@ -590,20 +509,18 @@ export function generateAssetIntelligence(
     return a.evidenceRecords?.some((e) => e.decisionEligible && e.verified);
   }).length;
 
-  let effectiveSetupDirection = detail.setupDirection;
+  let effectiveSetupDirection: AssetIntelligenceProfile['setupDirection'] = 'WAIT';
 
-  if (detail.setupDirection.includes('BUY') && eligibleBullishCount === 0) {
-    effectiveSetupDirection = 'WAIT';
-  } else if (detail.setupDirection.includes('SELL') && eligibleBearishCount === 0) {
-    effectiveSetupDirection = 'WAIT';
-  }
-
-  // If majority of council is DATA LIMITED or evidence trust is insufficient (< 40)
-  // and no directional votes exist, enforce WAIT
-  if (consensusTrust.limitedAgentCount + consensusTrust.unavailableAgentCount >= 10 && eligibleBullishCount === 0 && eligibleBearishCount === 0) {
+  if (blueprint && blueprint.direction === 'BUY' && eligibleBullishCount > 0 && consensusTrust.evidenceTrust >= 40) {
+    effectiveSetupDirection = 'WATCH FOR BUY';
+  } else if (blueprint && blueprint.direction === 'SELL' && eligibleBearishCount > 0 && consensusTrust.evidenceTrust >= 40) {
+    effectiveSetupDirection = 'WATCH FOR SELL';
+  } else {
+    // Insufficient evidence or no directional setup -> WAIT
     effectiveSetupDirection = 'WAIT';
   }
 
+  // Session closed override
   if (!tradeExecutable) {
     if (sessionState.marketState === 'PRE_OPEN') {
       effectiveSetupDirection = 'PRE-OPEN WATCH';
@@ -612,128 +529,103 @@ export function generateAssetIntelligence(
     } else {
       effectiveSetupDirection = 'MONITOR NEXT OPEN';
     }
-
-    // Apply strict server-side Risk Guardian veto and Session Agent temporal intelligence
-    assembledAgents.forEach((ag) => {
-      if (ag.type === 'RISK_GUARDIAN') {
-        ag.bias = 'CAUTION';
-        ag.status = 'CAUTION';
-        ag.keyRisk = `Execution locked: Market is currently ${sessionState.marketState} (${sessionState.sessionName}). Next open: ${sessionState.nextOpenAt}.`;
-        ag.lastOpinion = `Execution locked: Market is ${sessionState.marketState}. Revalidation scheduled for ${sessionState.nextOpenAt}.`;
-      }
-      if (ag.type === 'KILLZONE') {
-        ag.status = sessionState.marketState === 'OPEN' ? 'ONLINE' : 'CAUTION';
-        ag.lastOpinion = `${sessionState.sessionName} — ${sessionState.marketState === 'OPEN' ? 'Active' : 'Closed'}. Next open: ${sessionState.nextOpenAt}.`;
-      }
-      if (ag.type === 'OPPORTUNITY') {
-        ag.status = 'CAUTION';
-        ag.lastOpinion = `Setup Quality: ${setupQuality}/100 retained. Executability: 0/100 (Market ${sessionState.marketState}). MONITOR NEXT OPEN.`;
-      }
-      if (ag.type === 'FINAL_DECISION') {
-        ag.bias = 'WAIT';
-        ag.status = 'CAUTION';
-        ag.lastOpinion = `Consensus aligned, but execution gate is locked: Market ${sessionState.marketState}. Posture: ${effectiveSetupDirection}.`;
-      }
-    });
-  } else {
-    const sessionAg = assembledAgents.find((a) => a.type === 'KILLZONE');
-    if (sessionAg) {
-      sessionAg.lastOpinion = `Active trading session: ${sessionState.sessionName}. Closes at ${sessionState.closesAt}.`;
-    }
   }
 
-  // 5. Build rich, multi-agent debate stream reflecting actual cross-agent signals
-  const entryLevelStr = detail.entryZone && Array.isArray(detail.entryZone) ? detail.entryZone[0] : 'structure level';
-  const baseDebate = detail.debateMessages && detail.debateMessages.length >= 4
-    ? detail.debateMessages
-    : (detail.debateMessages && detail.debateMessages.length > 0)
-      ? detail.debateMessages
-      : [
-          {
-            time: '18:14:50',
-            agent: 'TECHNICAL AGENT',
-            text: `${normSymbol} H1 market structure aligned with live price action. Pivot held at ${entryLevelStr}.`,
-            status: assembledAgents.find((a) => a.type === 'TECHNICAL')?.bias || 'BULLISH'
-          },
-          {
-            time: '18:14:53',
-            agent: 'CORRELATION AGENT',
-            text: `Intermarket beta and basket indices confirm relative strength profile for ${normSymbol}.`,
-            status: assembledAgents.find((a) => a.type === 'CORRELATION')?.bias || 'BULLISH'
-          },
-          {
-            time: '18:14:57',
-            agent: 'RISK GUARDIAN',
-            text: tradeExecutable 
-              ? `Event proximity filters active. Position risk budget capped at 0.50% capital.`
-              : `Execution hard-locked: Market is ${sessionState.marketState}. All order routes disabled.`,
-            status: 'CAUTION'
-          },
-          {
-            time: '18:15:00',
-            agent: 'FINAL DECISION',
-            text: tradeExecutable
-              ? `${normSymbol} 15 Council Agents synchronized. Consensus ${detail.confidence}% ${detail.setupDirection} authorized.`
-              : `15-Agent Swarm synchronized. Revalidation scheduled for next session open (${sessionState.nextOpenAt}). Decision: ${effectiveSetupDirection}.`,
-            status: tradeExecutable ? (detail.setupDirection.includes('BUY') ? 'BULLISH' : 'BEARISH') : 'NEUTRAL'
-          }
-        ];
+  // 8. Update Final Decision Agent
+  const finalAgent = assembledAgents.find((a) => a.type === 'FINAL_DECISION');
+  if (finalAgent) {
+    finalAgent.bias = effectiveSetupDirection.includes('BUY')
+      ? 'BULLISH'
+      : effectiveSetupDirection.includes('SELL')
+      ? 'BEARISH'
+      : 'NEUTRAL';
+    finalAgent.status = consensusTrust.verifiedAgentCount >= 3 ? 'ONLINE' : 'DATA LIMITED';
+    finalAgent.confidence = consensusTrust.evidenceTrust >= 40 ? Math.round(consensusTrust.evidenceTrust) : 0;
+    finalAgent.lastOpinion = `Council consensus: ${effectiveSetupDirection}. Verified agents: ${consensusTrust.verifiedAgentCount}/15. Evidence trust: ${consensusTrust.evidenceTrust}%.`;
+  }
 
-  const sessionDebate = !tradeExecutable
-    ? [
-        {
-          time: '18:14:48',
-          agent: 'SESSION / KILLZONE',
-          text: `${normSymbol} market is currently ${sessionState.marketState} (${sessionState.sessionName}). Next open: ${sessionState.nextOpenAt}.`,
-          status: 'CAUTION' as const
-        },
-        {
-          time: '18:14:52',
-          agent: 'OPPORTUNITY AGENT',
-          text: `Analytical setup detected (${detail.setupDirection.includes('BUY') ? 'Bullish' : 'Bearish'}), but market is CLOSED. Setup quality ${setupQuality}/100 retained for monitoring.`,
-          status: 'CAUTION' as const
-        },
-        ...baseDebate.slice(2)
-      ]
-    : baseDebate;
-
-  // Compute dynamic average confidence across the 15 voting council agents
-  // V1.0.1 Truthfulness: Do NOT fallback to synthetic 50. If totalConfidence is 0, return 0.
+  // Compute average confidence across 15 voting agents
+  // V1.0.1 Truthfulness rule: If council resolved to WAIT due to insufficient evidence (0 eligible directional votes or evidence trust < 30%),
+  // overall confluence is 0% (rendered as INSUFFICIENT EVIDENCE), never a synthetic non-zero number.
   const votingAgents = assembledAgents.slice(0, 15);
   const totalConfidence = votingAgents.reduce((sum, a) => sum + (a.confidence || 0), 0);
-  const avgConfidence = Math.round(totalConfidence / (votingAgents.length || 1));
+  const rawAvgConfidence = Math.round(totalConfidence / (votingAgents.length || 1));
+  const avgConfidence = (consensusTrust.evidenceTrust < 30 || (eligibleBullishCount === 0 && eligibleBearishCount === 0))
+    ? 0
+    : rawAvgConfidence;
+
+  const debateMessages = [
+    {
+      time: '18:14:50',
+      agent: 'TECHNICAL AGENT',
+      text: hasCandles
+        ? `${normSymbol} ${normTf} structure ${marketStructure?.trend || 'analyzed'}. Swings: ${marketStructure?.swingHighs.length || 0}H / ${marketStructure?.swingLows.length || 0}L.`
+        : `Phase 2D: ${normSymbol} awaiting verified OHLC candles from broker before structure analysis.`,
+      status: (assembledAgents.find((a) => a.type === 'TECHNICAL')?.status === 'ONLINE'
+        ? assembledAgents.find((a) => a.type === 'TECHNICAL')?.bias
+        : 'DATA LIMITED') as any
+    },
+    {
+      time: '18:14:53',
+      agent: 'MACRO AGENT',
+      text: `No live macro economic feed connected for ${normSymbol}. Macro stance DATA LIMITED.`,
+      status: 'DATA LIMITED' as const
+    },
+    {
+      time: '18:14:57',
+      agent: 'RISK GUARDIAN',
+      text: tradeExecutable
+        ? (blueprint ? `Mandatory stop loss defined at ${blueprint.sl.price}. Risk budget capped at 0.50%.` : `Risk Guardian armed. Execution locked until verified blueprint exists.`)
+        : `Execution hard-locked: Market is ${sessionState.marketState}. All order routes disabled.`,
+      status: 'CAUTION' as const
+    },
+    {
+      time: '18:15:00',
+      agent: 'FINAL DECISION',
+      text: `Council status: ${effectiveSetupDirection}. Verified evidence trust: ${consensusTrust.evidenceTrust}%.`,
+      status: (finalAgent?.bias || 'NEUTRAL') as any
+    }
+  ];
 
   return {
     symbol: normSymbol,
-    name: detail.name,
-    category: detail.category,
-    regime: detail.regime,
+    name: meta.name,
+    category: meta.category as any,
+    regime: hasCandles && marketStructure ? `Structure ${marketStructure.trend}` : 'Awaiting Market Structure Analysis',
     session: sessionState.sessionName,
-    trend: detail.trend,
-    volatility: detail.volatility,
-    newsRisk: detail.newsRisk,
-    liquidity: detail.liquidity,
+    trend: hasCandles && marketStructure ? marketStructure.trend : 'INSUFFICIENT DATA — Awaiting verified OHLC candles',
+    volatility: hasCandles ? 'ATR computed from verified candles' : 'ATR: PENDING CANDLES',
+    newsRisk: 'DATA LIMITED — No live news feed',
+    liquidity: 'Broker specification available',
     setupDirection: effectiveSetupDirection,
     confidence: avgConfidence,
-    entryZone: detail.entryZone,
-    stopLoss: detail.stopLoss,
-    tp1: detail.tp1,
-    tp2: detail.tp2,
-    tp3: detail.tp3,
-    rr: detail.rr,
-    invalidation: detail.invalidation,
-    whyThisTrade: detail.whyThisTrade,
-    opposingRisks: detail.opposingRisks,
+    entryZone: blueprint ? [blueprint.entryZoneLow.price, blueprint.entryZoneHigh.price] : (null as any),
+    stopLoss: blueprint ? blueprint.sl.price : (null as any),
+    tp1: blueprint ? blueprint.tp1.price : (null as any),
+    tp2: blueprint && blueprint.tp2 ? blueprint.tp2.price : (null as any),
+    tp3: blueprint && blueprint.tp3 ? blueprint.tp3.price : (null as any),
+    rr: blueprint ? blueprint.rrRatio || '1:1.5' : (null as any),
+    invalidation: blueprint ? blueprint.invalidation.reason : 'No structural invalidation computed yet — awaiting verified candles',
+    whyThisTrade: [
+      `Price: ${p.toFixed(5)} (${isPos ? '+' : ''}${liveAsset?.change24h?.toFixed(2) || 0}% 24h).`,
+      hasCandles ? `Market structure: ${marketStructure?.trend}. Verified ${verifiedCandles?.length} bars.` : 'Market structure analysis pending. Verified OHLC candles required.',
+      'Unconnected feeds (News / Macro / Sentiment / Order Flow) remain DATA LIMITED.',
+    ],
+    opposingRisks: [
+      blueprint ? 'Structural invalidation level breach' : 'No verified blueprint exists — do not trade without structure-derived levels.',
+      'Evidence Trust insufficient for ACTIONABLE state.',
+    ],
     agents: assembledAgents,
     sessionState,
     tradeExecutable,
     setupQuality,
-    debateMessages: sessionDebate as any,
+    debateMessages: debateMessages as any,
     evidenceTrust: consensusTrust.evidenceTrust,
     verifiedAgentCount: consensusTrust.verifiedAgentCount,
     limitedAgentCount: consensusTrust.limitedAgentCount,
     unavailableAgentCount: consensusTrust.unavailableAgentCount,
-    actionabilityState: actionability.actionabilityState
+    actionabilityState: actionability.actionabilityState,
+    blueprint,
+    marketStructure
   };
 }
-

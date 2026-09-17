@@ -67,7 +67,7 @@ export interface AgentState {
   dataLimitedReason?: string;
   evidenceRecords?: any[];
   evidenceTrustScore?: number;
-  provenanceBadge?: 'LIVE' | 'MT5' | 'DERIVED' | 'INFERENCE' | 'DATA LIMITED' | 'UNAVAILABLE';
+  provenanceBadge?: 'LIVE' | 'MT5' | 'INDEPENDENT' | 'REFERENCE' | 'DERIVED' | 'INFERENCE' | 'DATA LIMITED' | 'UNAVAILABLE';
 }
 
 export interface MarketAsset {
