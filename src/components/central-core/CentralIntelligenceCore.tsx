@@ -54,10 +54,10 @@ export const CentralIntelligenceCore: React.FC<CentralIntelligenceCoreProps> = (
           <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></div>
           <div>
             <h2 className="text-sm sm:text-base font-black text-white tracking-wider uppercase">
-              FEF CENTRAL AI INTELLIGENCE CORE
+              FEF CORTEX INTELLIGENCE CORE
             </h2>
             <div className="text-[10px] text-gray-400 font-mono">
-              Multi-Agent Orchestration • Shared Blackboard Memory • Real-Time Confluence
+              Autonomous Multi-Agent Orchestration • Shared Memory Matrix • MT5 Confluence
             </div>
           </div>
         </div>

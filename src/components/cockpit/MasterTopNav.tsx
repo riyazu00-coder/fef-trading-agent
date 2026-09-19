@@ -178,14 +178,15 @@ export const MasterTopNav: React.FC = () => {
 
           {/* Brand Typography Block */}
           <div className="flex flex-col justify-center text-left select-none">
-            {/* Line 1: FEF (Dominant, clean futuristic geometric lettering, extended tracking, cyan/ice-blue/white glow) */}
-            <div className="text-[22px] sm:text-[25px] font-black tracking-[0.16em] font-sans uppercase leading-none text-transparent bg-clip-text bg-gradient-to-r from-white via-[#F0F9FF] to-[#67E8F9] drop-shadow-[0_0_14px_rgba(34,211,238,0.5)]">
-              FEF
+            {/* Line 1: FEF CORTEX (Dominant, clean futuristic geometric lettering, extended tracking, cyan/ice-blue/white glow) */}
+            <div className="text-[20px] sm:text-[23px] font-black tracking-[0.14em] font-sans uppercase leading-none text-transparent bg-clip-text bg-gradient-to-r from-white via-[#F0F9FF] to-[#67E8F9] drop-shadow-[0_0_14px_rgba(34,211,238,0.5)] flex items-center space-x-1.5">
+              <span>FEF</span>
+              <span className="text-[#38BDF8] tracking-[0.18em]">CORTEX</span>
             </div>
 
-            {/* Line 2: TRADING INTELLIGENCE (Prominent, wide tracking, high-tech cyan) */}
-            <div className="text-[9.5px] sm:text-[10.5px] font-black tracking-[0.22em] font-sans uppercase text-[#38BDF8] group-hover/brand:text-[#67E8F9] transition-colors leading-none mt-1">
-              TRADING INTELLIGENCE
+            {/* Line 2: AUTONOMOUS TRADING INTELLIGENCE (Prominent, wide tracking, high-tech cyan) */}
+            <div className="text-[9px] sm:text-[10px] font-black tracking-[0.20em] font-sans uppercase text-[#38BDF8] group-hover/brand:text-[#67E8F9] transition-colors leading-none mt-1">
+              AUTONOMOUS TRADING INTELLIGENCE
             </div>
 
             {/* Line 3: AI • MARKETS • RISK • EXECUTION (Visible descriptor, wide tracking, muted ice-blue/grey) */}

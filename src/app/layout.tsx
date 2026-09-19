@@ -4,8 +4,8 @@ import { MT5TelemetryProvider } from '@/context/MT5TelemetryContext';
 import { TradeOpportunityPopup } from '@/components/cockpit/TradeOpportunityPopup';
 
 export const metadata = {
-  title: 'FEF Trading Intelligence | AI-Powered Market Intelligence Operating System',
-  description: 'Multi-Asset Institutional AI Market Intelligence, Vision Technical Analysis, and Automated Risk Guardian for MT5 Connected Markets',
+  title: 'FEF CORTEX | Autonomous AI Trading Intelligence Operating System',
+  description: 'FEF CORTEX: Multi-Asset Autonomous AI Market Intelligence, Vision Technical Analysis, and Automated Risk Guardian for MT5 Connected Markets',
   robots: {
     index: false,
     follow: false,

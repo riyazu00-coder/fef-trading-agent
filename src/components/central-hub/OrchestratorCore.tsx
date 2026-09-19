@@ -118,8 +118,8 @@ export const OrchestratorCore: React.FC<OrchestratorCoreProps> = ({
             FEF
           </span>
 
-          <span className="text-[7.5px] font-mono text-cyan-300 font-black tracking-wider uppercase">
-            AI ORCHESTRATOR
+          <span className="text-[8px] font-mono text-cyan-300 font-black tracking-widest uppercase">
+            CORTEX CORE
           </span>
 
           {/* Mini Soundwave / Neural Waveform */}
