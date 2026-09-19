@@ -37,7 +37,7 @@ const LOCAL_BRIDGE_TOKEN = process.env.FEF_BRIDGE_TOKEN || 'fef_local_bridge_tok
 const RELAY_URL = process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557';
 const DEVICE_ID = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
 const KEY_ID = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';
-const DEVICE_SECRET = process.env.FEF_REMOTE_DEVICE_SECRET || 'fef_device_secret_secure_v2';
+const DEVICE_SECRET = (process.env.FEF_REMOTE_DEVICE_SECRET || '').trim();
 const POLL_INTERVAL_MS = 1000;
 
 let ws = null;
@@ -311,6 +311,24 @@ function connectToRelay() {
 async function handleExecuteOrder(cmd) {
   if (!cmd || !cmd.requestId) return;
 
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'COMMAND_ACK',
+      ack: {
+        requestId: cmd.requestId,
+        deviceId: DEVICE_ID,
+        status: 'REJECTED',
+        success: false,
+        error: {
+          code: 'GLOBAL_READ_ONLY_LOCK',
+          message: 'FEF CORTEX V1.1.2-S is READ_ONLY / TELEMETRY ONLY. Connector execution forwarding is disabled.',
+        },
+        timestamp: Date.now(),
+      }
+    }));
+  }
+  return;
+
   console.log(`[FEF-CONNECTOR] Received remote execution command '${cmd.requestId}' for ${cmd.symbol} ${cmd.direction} ${cmd.volume} lots.`);
 
   // 1. Layer 3 DEMO Check: command level
@@ -557,6 +575,9 @@ function stopTelemetryStream() {
 }
 
 async function main() {
+  if (!DEVICE_SECRET) {
+    throw new Error('FEF_REMOTE_DEVICE_SECRET_REQUIRED');
+  }
   console.log('================================================================');
   console.log('FEF TRADING SOLUTIONS: LOCAL OUTBOUND MT5 CONNECTOR AGENT');
   console.log('================================================================');

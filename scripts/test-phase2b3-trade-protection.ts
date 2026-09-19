@@ -579,7 +579,8 @@ async function main() {
 
   // 27. Server-Side Bridge / Route Rejection
   await runTest(27, 'Server-side MT5 HTTP bridge rejects orders missing SL or TP1', async () => {
-    // Arm bridge in DEMO_EXECUTION with fresh quote
+    // Attempt to arm the bridge. The canonical global lock must preempt all
+    // command-specific validation at this external execution boundary.
     setOperatingMode('DEMO_EXECUTION');
     bridgeState.lastHeartbeat = Date.now();
     bridgeState.account.tradeMode = 'DEMO';
@@ -611,10 +612,7 @@ async function main() {
       },
     });
     assert.strictEqual(resNoSl.data.success, false);
-    assert(
-      resNoSl.data.error.code === 'INVALID_SL' || resNoSl.data.error.code === 'MISSING_SL',
-      `Expected INVALID_SL or MISSING_SL, got ${resNoSl.data.error.code}`
-    );
+    assert.strictEqual(resNoSl.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
 
     // Missing TP
     const resNoTp = await dispatchBridgeRequest('/api/command', 'POST', {
@@ -631,10 +629,7 @@ async function main() {
       },
     });
     assert.strictEqual(resNoTp.data.success, false);
-    assert(
-      resNoTp.data.error.code === 'MISSING_TP1' || resNoTp.data.error.code === 'INVALID_TP',
-      `Expected MISSING_TP1 or INVALID_TP, got ${resNoTp.data.error.code}`
-    );
+    assert.strictEqual(resNoTp.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
 
     // Inverted geometry
     const resInverted = await dispatchBridgeRequest('/api/command', 'POST', {
@@ -651,7 +646,7 @@ async function main() {
       },
     });
     assert.strictEqual(resInverted.data.success, false);
-    assert.strictEqual(resInverted.data.error.code, 'INVALID_GEOMETRY');
+    assert.strictEqual(resInverted.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // 28. Post-Fill Protection Verification Contract

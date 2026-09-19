@@ -63,6 +63,7 @@ function generateTestCandles(basePrice = 2000, trend: 'UP' | 'DOWN' | 'FLAT' = '
 }
 
 async function runTests() {
+  const deterministicOpenTime = new Date(Date.UTC(2026, 8, 15, 14, 0, 0));
   console.log('\n===============================================================');
   console.log(' FEF AI TRADING — PHASE 2D TRUTHFUL INTELLIGENCE TEST SUITE');
   console.log('===============================================================\n');
@@ -96,12 +97,12 @@ async function runTests() {
 
   // 2. Market Structure Engine
   console.log('\n[2. MARKET STRUCTURE ENGINE]');
-  const structure = analyzeMarketStructure(testCandles, 'XAUUSD', 'H1');
+  const structure = analyzeMarketStructure(testCandles, 'XAUUSD', 'H1', 'MT5_BROKER_OHLC');
   assert(structure.trend === 'BULLISH', 'Detects BULLISH trend from ascending test candles');
   assert(structure.source === 'MT5_BROKER_OHLC', 'Structure source tagged MT5_BROKER_OHLC');
   assert(structure.classification === 'DERIVED_FROM_VERIFIED', 'Structure classification is DERIVED_FROM_VERIFIED');
 
-  const emptyStructure = analyzeMarketStructure([], 'XAUUSD', 'H1');
+  const emptyStructure = analyzeMarketStructure([], 'XAUUSD', 'H1', 'MT5_BROKER_OHLC');
   assert(emptyStructure.trend === 'INSUFFICIENT_DATA', 'Empty candles gracefully return INSUFFICIENT_DATA');
   assert(emptyStructure.swingHighs.length === 0, 'No swing highs fabricated on empty candles');
 
@@ -116,7 +117,7 @@ async function runTests() {
   fvgCandles[12].low = 2620; // 2620 > 2615 creates bullish FVG [2615, 2620]
   fvgCandles[29].close = 2640; // current price above FVG
 
-  const fvgStructure = analyzeMarketStructure(fvgCandles, 'XAUUSD', 'H1');
+  const fvgStructure = analyzeMarketStructure(fvgCandles, 'XAUUSD', 'H1', 'MT5_BROKER_OHLC');
   const blueprint = buildBuyBlueprint(fvgStructure, fvgCandles, 'XAUUSD', 2640);
   if (blueprint) {
     assert(blueprint.blueprintProvenanceVerified === true, 'Blueprint marks blueprintProvenanceVerified = true');
@@ -155,7 +156,7 @@ async function runTests() {
     price: 2650.00,
     change24h: 0.5,
     category: 'METALS'
-  } as any);
+  } as any, 'H1', undefined, undefined, undefined, deterministicOpenTime);
   assert(profile.entryZone === null, 'Entry zone is null when verified blueprint is not yet computed');
   assert(profile.stopLoss === null, 'Stop loss is null — NO hardcoded p - 15.0 offset');
   assert(profile.tp1 === null, 'TP1 is null — NO hardcoded p + 18.0 offset');
@@ -182,7 +183,7 @@ async function runTests() {
     change24h: -0.45, // Negative change that previously produced "WATCH FOR SELL"
     spread: 0.05,
     category: 'METALS'
-  } as any);
+  } as any, 'H1', undefined, undefined, undefined, deterministicOpenTime);
 
   const dlCount = prodFailureProfile.agents.filter(a => a.status === 'DATA LIMITED').length;
   const bullCount = prodFailureProfile.agents.filter(a => a.bias === 'BULLISH' && a.status !== 'DATA LIMITED').length;
@@ -220,7 +221,7 @@ async function runTests() {
     change24h: +1.20,
     spread: 0.05,
     category: 'METALS'
-  } as any);
+  } as any, 'H1', undefined, undefined, undefined, deterministicOpenTime);
   assert(
     posProfile.setupDirection !== 'WATCH FOR BUY',
     `Positive 24h change does NOT default to WATCH FOR BUY (got: ${posProfile.setupDirection})`

@@ -11,6 +11,7 @@
 import { OHLCCandle } from './canonical-market-snapshot';
 
 export type StructureClassification = 'DERIVED_FROM_VERIFIED';
+export type MarketStructureSource = 'MT5_BROKER_OHLC' | 'INDEPENDENT_VERIFIED_OHLC' | 'INDEPENDENT_REFERENCE_OHLC';
 
 export interface StructureLevel {
   price: number;
@@ -18,7 +19,7 @@ export interface StructureLevel {
   timeframe: string;
   candleTimestamp: number;
   candleIndex: number;
-  source: 'MT5_BROKER_OHLC';
+  source: MarketStructureSource;
   classification: StructureClassification;
   strength?: number; // 1-3, higher = more tested
 }
@@ -30,7 +31,7 @@ export interface FVG {
   midpoint: number;
   timeframe: string;
   candleTimestamp: number;
-  source: 'MT5_BROKER_OHLC';
+  source: MarketStructureSource;
   classification: StructureClassification;
   filled: boolean;
 }
@@ -41,7 +42,7 @@ export interface OrderBlock {
   low: number;
   timeframe: string;
   candleTimestamp: number;
-  source: 'MT5_BROKER_OHLC';
+  source: MarketStructureSource;
   classification: StructureClassification;
 }
 
@@ -50,7 +51,7 @@ export interface MarketStructure {
   symbol: string;
   analyzedAt: number;
   candleCount: number;
-  source: 'MT5_BROKER_OHLC';
+  source: MarketStructureSource;
   classification: StructureClassification;
 
   swingHighs: StructureLevel[];
@@ -74,7 +75,7 @@ const SWING_BARS_EACH_SIDE = 2; // pivot detection window
 /**
  * Detect swing pivots using fractal logic (N bars on each side must be lower/higher).
  */
-function detectSwings(candles: OHLCCandle[], timeframe: string): { highs: StructureLevel[]; lows: StructureLevel[] } {
+function detectSwings(candles: OHLCCandle[], timeframe: string, source: MarketStructureSource): { highs: StructureLevel[]; lows: StructureLevel[] } {
   const highs: StructureLevel[] = [];
   const lows: StructureLevel[] = [];
   const N = SWING_BARS_EACH_SIDE;
@@ -89,10 +90,10 @@ function detectSwings(candles: OHLCCandle[], timeframe: string): { highs: Struct
       if (candles[j].low <= c.low) isSwingLow = false;
     }
     if (isSwingHigh) {
-      highs.push({ price: c.high, type: 'SWING_HIGH', timeframe, candleTimestamp: c.timestamp, candleIndex: i, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' });
+      highs.push({ price: c.high, type: 'SWING_HIGH', timeframe, candleTimestamp: c.timestamp, candleIndex: i, source, classification: 'DERIVED_FROM_VERIFIED' });
     }
     if (isSwingLow) {
-      lows.push({ price: c.low, type: 'SWING_LOW', timeframe, candleTimestamp: c.timestamp, candleIndex: i, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' });
+      lows.push({ price: c.low, type: 'SWING_LOW', timeframe, candleTimestamp: c.timestamp, candleIndex: i, source, classification: 'DERIVED_FROM_VERIFIED' });
     }
   }
   return { highs, lows };
@@ -120,7 +121,7 @@ function classifyTrend(highs: StructureLevel[], lows: StructureLevel[]): 'BULLIS
 /**
  * Detect Break of Structure: candle body close beyond a recent swing high/low.
  */
-function detectBOS(candles: OHLCCandle[], swingHighs: StructureLevel[], swingLows: StructureLevel[], timeframe: string): StructureLevel[] {
+function detectBOS(candles: OHLCCandle[], swingHighs: StructureLevel[], swingLows: StructureLevel[], timeframe: string, source: MarketStructureSource): StructureLevel[] {
   const bos: StructureLevel[] = [];
   const recentHighLevel = swingHighs.length > 0 ? swingHighs[swingHighs.length - 1] : null;
   const recentLowLevel = swingLows.length > 0 ? swingLows[swingLows.length - 1] : null;
@@ -128,11 +129,11 @@ function detectBOS(candles: OHLCCandle[], swingHighs: StructureLevel[], swingLow
   for (let i = 1; i < candles.length; i++) {
     const c = candles[i];
     if (recentHighLevel && i > recentHighLevel.candleIndex && c.close > recentHighLevel.price) {
-      bos.push({ price: recentHighLevel.price, type: 'BOS_HIGH', timeframe, candleTimestamp: c.timestamp, candleIndex: i, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' });
+      bos.push({ price: recentHighLevel.price, type: 'BOS_HIGH', timeframe, candleTimestamp: c.timestamp, candleIndex: i, source, classification: 'DERIVED_FROM_VERIFIED' });
       break;
     }
     if (recentLowLevel && i > recentLowLevel.candleIndex && c.close < recentLowLevel.price) {
-      bos.push({ price: recentLowLevel.price, type: 'BOS_LOW', timeframe, candleTimestamp: c.timestamp, candleIndex: i, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' });
+      bos.push({ price: recentLowLevel.price, type: 'BOS_LOW', timeframe, candleTimestamp: c.timestamp, candleIndex: i, source, classification: 'DERIVED_FROM_VERIFIED' });
       break;
     }
   }
@@ -142,13 +143,13 @@ function detectBOS(candles: OHLCCandle[], swingHighs: StructureLevel[], swingLow
 /**
  * Detect Change of Character: first structural break AGAINST the prevailing trend.
  */
-function detectCHOCH(candles: OHLCCandle[], swingHighs: StructureLevel[], swingLows: StructureLevel[], trend: string, timeframe: string): StructureLevel[] {
+function detectCHOCH(candles: OHLCCandle[], swingHighs: StructureLevel[], swingLows: StructureLevel[], trend: string, timeframe: string, source: MarketStructureSource): StructureLevel[] {
   const choch: StructureLevel[] = [];
   if (trend === 'BULLISH' && swingLows.length >= 2) {
     const prevLow = swingLows[swingLows.length - 2];
     for (let i = prevLow.candleIndex + 1; i < candles.length; i++) {
       if (candles[i].close < prevLow.price) {
-        choch.push({ price: prevLow.price, type: 'CHOCH_LOW', timeframe, candleTimestamp: candles[i].timestamp, candleIndex: i, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' });
+        choch.push({ price: prevLow.price, type: 'CHOCH_LOW', timeframe, candleTimestamp: candles[i].timestamp, candleIndex: i, source, classification: 'DERIVED_FROM_VERIFIED' });
         break;
       }
     }
@@ -156,7 +157,7 @@ function detectCHOCH(candles: OHLCCandle[], swingHighs: StructureLevel[], swingL
     const prevHigh = swingHighs[swingHighs.length - 2];
     for (let i = prevHigh.candleIndex + 1; i < candles.length; i++) {
       if (candles[i].close > prevHigh.price) {
-        choch.push({ price: prevHigh.price, type: 'CHOCH_HIGH', timeframe, candleTimestamp: candles[i].timestamp, candleIndex: i, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' });
+        choch.push({ price: prevHigh.price, type: 'CHOCH_HIGH', timeframe, candleTimestamp: candles[i].timestamp, candleIndex: i, source, classification: 'DERIVED_FROM_VERIFIED' });
         break;
       }
     }
@@ -168,7 +169,7 @@ function detectCHOCH(candles: OHLCCandle[], swingHighs: StructureLevel[], swingL
  * Detect Fair Value Gaps: 3-candle imbalance where candle[i+2].low > candle[i].high (bullish FVG)
  * or candle[i+2].high < candle[i].low (bearish FVG). Only unmitigated FVGs reported.
  */
-function detectFVGs(candles: OHLCCandle[], timeframe: string): FVG[] {
+function detectFVGs(candles: OHLCCandle[], timeframe: string, source: MarketStructureSource): FVG[] {
   const fvgs: FVG[] = [];
   const lastClose = candles[candles.length - 1].close;
 
@@ -188,7 +189,7 @@ function detectFVGs(candles: OHLCCandle[], timeframe: string): FVG[] {
           midpoint: (next.low + prev.high) / 2,
           timeframe,
           candleTimestamp: mid.timestamp,
-          source: 'MT5_BROKER_OHLC',
+          source,
           classification: 'DERIVED_FROM_VERIFIED',
           filled: false,
         });
@@ -206,7 +207,7 @@ function detectFVGs(candles: OHLCCandle[], timeframe: string): FVG[] {
           midpoint: (prev.low + next.high) / 2,
           timeframe,
           candleTimestamp: mid.timestamp,
-          source: 'MT5_BROKER_OHLC',
+          source,
           classification: 'DERIVED_FROM_VERIFIED',
           filled: false,
         });
@@ -222,7 +223,7 @@ function detectFVGs(candles: OHLCCandle[], timeframe: string): FVG[] {
  * Detect Order Blocks: the last bearish candle before a bullish displacement (bullish OB)
  * or the last bullish candle before a bearish displacement (bearish OB).
  */
-function detectOrderBlocks(candles: OHLCCandle[], timeframe: string): OrderBlock[] {
+function detectOrderBlocks(candles: OHLCCandle[], timeframe: string, source: MarketStructureSource): OrderBlock[] {
   const obs: OrderBlock[] = [];
   const DISPLACEMENT_THRESHOLD = 1.5; // displacement body must be 1.5x the OB body
 
@@ -241,7 +242,7 @@ function detectOrderBlocks(candles: OHLCCandle[], timeframe: string): OrderBlock
         low: ob.low,
         timeframe,
         candleTimestamp: ob.timestamp,
-        source: 'MT5_BROKER_OHLC',
+        source,
         classification: 'DERIVED_FROM_VERIFIED',
       });
     }
@@ -254,7 +255,7 @@ function detectOrderBlocks(candles: OHLCCandle[], timeframe: string): OrderBlock
         low: ob.low,
         timeframe,
         candleTimestamp: ob.timestamp,
-        source: 'MT5_BROKER_OHLC',
+        source,
         classification: 'DERIVED_FROM_VERIFIED',
       });
     }
@@ -311,14 +312,15 @@ function detectSupportResistance(
 export function analyzeMarketStructure(
   candles: OHLCCandle[],
   symbol: string,
-  timeframe: string
+  timeframe: string,
+  source: MarketStructureSource
 ): MarketStructure {
   const now = Date.now();
 
   if (!candles || candles.length < MIN_CANDLES) {
     return {
       timeframe, symbol, analyzedAt: now, candleCount: candles?.length || 0,
-      source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED',
+      source, classification: 'DERIVED_FROM_VERIFIED',
       swingHighs: [], swingLows: [], bos: [], choch: [],
       support: [], resistance: [], fvg: [], orderBlocks: [],
       trend: 'INSUFFICIENT_DATA',
@@ -326,18 +328,28 @@ export function analyzeMarketStructure(
     };
   }
 
-  const { highs: swingHighs, lows: swingLows } = detectSwings(candles, timeframe);
+  const { highs: swingHighs, lows: swingLows } = detectSwings(candles, timeframe, source);
   const trend = classifyTrend(swingHighs, swingLows);
-  const bos = detectBOS(candles, swingHighs, swingLows, timeframe);
-  const choch = detectCHOCH(candles, swingHighs, swingLows, trend, timeframe);
-  const fvg = detectFVGs(candles, timeframe);
-  const orderBlocks = detectOrderBlocks(candles, timeframe);
+  const bos = detectBOS(candles, swingHighs, swingLows, timeframe, source);
+  const choch = detectCHOCH(candles, swingHighs, swingLows, trend, timeframe, source);
+  const fvg = detectFVGs(candles, timeframe, source);
+  const orderBlocks = detectOrderBlocks(candles, timeframe, source);
   const { support, resistance } = detectSupportResistance(swingHighs, swingLows, timeframe);
+
+  const applySource = <T extends { source: MarketStructureSource }>(items: T[]): T[] =>
+    items.map((item) => ({ ...item, source }));
 
   return {
     timeframe, symbol, analyzedAt: now, candleCount: candles.length,
-    source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED',
-    swingHighs, swingLows, bos, choch, support, resistance, fvg, orderBlocks,
+    source, classification: 'DERIVED_FROM_VERIFIED',
+    swingHighs: applySource(swingHighs),
+    swingLows: applySource(swingLows),
+    bos: applySource(bos),
+    choch: applySource(choch),
+    support: applySource(support),
+    resistance: applySource(resistance),
+    fvg: applySource(fvg),
+    orderBlocks: applySource(orderBlocks),
     trend,
     lastSwingHigh: swingHighs.length > 0 ? swingHighs[swingHighs.length - 1].price : null,
     lastSwingLow: swingLows.length > 0 ? swingLows[swingLows.length - 1].price : null,

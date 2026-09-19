@@ -18,6 +18,7 @@ import {
   hashAuthToken,
   MAX_CONNECTOR_HEARTBEAT_AGE_MS,
 } from './remote-security-validator';
+import { isMt5OrderTransportAllowed, READ_ONLY_EXECUTION_ERROR } from '../execution/execution-policy';
 
 export class RemoteRelayManager {
   private devices = new Map<string, RegisteredDevice>();
@@ -124,6 +125,10 @@ export class RemoteRelayManager {
     success: boolean;
     error?: { code: string; message: string };
   } {
+    if (!isMt5OrderTransportAllowed()) {
+      return { success: false, error: { ...READ_ONLY_EXECUTION_ERROR } };
+    }
+
     const now = Date.now();
 
     // 1. Idempotency Check: Reject duplicate request IDs

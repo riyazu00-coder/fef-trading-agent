@@ -269,7 +269,7 @@ export const GlobalOpportunityRadar: React.FC = () => {
                   />
                 </div>
                 <p className="text-[9.5px] text-gray-400 leading-tight">
-                  Probability of directional trend continuation across all 15 voting models.
+                  Rule-derived directional evidence confidence across all 15 voting models; not a probability of profit.
                 </p>
               </div>
             </div>

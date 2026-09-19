@@ -16,6 +16,7 @@ import {
   DeviceAuthCredentials,
 } from './remote-types';
 import { RemoteRelayManager } from './remote-relay-manager';
+import { isMt5OrderTransportAllowed, READ_ONLY_EXECUTION_ERROR } from '../execution/execution-policy';
 
 export interface LocalConnectorConfig {
   deviceId: string;
@@ -105,6 +106,18 @@ export class LocalConnectorAgent {
 
     const cmd = this.relay.popNextCommand(this.config.deviceId);
     if (!cmd) return null;
+
+    if (!isMt5OrderTransportAllowed()) {
+      const deniedAck: RemoteCommandAck = {
+        requestId: cmd.requestId,
+        deviceId: this.config.deviceId,
+        status: 'REJECTED',
+        error: { ...READ_ONLY_EXECUTION_ERROR },
+        timestamp: Date.now(),
+      };
+      this.relay.recordAck(deniedAck);
+      return deniedAck;
+    }
 
     const now = Date.now();
 

@@ -1,25 +1,25 @@
 /**
  * FEF TRADING SOLUTIONS — PHASE 2C TEST SUITE
- * Controlled Remote DEMO Execution & Verification
+ * Remote Execution Read-Only Boundary & Defense-in-Depth Verification
  * 
  * 18 Comprehensive Scenarios:
- * 1. Valid remote DEMO execution end-to-end (App -> Relay -> Connector -> Bridge -> Result)
- * 2. Layer 1 DEMO Hard Lock: Command accountMode === 'REAL' rejected with REAL_EXECUTION_LOCKED
- * 3. Layer 2 DEMO Hard Lock: Relay rejects REAL device execution with REAL_EXECUTION_LOCKED
+ * 1. Formerly valid remote DEMO execution is globally locked before dispatch
+ * 2. REAL commands are globally locked before detailed validation
+ * 3. REAL devices are globally locked before detailed validation
  * 4. Layer 3 DEMO Hard Lock: Local connector rejects REAL account with REAL_EXECUTION_LOCKED
  * 5. Layer 4 DEMO Hard Lock: Local bridge rejects non-DEMO account with NOT_DEMO_ACCOUNT
- * 6. Mandatory Stop Loss: Missing or 0 SL rejected with MISSING_SL
- * 7. Mandatory Take Profit 1: Missing or 0 TP1 rejected with MISSING_TP1
- * 8. Directional Geometry: Inverted SL/TP rejected with INVALID_GEOMETRY
+ * 6. Route-level missing-SL request is globally locked
+ * 7. Route-level missing-TP1 request is globally locked
+ * 8. Route-level inverted geometry request is globally locked
  * 9. Zero-Distance Protection: SL == Entry or TP == Entry rejected with INVALID_GEOMETRY
- * 10. Command Expiry (TTL): Expired command rejected with COMMAND_EXPIRED
- * 11. Idempotency Protection: Duplicate requestId rejected with DUPLICATE_COMMAND_ID
- * 12. Duplicate Approval ID Protection: Duplicate approvalId rejected with DUPLICATE_APPROVAL_ID
+ * 10. Route-level expired command is globally locked
+ * 11. Repeated requestId remains locked and is not recorded
+ * 12. Repeated approvalId remains locked and is not recorded
  * 13. Immutable Ticket Fingerprint: Tampered parameters rejected with TICKET_TAMPERED
- * 14. Mandatory Human Approval: humanApproved !== true rejected with HUMAN_APPROVAL_REQUIRED
- * 15. Mandatory Fields: Missing symbol, direction, volume rejected with MISSING_MANDATORY_FIELDS
- * 16. Connector Offline Fail-Closed: Closed connector socket rejected with CONNECTOR_OFFLINE
- * 17. Single Controlled Trade Invariant: One requestId never creates multiple broker orders
+ * 14. Route-level missing approval request is globally locked
+ * 15. Route-level missing mandatory fields request is globally locked
+ * 16. Offline connector request is globally locked before connector lookup
+ * 17. Zero-dispatch invariant: no processed IDs or execution waiters
  * 18. Post-Fill Protection Verification: verifyPostFillProtection confirms broker SL/TP
  */
 
@@ -120,10 +120,16 @@ function dispatchRelayRequest(pathname: string, method: string, body: any = null
   });
 }
 
+function assertGlobalReadOnlyDenial(res: any) {
+  assert.strictEqual(res.status, 403);
+  assert.strictEqual(res.data.success, false);
+  assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
+}
+
 async function main() {
   console.log('================================================================');
   console.log('FEF TRADING SOLUTIONS — PHASE 2C TEST SUITE');
-  console.log('CONTROLLED REMOTE DEMO EXECUTION VERIFICATION');
+  console.log('REMOTE EXECUTION READ-ONLY BOUNDARY VERIFICATION');
   console.log('================================================================\n');
 
   // Start relay server on test port
@@ -238,27 +244,23 @@ async function main() {
     return cmd;
   };
 
-  // 1. Valid Remote DEMO Execution End-to-End
-  await runTest(1, 'Valid remote DEMO execution end-to-end (App -> Relay -> Connector -> Result)', async () => {
+  // 1. A formerly valid DEMO request is now denied at the relay boundary.
+  await runTest(1, 'Global READ_ONLY lock rejects a valid remote DEMO request before dispatch', async () => {
     const cmd = createBaseCommand();
     const res = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd);
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.data.success, true);
-    assert.strictEqual(res.data.ticket, 994821);
-    assert.strictEqual(res.data.status, 'EXECUTED');
+    assertGlobalReadOnlyDenial(res);
+    assert.strictEqual(res.data.ticket, undefined);
   });
 
   // 2. Layer 1 DEMO Hard Lock: Command accountMode === 'REAL'
-  await runTest(2, 'Layer 1 DEMO Hard Lock: command.accountMode === REAL rejected with REAL_EXECUTION_LOCKED', async () => {
+  await runTest(2, 'Global READ_ONLY lock preempts REAL command validation', async () => {
     const cmd = createBaseCommand({ accountMode: 'REAL' });
     const res = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd);
-    assert.strictEqual(res.status, 403);
-    assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'REAL_EXECUTION_LOCKED');
+    assertGlobalReadOnlyDenial(res);
   });
 
   // 3. Layer 2 DEMO Hard Lock: Relay rejects REAL device
-  await runTest(3, 'Layer 2 DEMO Hard Lock: Relay rejects REAL device execution with REAL_EXECUTION_LOCKED', async () => {
+  await runTest(3, 'Global READ_ONLY lock preempts REAL device validation', async () => {
     const realDeviceId = 'device-real-layer2';
     registeredDevices.set(realDeviceId, {
       deviceId: realDeviceId,
@@ -271,9 +273,7 @@ async function main() {
 
     const cmd = createBaseCommand({ deviceId: realDeviceId });
     const res = await dispatchRelayRequest(`/device/${realDeviceId}/execute`, 'POST', cmd);
-    assert.strictEqual(res.status, 403);
-    assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'REAL_EXECUTION_LOCKED');
+    assertGlobalReadOnlyDenial(res);
   });
 
   // 4. Layer 3 DEMO Hard Lock: Security validator rejects REAL mode
@@ -292,31 +292,25 @@ async function main() {
   });
 
   // 6. Mandatory Stop Loss
-  await runTest(6, 'Mandatory Stop Loss: Missing or 0 SL rejected with MISSING_SL', async () => {
+  await runTest(6, 'Global READ_ONLY lock preempts missing-SL route validation', async () => {
     const cmd = createBaseCommand({ sl: 0 });
     const res = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd);
-    assert.strictEqual(res.status, 400);
-    assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'MISSING_SL');
+    assertGlobalReadOnlyDenial(res);
   });
 
   // 7. Mandatory Take Profit 1
-  await runTest(7, 'Mandatory Take Profit 1: Missing or 0 TP1 rejected with MISSING_TP1', async () => {
+  await runTest(7, 'Global READ_ONLY lock preempts missing-TP1 route validation', async () => {
     const cmd = createBaseCommand({ tp1: 0 });
     const res = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd);
-    assert.strictEqual(res.status, 400);
-    assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'MISSING_TP1');
+    assertGlobalReadOnlyDenial(res);
   });
 
   // 8. Directional Geometry
-  await runTest(8, 'Directional Geometry: Inverted SL/TP rejected with INVALID_GEOMETRY', async () => {
+  await runTest(8, 'Global READ_ONLY lock preempts route geometry validation', async () => {
     // BUY with SL (2660) > Entry (2650.30)
     const cmd = createBaseCommand({ sl: 2660.00 });
     const res = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd);
-    assert.strictEqual(res.status, 400);
-    assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'INVALID_GEOMETRY');
+    assertGlobalReadOnlyDenial(res);
   });
 
   // 9. Zero-Distance Protection
@@ -333,38 +327,32 @@ async function main() {
   });
 
   // 10. Command Expiry (TTL Cutoff)
-  await runTest(10, 'Command Expiry: Expired TTL rejected with COMMAND_EXPIRED', async () => {
+  await runTest(10, 'Global READ_ONLY lock preempts route TTL validation', async () => {
     const cmd = createBaseCommand({ expiresAt: Date.now() - 5000 });
     const res = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd);
-    assert.strictEqual(res.status, 400);
-    assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'COMMAND_EXPIRED');
+    assertGlobalReadOnlyDenial(res);
   });
 
   // 11. Idempotency Protection (Duplicate RequestId)
-  await runTest(11, 'Idempotency Protection: Duplicate requestId rejected with DUPLICATE_COMMAND_ID', async () => {
+  await runTest(11, 'Repeated request IDs remain globally locked and unprocessed', async () => {
     const cmd = createBaseCommand();
     const resFirst = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd);
-    assert.strictEqual(resFirst.status, 200);
+    assertGlobalReadOnlyDenial(resFirst);
 
     const resSecond = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd);
-    assert.strictEqual(resSecond.status, 409);
-    assert.strictEqual(resSecond.data.success, false);
-    assert.strictEqual(resSecond.data.error.code, 'DUPLICATE_COMMAND_ID');
+    assertGlobalReadOnlyDenial(resSecond);
   });
 
   // 12. Duplicate Human Approval ID Protection
-  await runTest(12, 'Duplicate Approval ID: Duplicate approvalId rejected with DUPLICATE_APPROVAL_ID', async () => {
+  await runTest(12, 'Repeated approval IDs remain globally locked and unprocessed', async () => {
     const sharedApprovalId = `APPR-SHARED-${Date.now()}`;
     const cmd1 = createBaseCommand({ approvalId: sharedApprovalId });
     const res1 = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd1);
-    assert.strictEqual(res1.status, 200);
+    assertGlobalReadOnlyDenial(res1);
 
     const cmd2 = createBaseCommand({ approvalId: sharedApprovalId });
     const res2 = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd2);
-    assert.strictEqual(res2.status, 409);
-    assert.strictEqual(res2.data.success, false);
-    assert.strictEqual(res2.data.error.code, 'DUPLICATE_APPROVAL_ID');
+    assertGlobalReadOnlyDenial(res2);
   });
 
   // 13. Immutable Ticket Fingerprint
@@ -397,25 +385,21 @@ async function main() {
   });
 
   // 14. Mandatory Human Approval Check
-  await runTest(14, 'Mandatory Human Approval: humanApproved !== true rejected with HUMAN_APPROVAL_REQUIRED', async () => {
+  await runTest(14, 'Global READ_ONLY lock preempts human-approval route validation', async () => {
     const cmd = createBaseCommand({ humanApproved: false });
     const res = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd);
-    assert.strictEqual(res.status, 403);
-    assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'HUMAN_APPROVAL_REQUIRED');
+    assertGlobalReadOnlyDenial(res);
   });
 
   // 15. Missing Mandatory Fields Check
-  await runTest(15, 'Missing Mandatory Fields: Missing symbol rejected with MISSING_MANDATORY_FIELDS', async () => {
+  await runTest(15, 'Global READ_ONLY lock preempts mandatory-field route validation', async () => {
     const cmd = createBaseCommand({ symbol: '' });
     const res = await dispatchRelayRequest(`/device/${DEVICE_ID}/execute`, 'POST', cmd);
-    assert.strictEqual(res.status, 400);
-    assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'MISSING_MANDATORY_FIELDS');
+    assertGlobalReadOnlyDenial(res);
   });
 
   // 16. Connector Offline Fail-Closed
-  await runTest(16, 'Connector Offline Fail-Closed: Offline socket rejected with CONNECTOR_OFFLINE', async () => {
+  await runTest(16, 'Global READ_ONLY lock preempts connector-state route validation', async () => {
     const offlineDeviceId = 'device-offline-01';
     registeredDevices.set(offlineDeviceId, {
       deviceId: offlineDeviceId,
@@ -428,17 +412,14 @@ async function main() {
 
     const cmd = createBaseCommand({ deviceId: offlineDeviceId });
     const res = await dispatchRelayRequest(`/device/${offlineDeviceId}/execute`, 'POST', cmd);
-    assert.strictEqual(res.status, 503);
-    assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'CONNECTOR_OFFLINE');
+    assertGlobalReadOnlyDenial(res);
   });
 
   // 17. Single Controlled Trade Invariant
-  runTest(17, 'Single Controlled Trade Invariant: Idempotency set records processed commands', () => {
-    const testId = `REQ-INVARIANT-TEST-${Date.now()}`;
-    assert.strictEqual(processedRequestIds.has(testId), false);
-    processedRequestIds.add(testId);
-    assert.strictEqual(processedRequestIds.has(testId), true);
+  runTest(17, 'Zero-dispatch invariant: locked requests create no processed IDs or waiters', () => {
+    assert.strictEqual(processedRequestIds.size, 0);
+    assert.strictEqual(processedApprovalIds.size, 0);
+    assert.strictEqual(executionWaiters.size, 0);
   });
 
   // 18. Post-Fill Protection Verification Flow

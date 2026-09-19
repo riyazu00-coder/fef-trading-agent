@@ -25,7 +25,7 @@ enum ENUM_FEF_OPERATING_MODE
    MODE_DEMO_EXECUTION  = 1   // DEMO_EXECUTION (Controlled MT5 Demo Orders)
 };
 
-input ENUM_FEF_OPERATING_MODE InpOperatingMode = MODE_DEMO_EXECUTION; // Operating Mode
+input ENUM_FEF_OPERATING_MODE InpOperatingMode = MODE_READ_ONLY; // Canonical V1.1.2-S mode
 
 #define OPERATING_MODE (InpOperatingMode == MODE_DEMO_EXECUTION ? "DEMO_EXECUTION" : "READ_ONLY")
 
@@ -689,6 +689,11 @@ void PushCandles()
 //+------------------------------------------------------------------+
 void HandlePendingOrder(string resp)
 {
+   // V1.1.2-S canonical policy: telemetry/analysis only. This hard gate is
+   // intentionally before parsing or any OrderSend construction.
+   Print("✕ [FEF-SECURITY] GLOBAL_READ_ONLY_LOCK: MT5 order transport disabled.");
+   return;
+
    int orderPos = StringFind(resp, "\"pendingOrder\":{");
    if(orderPos < 0) return; // No pending order
 

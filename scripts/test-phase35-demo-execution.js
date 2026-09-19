@@ -138,10 +138,10 @@ async function main() {
   // -------------------------------------------------------------------------
   // SCENARIO 1: Demo account verification passes
   // -------------------------------------------------------------------------
-  await runTest(1, 'Demo account verification passes', async () => {
+  await runTest(1, 'Demo account remains telemetry-only under canonical READ_ONLY mode', async () => {
     const res = await dispatchInMemoryRequest('/api/status', 'GET');
     assert.strictEqual(res.data.success, true);
-    assert.strictEqual(res.data.mode, 'DEMO_EXECUTION');
+    assert.strictEqual(res.data.mode, 'READ_ONLY');
     assert.strictEqual(res.data.account.tradeMode, 'DEMO');
   });
 
@@ -178,7 +178,7 @@ async function main() {
     bridgeState.account.tradeMode = prevMode; // Restore
     setOperatingMode('DEMO_EXECUTION'); // Restore
     assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'NOT_DEMO_ACCOUNT');
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
@@ -232,7 +232,7 @@ async function main() {
       },
     });
     assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'MAX_VOLUME_EXCEEDED');
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
@@ -257,7 +257,7 @@ async function main() {
     });
     bridgeState.quotes['XAUUSD'].timestamp = prevTs; // Restore
     assert.strictEqual(res.data.success, false);
-    assert(res.data.error.code === 'STALE_QUOTE' || res.data.error.code === 'SESSION_CLOSED', 'Must reject with STALE_QUOTE or SESSION_CLOSED');
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
@@ -283,7 +283,7 @@ async function main() {
     bridgeState.lastHeartbeat = prevHb; // Restore
     setOperatingMode('DEMO_EXECUTION'); // Re-arm for subsequent tests
     assert.strictEqual(res.data.success, false);
-    assert(res.data.error.code === 'MT5_OFFLINE' || res.data.error.code === 'STALE_HEARTBEAT', 'Must return MT5_OFFLINE or STALE_HEARTBEAT');
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
@@ -304,7 +304,7 @@ async function main() {
       },
     });
     assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'INVALID_VOLUME_STEP');
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
@@ -325,7 +325,7 @@ async function main() {
       },
     });
     assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'INVALID_SL');
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
@@ -350,7 +350,7 @@ async function main() {
     });
     bridgeState.account.freeMargin = prevFree; // Restore
     assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'INSUFFICIENT_MARGIN');
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
@@ -374,7 +374,7 @@ async function main() {
       },
     });
     assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'DUPLICATE_EXECUTION_REQUEST');
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
@@ -464,7 +464,7 @@ async function main() {
     });
     setOperatingMode('DEMO_EXECUTION'); // Restore
     assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'READ_ONLY_LOCK_ACTIVE');
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
@@ -493,7 +493,7 @@ async function main() {
       },
     });
     assert.strictEqual(res.data.success, false);
-    assert.strictEqual(res.data.error.code, 'LIVE_EXECUTION_LOCKED');
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   console.log('\n================================================================');

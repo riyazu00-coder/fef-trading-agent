@@ -150,7 +150,8 @@ console.log('\n--- SECTION 2: PROHIBITION OF ACTIONABLE TRADES ON CLOSED MARKETS
 
 runTest('Closed XAGUSD profile NEVER produces ENTRY ACTIVE or executable BUY/SELL', () => {
   const liveSilver = { ...INITIAL_LIVE_ASSETS['XAGUSD'] };
-  const profile = generateAssetIntelligence('XAGUSD', liveSilver, 'H1');
+  const deterministicSaturday = createUTCDate(2026, 9, 19, 12, 0);
+  const profile = generateAssetIntelligence('XAGUSD', liveSilver, 'H1', undefined, undefined, undefined, deterministicSaturday);
 
   // If system is run during weekend or market closed, verify directly
   // Or test through synthetic closed session state
@@ -173,10 +174,10 @@ runTest('Closed XAGUSD profile NEVER produces ENTRY ACTIVE or executable BUY/SEL
     // Verify Final Decision Agent (#15)
     const finalDecision = profile.agents.find(a => a.type === 'FINAL_DECISION');
     assert.ok(finalDecision, 'Final Decision agent must exist');
-    assert.ok(
-      finalDecision.bias === 'CAUTION' || finalDecision.bias === 'WAIT',
-      'Final Decision must NOT be aggressive BUY/SELL when market is closed'
-    );
+    assert.strictEqual(finalDecision.bias, 'NEUTRAL', 'Final Decision directional bias remains NEUTRAL when no directional setup exists');
+    assert.strictEqual(profile.directionalBias, 'NEUTRAL', 'Directional bias is separate from the closed-session decision posture');
+    assert.strictEqual(profile.decisionPosture, 'MONITOR NEXT OPEN', 'Decision posture preserves the canonical weekend wait state');
+    assert.strictEqual(profile.riskPosture, 'RESTRICTED', 'Risk posture remains fail-closed while the market is closed');
   } else {
     // If currently open on test run, verify that with session closed it obeys
     const closedProfile = { ...profile, tradeExecutable: false };
@@ -351,8 +352,8 @@ runTest('mt5BridgeClient.sendCommand rejects execution on closed market with MAR
   assert.strictEqual(res.success, false, 'Must reject order');
   assert.ok(res.error, 'Must contain error object');
   assert.ok(
-    res.error.code === 'MARKET_CLOSED' || res.error.code === 'READ_ONLY_LOCK',
-    `Error code must be MARKET_CLOSED or READ_ONLY_LOCK, got: ${res.error.code}`
+    res.error.code === 'GLOBAL_READ_ONLY_LOCK',
+    `Error code must be GLOBAL_READ_ONLY_LOCK, got: ${res.error.code}`
   );
 });
 

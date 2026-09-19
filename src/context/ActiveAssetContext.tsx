@@ -121,14 +121,20 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (data.success && Array.isArray(data.candles) && data.candles.length >= 10) {
         const validation = validateCandleSeries(data.candles, tf);
         if (validation.valid) {
-          const prov = (data.provenance || 'LIVE_MT5') as EvidenceClassification;
-          const provName = data.broker || data.provider || 'Exness Technologies Ltd';
-          setCandles(data.candles);
-          setCandleProvenance(prov);
-          setCandleProvider(provName);
-          setCandleCount(data.candles.length);
-          setCandleState(data.state === 'VERIFIED' ? 'VERIFIED' : (data.state as any) || 'VERIFIED');
-          return;
+          const prov = data.provenance as EvidenceClassification | undefined;
+          const acceptedProvenance: EvidenceClassification[] = ['LIVE_MT5', 'INDEPENDENT_VERIFIED', 'INDEPENDENT_REFERENCE'];
+          if (prov && acceptedProvenance.includes(prov)) {
+            const provName = prov === 'LIVE_MT5'
+              ? data.broker || data.provider || 'Authenticated MT5 Broker'
+              : data.provider || 'Independent Verified Feed';
+            setCandles(data.candles);
+            setCandleProvenance(prov);
+            setCandleProvider(provName);
+            setCandleCount(data.candles.length);
+            setCandleState(data.state === 'VERIFIED' ? 'VERIFIED' : (data.state as any) || 'VERIFIED');
+            return;
+          }
+          console.warn(`[Candles] Missing or untrusted provenance for ${sym} ${tf}`);
         } else {
           console.warn(`[Candles] Failed validation for ${sym} ${tf}:`, validation.reason);
         }

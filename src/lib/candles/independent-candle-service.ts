@@ -12,6 +12,10 @@
 
 import { validateCandleSeries, RawCandleInput } from './candle-validator';
 import { OHLCCandle } from '../market/canonical-market-snapshot';
+import {
+  deriveTrustedBrokerCandleProvenance,
+  TrustedBrokerCandleIdentity,
+} from './candle-provenance-policy';
 
 export interface VerifiedCandleResponse {
   success: boolean;
@@ -20,7 +24,11 @@ export interface VerifiedCandleResponse {
   timeframe: string;
   count: number;
   provider: string;
+  broker?: string;
+  server?: string;
   provenance: string;
+  source?: string;
+  authenticatedSource?: string;
   updatedAt: number;
   ageMs: number;
   candles: OHLCCandle[];
@@ -431,15 +439,15 @@ export async function getVerifiedCandles(
 /**
  * Register candle batch explicitly into cache (e.g. pushed from MT5 bridge)
  */
-export function registerVerifiedCandles(
+export function registerTrustedBrokerCandles(
   symbol: string,
   timeframe: string,
   candles: RawCandleInput[],
-  provider: string = 'MT5 Broker',
-  provenance: string = 'MT5_BROKER_OHLC'
+  identity: TrustedBrokerCandleIdentity
 ): VerifiedCandleResponse {
   const normSymbol = symbol.toUpperCase();
   const normTf = timeframe.toUpperCase();
+  const canonicalProvenance = deriveTrustedBrokerCandleProvenance(identity);
   const val = validateCandleSeries(candles, normTf);
 
   if (!val.valid) {
@@ -449,8 +457,12 @@ export function registerVerifiedCandles(
       symbol: normSymbol,
       timeframe: normTf,
       count: 0,
-      provider,
-      provenance,
+      provider: canonicalProvenance.provider,
+      broker: canonicalProvenance.broker,
+      server: canonicalProvenance.server,
+      provenance: canonicalProvenance.provenance,
+      source: canonicalProvenance.source,
+      authenticatedSource: canonicalProvenance.authenticatedSource,
       updatedAt: Date.now(),
       ageMs: 0,
       candles: [],
@@ -465,8 +477,12 @@ export function registerVerifiedCandles(
     symbol: normSymbol,
     timeframe: normTf,
     count: candles.length,
-    provider,
-    provenance,
+    provider: canonicalProvenance.provider,
+    broker: canonicalProvenance.broker,
+    server: canonicalProvenance.server,
+    provenance: canonicalProvenance.provenance,
+    source: canonicalProvenance.source,
+    authenticatedSource: canonicalProvenance.authenticatedSource,
     updatedAt: now,
     ageMs: 0,
     candles: candles as OHLCCandle[],

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getVerifiedCandles, registerVerifiedCandles } from '@/lib/candles/independent-candle-service';
+import { getVerifiedCandles, registerTrustedBrokerCandles } from '@/lib/candles/independent-candle-service';
 import { mt5HttpClient } from '@/lib/bridge/mt5-http-client';
+import { evaluateExternalCandleMutation } from '@/lib/candles/candle-provenance-policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,21 +14,25 @@ export async function GET(req: NextRequest) {
   try {
     const bridgeCandles = await mt5HttpClient.getCandles(symbol, timeframe);
     if (bridgeCandles.success && Array.isArray(bridgeCandles.candles) && bridgeCandles.candles.length >= 10) {
-      registerVerifiedCandles(symbol, timeframe, bridgeCandles.candles, 'Exness Technologies Ltd', 'LIVE_MT5');
+      const registered = registerTrustedBrokerCandles(symbol, timeframe, bridgeCandles.candles, {
+        sourceIdentity: 'AUTHENTICATED_LOCAL_MT5_BRIDGE',
+        broker: 'Exness Technologies Ltd',
+        server: 'Exness-MT5Trial16',
+      });
       return NextResponse.json({
         success: true,
         state: 'VERIFIED',
         symbol,
         timeframe,
-        count: bridgeCandles.candles.length,
-        provider: 'Exness Technologies Ltd',
-        broker: 'Exness Technologies Ltd',
-        server: 'Exness-MT5Trial16',
-        source: 'MT5_BROKER_OHLC',
-        provenance: 'LIVE_MT5',
+        count: registered.count,
+        provider: registered.provider,
+        broker: registered.broker,
+        server: registered.server,
+        source: registered.source,
+        provenance: registered.provenance,
         updatedAt: bridgeCandles.updatedAt || Date.now(),
         ageMs: bridgeCandles.ageMs || 0,
-        candles: bridgeCandles.candles,
+        candles: registered.candles,
       });
     }
   } catch {}
@@ -50,22 +55,26 @@ export async function GET(req: NextRequest) {
       if (relayRes.ok) {
         const relayData = await relayRes.json();
         if (relayData.success && Array.isArray(relayData.candles) && relayData.candles.length >= 10 && !relayData.isStale) {
-          registerVerifiedCandles(symbol, timeframe, relayData.candles, relayData.broker || 'Exness Technologies Ltd', 'LIVE_MT5');
+          const registered = registerTrustedBrokerCandles(symbol, timeframe, relayData.candles, {
+            sourceIdentity: 'AUTHENTICATED_REMOTE_MT5_RELAY',
+            broker: relayData.broker || 'Exness Technologies Ltd',
+            server: relayData.server || 'Exness-MT5Trial16',
+          });
           return NextResponse.json({
             success: true,
             state: 'VERIFIED',
             symbol,
             timeframe,
-            count: relayData.candles.length,
-            provider: relayData.provider || 'Exness Technologies Ltd',
-            broker: relayData.broker || 'Exness Technologies Ltd',
-            server: relayData.server || 'Exness-MT5Trial16',
-            source: 'MT5_BROKER_OHLC',
-            provenance: 'LIVE_MT5',
+            count: registered.count,
+            provider: registered.provider,
+            broker: registered.broker,
+            server: registered.server,
+            source: registered.source,
+            provenance: registered.provenance,
             updatedAt: relayData.updatedAt || Date.now(),
             ageMs: relayData.ageMs || 0,
             freshness: relayData.freshness || 'FRESH',
-            candles: relayData.candles,
+            candles: registered.candles,
           });
         }
       }
@@ -78,21 +87,17 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { symbol, timeframe, candles, provider, provenance } = body;
-    if (!symbol || !timeframe || !Array.isArray(candles)) {
-      return NextResponse.json(
-        { success: false, error: { code: 'MISSING_PARAMS', message: 'symbol, timeframe, and candles array required' } },
-        { status: 400 }
-      );
-    }
-    const res = registerVerifiedCandles(symbol, timeframe, candles, provider, provenance);
-    return NextResponse.json(res);
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: { code: 'POST_ERROR', message: err?.message || 'Error processing candle registration' } },
-      { status: 500 }
-    );
-  }
+  void req;
+  const denial = evaluateExternalCandleMutation();
+  return NextResponse.json(
+    {
+      success: false,
+      state: 'READ_ONLY',
+      error: {
+        code: denial.code,
+        message: denial.message,
+      },
+    },
+    { status: 405, headers: { Allow: 'GET' } }
+  );
 }

@@ -161,7 +161,7 @@ async function main() {
     });
     assert.strictEqual(accRes.data.success, true);
     assert.strictEqual(bridgeState.account.tradeMode, 'DEMO');
-    assert.strictEqual(bridgeState.operatingMode, 'DEMO_EXECUTION');
+    assert.strictEqual(bridgeState.operatingMode, 'READ_ONLY');
 
     // Test that a REAL account immediately triggers hard-lock
     const realRes = await dispatchInMemoryRequest('/mt5/account', 'POST', {
@@ -272,7 +272,7 @@ async function main() {
   // Step 10: MT5 EA queue dispatch & polling verification
   // -------------------------------------------------------------------------
   const executionReqId = `demo-acceptance-${Date.now()}`;
-  await runStep(10, 'Confirm order queued and delivered to MT5 EA via heartbeat', async () => {
+  await runStep(10, 'Confirm approved DEMO order is blocked before MT5 EA delivery', async () => {
     // Ensure healthy state
     bridgeState.lastHeartbeat = Date.now();
     bridgeState.account.tradeMode = 'DEMO';
@@ -286,20 +286,6 @@ async function main() {
       spread: 5.0,
       timestamp: Date.now()
     };
-
-    // Simulate EA responding with order-result once order is queued
-    setTimeout(async () => {
-      await dispatchInMemoryRequest('/mt5/order-result', 'POST', {
-        requestId: executionReqId,
-        success: true,
-        ticket: 9988204,
-        deal: 774819,
-        price: 64255.00,
-        volume: 0.1,
-        retcode: 10009,
-        retcodeDescription: 'TRADE_RETCODE_DONE'
-      });
-    }, 50);
 
     const res = await dispatchInMemoryRequest('/api/command', 'POST', {
       command: 'PLACE_ORDER',
@@ -315,22 +301,15 @@ async function main() {
       }
     });
 
-    if (!res.data.success) {
-      throw new Error(`Order failed: ${JSON.stringify(res.data.error || res.data)}`);
-    }
-    assert.strictEqual(res.data.success, true);
-    assert.strictEqual(res.data.data.ticket, 9988204);
+    assert.strictEqual(res.data.success, false);
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
   // Step 11: Deal ticket & execution result return verification
   // -------------------------------------------------------------------------
-  await runStep(11, 'Confirm actual deal ticket and retcode returned', async () => {
-    assert.strictEqual(executedRequestIds.has(executionReqId), true);
-    const execRecord = executedRequestIds.get(executionReqId);
-    assert.strictEqual(execRecord.ticket, 9988204);
-    assert.strictEqual(execRecord.retcode, 10009);
-    assert.strictEqual(execRecord.retcodeDescription, 'TRADE_RETCODE_DONE');
+  await runStep(11, 'Confirm no deal ticket or broker result is created', async () => {
+    assert.strictEqual(executedRequestIds.has(executionReqId), false);
   });
 
   // -------------------------------------------------------------------------

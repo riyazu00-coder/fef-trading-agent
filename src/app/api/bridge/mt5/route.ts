@@ -5,6 +5,7 @@ import { BridgeCommand, RESTRICTED_EXECUTION_COMMANDS } from '@/lib/bridge/mt5-b
 import { symbolDirectory } from '@/lib/bridge/symbol-mapper';
 import { evaluateMarketSession } from '@/lib/session/market-session-engine';
 import { validateTradeProtection } from '@/lib/execution/trade-protection-validator';
+import { CANONICAL_EXECUTION_MODE, READ_ONLY_EXECUTION_ERROR } from '@/lib/execution/execution-policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -165,6 +166,15 @@ export async function POST(req: NextRequest) {
     }
 
     const command = action.toUpperCase() as BridgeCommand;
+
+    if (RESTRICTED_EXECUTION_COMMANDS.has(command)) {
+      return NextResponse.json({
+        success: false,
+        state: 'CONNECTED_READ_ONLY',
+        operatingMode: CANONICAL_EXECUTION_MODE,
+        error: READ_ONLY_EXECUTION_ERROR,
+      }, { status: 403 });
+    }
 
     // Defense-in-depth: Live Execution Hard Lock
     if (body.mode === 'LIVE' || body.operatingMode === 'LIVE' || body.liveTrading === true) {

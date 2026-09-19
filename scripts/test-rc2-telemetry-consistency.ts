@@ -26,6 +26,7 @@ import {
 } from '../src/lib/bridge/mt5-telemetry-state';
 
 import { MT5AccountInfo, MT5QuoteData } from '../src/lib/bridge/mt5-bridge-protocol';
+import { MT5_ORDER_TRANSPORT_ENABLED } from '../src/lib/execution/execution-policy';
 
 let passCount = 0;
 let failCount = 0;
@@ -50,7 +51,7 @@ async function runSuite() {
   // ---------------------------------------------------------------------------
   // TEST 1: DEMO connected + fresh heartbeat -> DEMO_EXECUTION everywhere
   // ---------------------------------------------------------------------------
-  console.log('[TEST 1: DEMO Connected + Fresh Heartbeat -> Authoritative DEMO_EXECUTION]');
+  console.log('[TEST 1: DEMO Connected + Fresh Heartbeat -> Canonical READ_ONLY]');
   bridgeState.lastHeartbeat = Date.now();
   bridgeState.terminal = {
     broker: 'Exness Technologies Ltd',
@@ -81,12 +82,12 @@ async function runSuite() {
   bridgeState.operatingMode = 'DEMO_EXECUTION';
 
   const authMode1 = getAuthoritativeOperatingMode();
-  assert(authMode1 === 'DEMO_EXECUTION', 'Bridge authoritative operatingMode evaluates to DEMO_EXECUTION for active DEMO');
+  assert(authMode1 === 'READ_ONLY', 'Bridge authoritative operatingMode remains READ_ONLY for active DEMO');
 
   // Verify telemetry state helper derives authoritative mode without split-brain
   const derivedContext1 = deriveAccountRiskContext(bridgeState.account as unknown as MT5AccountInfo, [], authMode1);
   assert(derivedContext1 !== null, 'Derived account context is non-null');
-  assert(derivedContext1?.operatingMode === 'DEMO_EXECUTION', 'Derived account risk context operatingMode matches authoritative DEMO_EXECUTION');
+  assert(derivedContext1?.operatingMode === 'READ_ONLY', 'Derived account risk context matches authoritative READ_ONLY');
   assert(derivedContext1?.isDemo === true, 'DEMO account isDemo is true');
 
   // ---------------------------------------------------------------------------
@@ -251,6 +252,7 @@ async function runSuite() {
   
   // Verify STALE quote cannot be used for execution
   const staleQuoteBlocked = (quote: MT5QuoteData | null, opMode: string) => {
+    if (!MT5_ORDER_TRANSPORT_ENABLED) return { canExecute: false, reason: 'GLOBAL_READ_ONLY_LOCK' };
     if (opMode !== 'DEMO_EXECUTION') return { canExecute: false, reason: 'NOT_DEMO_EXECUTION' };
     if (!quote || quote.bid <= 0 || quote.ask <= 0) return { canExecute: false, reason: 'QUOTE_UNAVAILABLE' };
     const sym = quote.canonicalSymbol || quote.brokerSymbol;
@@ -263,16 +265,16 @@ async function runSuite() {
   // Test with closed session quote
   const closedGateResult = staleQuoteBlocked(fridayCloseXauQuote, 'DEMO_EXECUTION');
   assert(closedGateResult.canExecute === false, 'Safety gate blocks order on closed session quote');
-  assert(closedGateResult.reason === 'SESSION_CLOSED' || closedGateResult.reason === 'STALE_QUOTE', 'Safety gate rejects with SESSION_CLOSED or STALE_QUOTE');
+  assert(closedGateResult.reason === 'GLOBAL_READ_ONLY_LOCK', 'Global READ_ONLY gate precedes quote validation');
 
   // Test with READ_ONLY mode
   const readOnlyGateResult = staleQuoteBlocked(btcQuote, 'READ_ONLY');
   assert(readOnlyGateResult.canExecute === false, 'Safety gate blocks order when operatingMode is READ_ONLY');
-  assert(readOnlyGateResult.reason === 'NOT_DEMO_EXECUTION', 'Rejection reason is NOT_DEMO_EXECUTION');
+  assert(readOnlyGateResult.reason === 'GLOBAL_READ_ONLY_LOCK', 'Rejection reason is GLOBAL_READ_ONLY_LOCK');
 
   // Test with fresh BTC quote on DEMO_EXECUTION
   const freshBtcGateResult = staleQuoteBlocked(btcQuote, 'DEMO_EXECUTION');
-  assert(freshBtcGateResult.canExecute === true, 'Safety gate permits order on fresh BTC quote when in DEMO_EXECUTION');
+  assert(freshBtcGateResult.canExecute === false && freshBtcGateResult.reason === 'GLOBAL_READ_ONLY_LOCK', 'Fresh BTC quote remains non-executable in DEMO_EXECUTION');
 
   console.log('\n================================================================');
   console.log(`TEST RESULTS: ${passCount} PASSED, ${failCount} FAILED`);

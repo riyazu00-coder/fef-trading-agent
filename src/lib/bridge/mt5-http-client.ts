@@ -21,6 +21,7 @@ import {
   DemoExecutionResult
 } from './mt5-bridge-protocol';
 import { symbolDirectory } from './symbol-mapper';
+import { READ_ONLY_EXECUTION_ERROR } from '../execution/execution-policy';
 
 export interface MT5HttpClientConfig {
   baseUrl: string;
@@ -60,15 +61,15 @@ export class MT5HttpClient {
     symbol?: string
   ): Promise<BridgeResponsePayload<T>> {
     // 1. Reject live execution and unauthorized mutating commands
-    if (RESTRICTED_EXECUTION_COMMANDS.has(command) && command !== 'PLACE_ORDER') {
+    if (RESTRICTED_EXECUTION_COMMANDS.has(command)) {
       return {
         reqId: `req-${Date.now()}`,
         command,
         success: false,
         state: 'CONNECTED_READ_ONLY',
         error: {
-          code: 'READ_ONLY_LOCK_ACTIVE',
-          message: `Execution command '${command}' rejected: FEF MT5 Bridge is locked in READ_ONLY safety mode.`
+          code: READ_ONLY_EXECUTION_ERROR.code,
+          message: `${READ_ONLY_EXECUTION_ERROR.message} Command '${command}' was denied.`
         },
         timestamp: Date.now()
       };

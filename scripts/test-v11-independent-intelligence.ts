@@ -65,6 +65,7 @@ async function runTests() {
   // [TEST 2: ContinuityFeed State Machine]
   console.log('\n[TEST 2: CONTINUITY FEED STATE TRANSITIONS]');
   const now = Date.now();
+  const deterministicOpenTime = new Date(Date.UTC(2026, 8, 15, 14, 0, 0));
 
   // 2a. Fresh broker quote -> BROKER_PRIMARY
   const feed1 = evaluateContinuityFeed({
@@ -118,7 +119,7 @@ async function runTests() {
     price: 4295.35,
     change24h: -0.25,
     category: 'METALS',
-  } as any);
+  } as any, 'H1', undefined, undefined, undefined, deterministicOpenTime);
 
   const xauTech = xauProfile.agents.find(a => a.type === 'TECHNICAL');
   assert(xauTech?.status === 'DATA LIMITED', 'XAUUSD without candles has Technical as DATA LIMITED');
@@ -153,7 +154,7 @@ async function runTests() {
     price: basePrice + 40,
     change24h: +2.50,
     category: 'CRYPTO',
-  } as any, 'H1', testCandles);
+  } as any, 'H1', testCandles, undefined, undefined, deterministicOpenTime);
 
   const btcTech = btcProfile.agents.find(a => a.type === 'TECHNICAL');
   assert(btcTech?.status === 'ONLINE', 'BTCUSD with verified candles has Technical ONLINE');
@@ -192,7 +193,7 @@ async function runTests() {
     price: 4365.50,
     change24h: 0.10,
     category: 'METALS',
-  } as any, 'H1', testCandles, 'LIVE_MT5', 'Exness MT5 Broker');
+  } as any, 'H1', testCandles, 'LIVE_MT5', 'Exness MT5 Broker', deterministicOpenTime);
   const mt5Tech = mt5Profile.agents.find(a => a.type === 'TECHNICAL');
   const mt5Evidence = mt5Tech?.evidenceRecords?.find(e => e.classification === 'LIVE_MT5');
   assert(Boolean(mt5Evidence), 'MT5 OHLC classified LIVE_MT5');
@@ -206,7 +207,7 @@ async function runTests() {
     price: 4362.00,
     change24h: -0.15,
     category: 'METALS',
-  } as any, 'H1', testCandles, 'INDEPENDENT_REFERENCE', 'Binance PAXG/USDT (Spot Proxy)');
+  } as any, 'H1', testCandles, 'INDEPENDENT_REFERENCE', 'Binance PAXG/USDT (Spot Proxy)', deterministicOpenTime);
   const paxgTech = paxgProfile.agents.find(a => a.type === 'TECHNICAL');
   const paxgEvidence = paxgTech?.evidenceRecords?.find(e => e.classification === 'INDEPENDENT_REFERENCE');
   assert(Boolean(paxgEvidence), 'PAXG proxy classified INDEPENDENT_REFERENCE');
@@ -221,7 +222,7 @@ async function runTests() {
     price: 1.0850,
     change24h: +3.50, // Massive positive change
     category: 'FOREX',
-  } as any);
+  } as any, 'H1', undefined, undefined, undefined, deterministicOpenTime);
   const bullKillzone = bullSession.agents.find(a => a.type === 'KILLZONE');
   assert(bullKillzone?.bias === 'NEUTRAL', 'Positive 24h change (+3.5%) does NOT make KILLZONE BULLISH (strictly NEUTRAL)');
 
@@ -231,7 +232,7 @@ async function runTests() {
     price: 1.0850,
     change24h: -3.50, // Massive negative change
     category: 'FOREX',
-  } as any);
+  } as any, 'H1', undefined, undefined, undefined, deterministicOpenTime);
   const bearKillzone = bearSession.agents.find(a => a.type === 'KILLZONE');
   assert(bearKillzone?.bias === 'NEUTRAL', 'Negative 24h change (-3.5%) does NOT make KILLZONE BEARISH (strictly NEUTRAL)');
 
@@ -253,7 +254,7 @@ async function runTests() {
     price: disconnectedFeed.activePrice,
     change24h: +1.20,
     category: 'CRYPTO',
-  } as any, 'H1', testCandles, 'INDEPENDENT_VERIFIED', 'Binance Public Spot');
+  } as any, 'H1', testCandles, 'INDEPENDENT_VERIFIED', 'Binance Public Spot', deterministicOpenTime);
   const btcIndTech = btcIndependentDisconnected.agents.find(a => a.type === 'TECHNICAL');
   assert(btcIndTech?.status === 'ONLINE', 'Technical stays ONLINE with independent OHLC when MT5 is disconnected');
   assert(btcIndependentDisconnected.marketStructure !== null, 'Market structure analysis continues uninterrupted without MT5');

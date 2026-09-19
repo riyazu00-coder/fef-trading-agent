@@ -23,11 +23,15 @@ export type SetupLifecycleState =
   | 'DATA_LIMITED';
 
 export type BlueprintDirection = 'BUY' | 'SELL';
+export type BlueprintCandleSource =
+  | 'MT5_BROKER_OHLC'
+  | 'INDEPENDENT_VERIFIED_OHLC'
+  | 'INDEPENDENT_REFERENCE_OHLC';
 
 export interface LevelWithProvenance {
   price: number;
   reason: string;
-  source: 'MT5_BROKER_OHLC';
+  source: BlueprintCandleSource;
   timeframe: string;
   structureType: string;
   candleTimestamp: number;
@@ -79,7 +83,8 @@ export function buildBuyBlueprint(
   structure: MarketStructure,
   candles: OHLCCandle[],
   symbol: string,
-  currentPrice: number
+  currentPrice: number,
+  candleSource: BlueprintCandleSource = 'INDEPENDENT_VERIFIED_OHLC'
 ): TradeBlueprint | null {
   if (!structure || structure.trend === 'INSUFFICIENT_DATA') return null;
   if (structure.candleCount < 10) return null;
@@ -145,18 +150,18 @@ export function buildBuyBlueprint(
     updatedAt: now,
     symbol,
     direction: 'BUY',
-    entryZoneHigh: { price: entryHigh, reason: `${entryType} zone upper boundary`, source: 'MT5_BROKER_OHLC', timeframe: entryTf, structureType: entryType, candleTimestamp: entryCandleTs, classification: 'DERIVED_FROM_VERIFIED' },
-    entryZoneLow: { price: entryLow, reason: `${entryType} zone lower boundary`, source: 'MT5_BROKER_OHLC', timeframe: entryTf, structureType: entryType, candleTimestamp: entryCandleTs, classification: 'DERIVED_FROM_VERIFIED' },
-    invalidation: { price: invalidationLevel.price, reason: `Confirmed swing low structural invalidation`, source: 'MT5_BROKER_OHLC', timeframe: invalidationLevel.timeframe, structureType: 'SWING_LOW', candleTimestamp: invalidationLevel.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
-    sl: { price: slPrice, reason: `Swing low invalidation minus ${ATR_SL_BUFFER_MULTIPLIER}x ATR buffer`, source: 'MT5_BROKER_OHLC', timeframe: invalidationLevel.timeframe, structureType: 'SL_DERIVED', candleTimestamp: invalidationLevel.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
-    tp1: { price: tp1Level.price, reason: `Nearest swing high / resistance above entry`, source: 'MT5_BROKER_OHLC', timeframe: tp1Level.timeframe, structureType: tp1Level.type, candleTimestamp: tp1Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
-    tp2: tp2Level ? { price: tp2Level.price, reason: `Second structural resistance target`, source: 'MT5_BROKER_OHLC', timeframe: tp2Level.timeframe, structureType: tp2Level.type, candleTimestamp: tp2Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' } : undefined,
-    tp3: tp3Level ? { price: tp3Level.price, reason: `Third structural extension target`, source: 'MT5_BROKER_OHLC', timeframe: tp3Level.timeframe, structureType: tp3Level.type, candleTimestamp: tp3Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' } : undefined,
+    entryZoneHigh: { price: entryHigh, reason: `${entryType} zone upper boundary`, source: candleSource, timeframe: entryTf, structureType: entryType, candleTimestamp: entryCandleTs, classification: 'DERIVED_FROM_VERIFIED' },
+    entryZoneLow: { price: entryLow, reason: `${entryType} zone lower boundary`, source: candleSource, timeframe: entryTf, structureType: entryType, candleTimestamp: entryCandleTs, classification: 'DERIVED_FROM_VERIFIED' },
+    invalidation: { price: invalidationLevel.price, reason: `Confirmed swing low structural invalidation`, source: candleSource, timeframe: invalidationLevel.timeframe, structureType: 'SWING_LOW', candleTimestamp: invalidationLevel.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
+    sl: { price: slPrice, reason: `Swing low invalidation minus ${ATR_SL_BUFFER_MULTIPLIER}x ATR buffer`, source: candleSource, timeframe: invalidationLevel.timeframe, structureType: 'SL_DERIVED', candleTimestamp: invalidationLevel.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
+    tp1: { price: tp1Level.price, reason: `Nearest swing high / resistance above entry`, source: candleSource, timeframe: tp1Level.timeframe, structureType: tp1Level.type, candleTimestamp: tp1Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
+    tp2: tp2Level ? { price: tp2Level.price, reason: `Second structural resistance target`, source: candleSource, timeframe: tp2Level.timeframe, structureType: tp2Level.type, candleTimestamp: tp2Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' } : undefined,
+    tp3: tp3Level ? { price: tp3Level.price, reason: `Third structural extension target`, source: candleSource, timeframe: tp3Level.timeframe, structureType: tp3Level.type, candleTimestamp: tp3Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' } : undefined,
     rrRatio: rr,
     expiry: now + EXPIRY_MS,
     state: 'WATCH',
     blueprintProvenanceVerified: true,
-    provenanceNote: `All levels derived from MT5_BROKER_OHLC verified candles on ${entryTf}. Entry: ${entryType}. SL: Swing low + ATR buffer. TP1: Structural swing high.`,
+    provenanceNote: `All levels derived from ${candleSource} verified candles on ${entryTf}. Entry: ${entryType}. SL: Swing low + ATR buffer. TP1: Structural swing high.`,
   };
 }
 
@@ -167,7 +172,8 @@ export function buildSellBlueprint(
   structure: MarketStructure,
   candles: OHLCCandle[],
   symbol: string,
-  currentPrice: number
+  currentPrice: number,
+  candleSource: BlueprintCandleSource = 'INDEPENDENT_VERIFIED_OHLC'
 ): TradeBlueprint | null {
   if (!structure || structure.trend === 'INSUFFICIENT_DATA') return null;
   if (structure.candleCount < 10) return null;
@@ -228,18 +234,18 @@ export function buildSellBlueprint(
     updatedAt: now,
     symbol,
     direction: 'SELL',
-    entryZoneHigh: { price: entryHigh, reason: `${entryType} zone upper boundary`, source: 'MT5_BROKER_OHLC', timeframe: entryTf, structureType: entryType, candleTimestamp: entryCandleTs, classification: 'DERIVED_FROM_VERIFIED' },
-    entryZoneLow: { price: entryLow, reason: `${entryType} zone lower boundary`, source: 'MT5_BROKER_OHLC', timeframe: entryTf, structureType: entryType, candleTimestamp: entryCandleTs, classification: 'DERIVED_FROM_VERIFIED' },
-    invalidation: { price: invalidationLevel.price, reason: `Confirmed swing high structural invalidation`, source: 'MT5_BROKER_OHLC', timeframe: invalidationLevel.timeframe, structureType: 'SWING_HIGH', candleTimestamp: invalidationLevel.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
-    sl: { price: slPrice, reason: `Swing high invalidation plus ${ATR_SL_BUFFER_MULTIPLIER}x ATR buffer`, source: 'MT5_BROKER_OHLC', timeframe: invalidationLevel.timeframe, structureType: 'SL_DERIVED', candleTimestamp: invalidationLevel.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
-    tp1: { price: tp1Level.price, reason: `Nearest swing low / support below entry`, source: 'MT5_BROKER_OHLC', timeframe: tp1Level.timeframe, structureType: tp1Level.type, candleTimestamp: tp1Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
-    tp2: tp2Level ? { price: tp2Level.price, reason: `Second structural support target`, source: 'MT5_BROKER_OHLC', timeframe: tp2Level.timeframe, structureType: tp2Level.type, candleTimestamp: tp2Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' } : undefined,
-    tp3: tp3Level ? { price: tp3Level.price, reason: `Third structural extension target`, source: 'MT5_BROKER_OHLC', timeframe: tp3Level.timeframe, structureType: tp3Level.type, candleTimestamp: tp3Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' } : undefined,
+    entryZoneHigh: { price: entryHigh, reason: `${entryType} zone upper boundary`, source: candleSource, timeframe: entryTf, structureType: entryType, candleTimestamp: entryCandleTs, classification: 'DERIVED_FROM_VERIFIED' },
+    entryZoneLow: { price: entryLow, reason: `${entryType} zone lower boundary`, source: candleSource, timeframe: entryTf, structureType: entryType, candleTimestamp: entryCandleTs, classification: 'DERIVED_FROM_VERIFIED' },
+    invalidation: { price: invalidationLevel.price, reason: `Confirmed swing high structural invalidation`, source: candleSource, timeframe: invalidationLevel.timeframe, structureType: 'SWING_HIGH', candleTimestamp: invalidationLevel.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
+    sl: { price: slPrice, reason: `Swing high invalidation plus ${ATR_SL_BUFFER_MULTIPLIER}x ATR buffer`, source: candleSource, timeframe: invalidationLevel.timeframe, structureType: 'SL_DERIVED', candleTimestamp: invalidationLevel.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
+    tp1: { price: tp1Level.price, reason: `Nearest swing low / support below entry`, source: candleSource, timeframe: tp1Level.timeframe, structureType: tp1Level.type, candleTimestamp: tp1Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' },
+    tp2: tp2Level ? { price: tp2Level.price, reason: `Second structural support target`, source: candleSource, timeframe: tp2Level.timeframe, structureType: tp2Level.type, candleTimestamp: tp2Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' } : undefined,
+    tp3: tp3Level ? { price: tp3Level.price, reason: `Third structural extension target`, source: candleSource, timeframe: tp3Level.timeframe, structureType: tp3Level.type, candleTimestamp: tp3Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' } : undefined,
     rrRatio: rr,
     expiry: now + EXPIRY_MS,
     state: 'WATCH',
     blueprintProvenanceVerified: true,
-    provenanceNote: `All levels derived from MT5_BROKER_OHLC verified candles on ${entryTf}. Entry: ${entryType}. SL: Swing high + ATR buffer. TP1: Structural swing low.`,
+    provenanceNote: `All levels derived from ${candleSource} verified candles on ${entryTf}. Entry: ${entryType}. SL: Swing high + ATR buffer. TP1: Structural swing low.`,
   };
 }
 

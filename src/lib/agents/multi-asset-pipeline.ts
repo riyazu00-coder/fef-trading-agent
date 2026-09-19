@@ -30,8 +30,12 @@ import {
   EvidenceClassification
 } from '../evidence/agent-evidence';
 import { analyzeMarketStructure, MarketStructure } from '../market/market-structure-engine';
-import { buildBuyBlueprint, buildSellBlueprint, TradeBlueprint } from '../trading/trade-blueprint-engine';
+import { buildBuyBlueprint, buildSellBlueprint, BlueprintCandleSource, TradeBlueprint } from '../trading/trade-blueprint-engine';
 import { OHLCCandle } from '../market/canonical-market-snapshot';
+
+export type DirectionalBias = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+export type DecisionPosture = 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)' | 'ANALYSIS ONLY' | 'DATA LIMITED';
+export type RiskPosture = 'CLEAR' | 'CAUTION' | 'RESTRICTED';
 
 export interface AssetIntelligenceProfile {
   symbol: string;
@@ -43,7 +47,10 @@ export interface AssetIntelligenceProfile {
   volatility: string;
   newsRisk: string;
   liquidity: string;
-  setupDirection: 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)' | 'ANALYSIS ONLY' | 'DATA LIMITED';
+  setupDirection: DecisionPosture;
+  directionalBias: DirectionalBias;
+  decisionPosture: DecisionPosture;
+  riskPosture: RiskPosture;
   confidence: number;
   entryZone: [number, number];
   stopLoss: number;
@@ -123,7 +130,8 @@ export function generateAssetIntelligence(
   timeframe: string = 'H1',
   verifiedCandles?: OHLCCandle[],
   candleProvenance?: EvidenceClassification,
-  candleProvider?: string
+  candleProvider?: string,
+  evaluationTime?: Date
 ): AssetIntelligenceProfile {
   const normSymbol = (symbol || 'XAUUSD').toUpperCase();
   const normTf = (timeframe || 'H1').toUpperCase();
@@ -153,13 +161,13 @@ export function generateAssetIntelligence(
   const quoteTimestampMs = liveAsset?.lastUpdated && !isNaN(new Date(liveAsset.lastUpdated).getTime())
     ? new Date(liveAsset.lastUpdated).getTime()
     : undefined;
-  const sessionState = evaluateMarketSession(normSymbol, undefined, quoteTimestampMs);
+  const sessionState = evaluateMarketSession(normSymbol, evaluationTime, quoteTimestampMs);
   const tradeExecutable = sessionState.tradeExecutable;
   const setupQuality = sessionState.setupQuality;
 
   // 2. Market Structure Analysis if verified candles are provided
   const hasCandles = Array.isArray(verifiedCandles) && verifiedCandles.length >= 10;
-  const marketStructure = hasCandles ? analyzeMarketStructure(verifiedCandles, normSymbol, normTf) : null;
+  let marketStructure: MarketStructure | null = null;
 
   // Resolve truthful provenance & provider metadata
   let effectiveCandleProvenance: EvidenceClassification = 'UNAVAILABLE';
@@ -189,11 +197,19 @@ export function generateAssetIntelligence(
 
   // 3. Trade Blueprint Synthesis from real structure
   let blueprint: TradeBlueprint | null = null;
+  const blueprintCandleSource: BlueprintCandleSource = effectiveCandleProvenance === 'LIVE_MT5'
+    ? 'MT5_BROKER_OHLC'
+    : effectiveCandleProvenance === 'INDEPENDENT_REFERENCE'
+      ? 'INDEPENDENT_REFERENCE_OHLC'
+      : 'INDEPENDENT_VERIFIED_OHLC';
+  marketStructure = hasCandles
+    ? analyzeMarketStructure(verifiedCandles!, normSymbol, normTf, blueprintCandleSource)
+    : null;
   if (marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
     if (marketStructure.trend === 'BULLISH') {
-      blueprint = buildBuyBlueprint(marketStructure, verifiedCandles!, normSymbol, p);
+      blueprint = buildBuyBlueprint(marketStructure, verifiedCandles!, normSymbol, p, blueprintCandleSource);
     } else if (marketStructure.trend === 'BEARISH') {
-      blueprint = buildSellBlueprint(marketStructure, verifiedCandles!, normSymbol, p);
+      blueprint = buildSellBlueprint(marketStructure, verifiedCandles!, normSymbol, p, blueprintCandleSource);
     }
   }
 
@@ -544,6 +560,13 @@ export function generateAssetIntelligence(
     finalAgent.lastOpinion = `Council consensus: ${effectiveSetupDirection}. Verified agents: ${consensusTrust.verifiedAgentCount}/15. Evidence trust: ${consensusTrust.evidenceTrust}%.`;
   }
 
+  const directionalBias: DirectionalBias = effectiveSetupDirection.includes('BUY')
+    ? 'BULLISH'
+    : effectiveSetupDirection.includes('SELL')
+      ? 'BEARISH'
+      : 'NEUTRAL';
+  const riskPosture: RiskPosture = !tradeExecutable ? 'RESTRICTED' : 'CAUTION';
+
   // Compute average confidence across 15 voting agents
   // V1.0.1 Truthfulness rule: If council resolved to WAIT due to insufficient evidence (0 eligible directional votes or evidence trust < 30%),
   // overall confluence is 0% (rendered as INSUFFICIENT EVIDENCE), never a synthetic non-zero number.
@@ -598,6 +621,9 @@ export function generateAssetIntelligence(
     newsRisk: 'DATA LIMITED — No live news feed',
     liquidity: 'Broker specification available',
     setupDirection: effectiveSetupDirection,
+    directionalBias,
+    decisionPosture: effectiveSetupDirection,
+    riskPosture,
     confidence: avgConfidence,
     entryZone: blueprint ? [blueprint.entryZoneLow.price, blueprint.entryZoneHigh.price] : (null as any),
     stopLoss: blueprint ? blueprint.sl.price : (null as any),

@@ -11,28 +11,51 @@
  */
 
 const assert = require("assert");
-const http = require("http");
-const path = require("path");
-const fs = require("fs");
-const { ConnectivitySupervisor, RUNTIME_DIR, PID_FILE, STATE_FILE } = require("./fef-bridge-supervisor");
+const { ConnectivitySupervisor } = require("./fef-bridge-supervisor");
 
 console.log("=================================================================");
 console.log("FEF AI TRADING — PHASE 2D.3 BRIDGE SUPERVISOR TEST SUITE");
 console.log("=================================================================");
 
-function runTests() {
-  // TEST 1: Duplicate Instance Protection
-  console.log("\n[TEST 1: Duplicate Process Protection]");
-  assert.ok(fs.existsSync(PID_FILE), "PID file must exist when supervisor is running");
-  const pid = parseInt(fs.readFileSync(PID_FILE, "utf8").trim(), 10);
-  assert.ok(pid > 0, "PID must be a positive integer");
-  console.log("  ✓ Active supervisor PID recognized:", pid);
+async function runTests() {
+  // TEST 1: Fail-closed initial state without requiring a background daemon.
+  console.log("\n[TEST 1: Deterministic Fail-Closed Initial State]");
+  const supervisor = new ConnectivitySupervisor({ persistState: false });
+  assert.strictEqual(supervisor.healthState.localBridge, "OFFLINE");
+  assert.strictEqual(supervisor.healthState.mt5Terminal, "DISCONNECTED");
+  assert.strictEqual(supervisor.healthState.execution, "READ_ONLY");
+  console.log("  ✓ Supervisor initializes OFFLINE / DISCONNECTED / READ_ONLY");
+
+  supervisor.queryLocalBridgeHealth = async () => ({
+    success: true,
+    localBridge: "ONLINE",
+    heartbeatAgeMs: 120,
+    mt5Connected: true,
+    terminal: {
+      broker: "Exness Technologies Ltd",
+      server: "Exness-MT5Trial16",
+    },
+    quotes: {
+      XAUUSD: {
+        bid: 4366.116,
+        ask: 4366.166,
+        spread: 50,
+        digits: 3,
+        timestamp: Date.now() - 240,
+        ageMs: 240,
+      },
+    },
+  });
+  supervisor.queryRemoteRelayHealth = async () => ({
+    success: true,
+    connected: true,
+    heartbeatAgeMs: 180,
+  });
+  await supervisor.runHealthCycle();
+  const state = supervisor.healthState;
 
   // TEST 2: Structured Health Model Integrity
   console.log("\n[TEST 2: Structured Health Model Integrity]");
-  assert.ok(fs.existsSync(STATE_FILE), "State file must exist");
-  const state = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
-  
   assert.strictEqual(state.supervisor, "ONLINE", "Supervisor must report ONLINE");
   assert.strictEqual(state.localBridge, "ONLINE", "Local bridge must report ONLINE");
   assert.ok(state.connectorAgent === "ONLINE" || state.connectorAgent === "SYNCING", "Connector agent must report ONLINE or SYNCING");
@@ -62,7 +85,6 @@ function runTests() {
 
   // TEST 5: Bounded Crash Recovery Protection
   console.log("\n[TEST 5: Bounded Crash Recovery Invariant]");
-  const supervisor = new ConnectivitySupervisor();
   const crashHistory = [];
   for (let i = 0; i < 4; i++) {
     const isMax = supervisor.recordCrash(crashHistory);
@@ -77,4 +99,7 @@ function runTests() {
   console.log("=================================================================");
 }
 
-runTests();
+runTests().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

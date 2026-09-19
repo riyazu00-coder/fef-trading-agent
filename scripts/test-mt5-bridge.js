@@ -242,7 +242,7 @@ async function main() {
     for (const cmd of writeCommands) {
       const res = await client.sendCommand(cmd, { symbol: 'XAUUSD', lots: 0.1 });
       assert.strictEqual(res.success, false, `Command ${cmd} must be rejected in read-only mode`);
-      assert(res.error.code === 'READ_ONLY_LOCK_ACTIVE' || res.error.code === 'READ_ONLY_LOCK', `Expected READ_ONLY_LOCK_ACTIVE, got ${res.error.code}`);
+      assert.strictEqual(res.error.code, 'GLOBAL_READ_ONLY_LOCK', `Expected GLOBAL_READ_ONLY_LOCK, got ${res.error.code}`);
     }
   });
 

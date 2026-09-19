@@ -8,14 +8,38 @@ import {
   signCommandPayload,
 } from '@/lib/remote/remote-security-validator';
 import { RemoteExecutionCommand, RemoteExecutionResult } from '@/lib/remote/remote-types';
+import {
+  CANONICAL_EXECUTION_MODE,
+  isMt5OrderTransportAllowed,
+  READ_ONLY_EXECUTION_ERROR,
+} from '@/lib/execution/execution-policy';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  if (!isMt5OrderTransportAllowed()) {
+    return NextResponse.json({
+      success: false,
+      status: 'REJECTED',
+      operatingMode: CANONICAL_EXECUTION_MODE,
+      error: READ_ONLY_EXECUTION_ERROR,
+      timestamp: Date.now(),
+    }, { status: 403 });
+  }
+
   const relayUrl = process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557';
   const deviceId = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
   const keyId = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';
-  const deviceSecret = process.env.FEF_REMOTE_DEVICE_SECRET || 'fef_device_secret_secure_v2';
+  const deviceSecret = (process.env.FEF_REMOTE_DEVICE_SECRET || '').trim();
+
+  if (!deviceSecret) {
+    return NextResponse.json({
+      success: false,
+      status: 'REJECTED',
+      error: { code: 'EXECUTION_SECRET_NOT_CONFIGURED', message: 'Remote execution credentials are not configured.' },
+      timestamp: Date.now(),
+    }, { status: 503 });
+  }
 
   try {
     const body = await req.json();

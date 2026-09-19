@@ -45,13 +45,14 @@ function log(level, message, meta) {
 }
 
 class ConnectivitySupervisor {
-  constructor() {
+  constructor(options = {}) {
     this.bridgeProcess = null;
     this.connectorProcess = null;
     this.bridgeRestartHistory = [];
     this.connectorRestartHistory = [];
     this.isShuttingDown = false;
     this.pollInterval = null;
+    this.persistState = options.persistState !== false;
 
     this.healthState = {
       supervisor: "STARTING",
@@ -269,9 +270,11 @@ class ConnectivitySupervisor {
 
       this.healthState.supervisor = "ONLINE";
 
-      try {
-        fs.writeFileSync(STATE_FILE, JSON.stringify(this.healthState, null, 2));
-      } catch {}
+      if (this.persistState) {
+        try {
+          fs.writeFileSync(STATE_FILE, JSON.stringify(this.healthState, null, 2));
+        } catch {}
+      }
     } catch (err) {
       log("WARN", "Health cycle exception: " + err.message);
     }

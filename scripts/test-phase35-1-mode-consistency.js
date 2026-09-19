@@ -144,7 +144,7 @@ async function main() {
   // -------------------------------------------------------------------------
   // SCENARIO 3: DEMO account + EA DEMO_EXECUTION heartbeat switches canonical mode to DEMO_EXECUTION
   // -------------------------------------------------------------------------
-  await runTest(3, 'DEMO account + EA DEMO_EXECUTION heartbeat switches canonical mode to DEMO_EXECUTION', async () => {
+  await runTest(3, 'DEMO account + EA DEMO_EXECUTION request remains canonical READ_ONLY', async () => {
     bridgeState.account.tradeMode = 'DEMO';
     bridgeState.terminal.terminalConnected = true;
 
@@ -158,9 +158,9 @@ async function main() {
     });
 
     assert.strictEqual(res.data.success, true);
-    assert.strictEqual(res.data.mode, 'DEMO_EXECUTION');
-    assert.strictEqual(bridgeState.operatingMode, 'DEMO_EXECUTION');
-    assert.strictEqual(bridgeState.account.operatingMode, 'DEMO_EXECUTION');
+    assert.strictEqual(res.data.mode, 'READ_ONLY');
+    assert.strictEqual(bridgeState.operatingMode, 'READ_ONLY');
+    assert.strictEqual(bridgeState.account.operatingMode, 'READ_ONLY');
   });
 
   // -------------------------------------------------------------------------
@@ -240,7 +240,7 @@ async function main() {
     // Heartbeat to DEMO_EXECUTION
     await dispatchInMemoryRequest('/mt5/heartbeat', 'POST', { operatingMode: 'DEMO_EXECUTION', terminalConnected: true });
     assert.strictEqual(bridgeState.operatingMode, bridgeState.account.operatingMode);
-    assert.strictEqual(bridgeState.operatingMode, 'DEMO_EXECUTION');
+    assert.strictEqual(bridgeState.operatingMode, 'READ_ONLY');
 
     // Account update
     await dispatchInMemoryRequest('/mt5/account', 'POST', { tradeMode: 'DEMO', balance: 52000 });
@@ -276,7 +276,7 @@ async function main() {
       }
     });
     assert.strictEqual(orderRO.data.success, false);
-    assert.strictEqual(orderRO.data.error.code, 'READ_ONLY_LOCK_ACTIVE');
+    assert.strictEqual(orderRO.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
 
     // 8b. DEMO_EXECUTION synchronization
     bridgeState.account.tradeMode = 'DEMO';
@@ -284,8 +284,8 @@ async function main() {
     setOperatingMode('DEMO_EXECUTION');
 
     const statusDemo = await dispatchInMemoryRequest('/api/status', 'GET');
-    assert.strictEqual(statusDemo.data.mode, 'DEMO_EXECUTION');
-    assert.strictEqual(statusDemo.data.operatingMode, 'DEMO_EXECUTION');
+    assert.strictEqual(statusDemo.data.mode, 'READ_ONLY');
+    assert.strictEqual(statusDemo.data.operatingMode, 'READ_ONLY');
   });
 
   // -------------------------------------------------------------------------
@@ -313,7 +313,7 @@ async function main() {
     });
 
     assert.strictEqual(orderRes.data.success, false);
-    assert(orderRes.data.error.code === 'STALE_HEARTBEAT' || orderRes.data.error.code === 'READ_ONLY_LOCK_ACTIVE');
+    assert.strictEqual(orderRes.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
 
     // Reset heartbeat & mode
     bridgeState.lastHeartbeat = Date.now();
@@ -354,13 +354,13 @@ async function main() {
       }
     });
     assert.strictEqual(resCmd.data.success, false);
-    assert.strictEqual(resCmd.data.error.code, 'LIVE_EXECUTION_LOCKED');
+    assert.strictEqual(resCmd.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
   });
 
   // -------------------------------------------------------------------------
   // SCENARIO 11: Existing Phase 35 execution tests continue passing
   // -------------------------------------------------------------------------
-  await runTest(11, 'Existing Phase 35 execution tests continue passing', async () => {
+  await runTest(11, 'Former Phase 35 demo order remains blocked without reaching mock broker', async () => {
     bridgeState.lastHeartbeat = Date.now();
     bridgeState.account.tradeMode = 'DEMO';
     bridgeState.account.freeMargin = 45000;
@@ -376,20 +376,6 @@ async function main() {
 
     const reqId = `test-p35-pass-${Date.now()}`;
 
-    // Simulate MT5 EA executing the queued order and returning deal ticket
-    setTimeout(() => {
-      dispatchInMemoryRequest('/mt5/order-result', 'POST', {
-        requestId: reqId,
-        success: true,
-        ticket: 994821,
-        deal: 884712,
-        price: 2650.30,
-        volume: 0.1,
-        retcode: 10009,
-        retcodeDescription: 'TRADE_RETCODE_DONE'
-      });
-    }, 50);
-
     const res = await dispatchInMemoryRequest('/api/command', 'POST', {
       command: 'PLACE_ORDER',
       params: {
@@ -404,11 +390,9 @@ async function main() {
       }
     });
 
-    if (!res.data.success) {
-      throw new Error(`Execution failed: ${JSON.stringify(res.data.error || res.data)}`);
-    }
-    assert.strictEqual(res.data.success, true);
-    assert.strictEqual(res.data.data.ticket, 994821);
+    assert.strictEqual(res.data.success, false);
+    assert.strictEqual(res.data.error.code, 'GLOBAL_READ_ONLY_LOCK');
+    assert.strictEqual(executedRequestIds.has(reqId), false, 'No mock broker result or journal entry is created');
   });
 
   // -------------------------------------------------------------------------

@@ -55,6 +55,7 @@ function generateMockCandles(basePrice: number, count: number = 30, intervalMs: 
 }
 
 async function runSuite() {
+  const deterministicOpenTime = new Date(Date.UTC(2026, 8, 15, 14, 0, 0));
   console.log('=================================================================');
   console.log('FEF TRADING SOLUTIONS: V1.1.2A PRODUCTION CANDLE CONSUMPTION SUITE');
   console.log('=================================================================\n');
@@ -77,7 +78,8 @@ async function runSuite() {
     'M5',
     mockCandlesM5,
     'LIVE_MT5',
-    'Exness Technologies Ltd'
+    'Exness Technologies Ltd',
+    deterministicOpenTime
   );
   const techAgent = profileWithCandles.agents.find(a => a.type === 'TECHNICAL');
   assert(Boolean(techAgent), 'Technical Agent exists in assembled swarm');
@@ -93,7 +95,8 @@ async function runSuite() {
     'H1',
     mockCandlesH1,
     'LIVE_MT5',
-    'Exness Technologies Ltd'
+    'Exness Technologies Ltd',
+    deterministicOpenTime
   );
   const techH1 = profileH1.agents.find(a => a.type === 'TECHNICAL');
   assert(techH1?.lastOpinion.includes('H1'), 'Technical opinion explicitly references H1 structure');
@@ -102,14 +105,14 @@ async function runSuite() {
   // TEST 4: Timeframe switch isolation & stale candle prevention
   console.log('\n[TEST 4: TIMEFRAME SWITCH ISOLATION]');
   // When switching timeframe and candles are cleared (undefined), intelligence must immediately return DATA LIMITED
-  const profileClearing = generateAssetIntelligence('XAUUSD', liveXAU, 'H1', undefined);
+  const profileClearing = generateAssetIntelligence('XAUUSD', liveXAU, 'H1', undefined, undefined, undefined, deterministicOpenTime);
   const techClearing = profileClearing.agents.find(a => a.type === 'TECHNICAL');
   assert(techClearing?.status === 'DATA LIMITED', 'Technical returns to DATA LIMITED when candles are cleared during switch');
   assert(techClearing?.confidence === 0, 'Technical confidence resets to 0% during switch');
 
   // TEST 5: API failure produces truthful DATA LIMITED
   console.log('\n[TEST 5: API FAILURE TRUTHFULNESS]');
-  const profileFailed = generateAssetIntelligence('XAUUSD', liveXAU, 'M5', undefined, 'UNAVAILABLE', 'NONE');
+  const profileFailed = generateAssetIntelligence('XAUUSD', liveXAU, 'M5', undefined, 'UNAVAILABLE', 'NONE', deterministicOpenTime);
   const techFailed = profileFailed.agents.find(a => a.type === 'TECHNICAL');
   assert(techFailed?.status === 'DATA LIMITED', 'Technical Agent is DATA LIMITED on API failure');
   assert(profileFailed.evidenceTrust < 30, 'Consensus trust drops below threshold on candle absence');
@@ -141,7 +144,7 @@ async function runSuite() {
 
   // TEST 8: Zero synthetic candle fabrication
   console.log('\n[TEST 8: ZERO SYNTHETIC CANDLES]');
-  const profileEmpty = generateAssetIntelligence('XAUUSD', liveXAU, 'M5', []);
+  const profileEmpty = generateAssetIntelligence('XAUUSD', liveXAU, 'M5', [], undefined, undefined, deterministicOpenTime);
   const techEmpty = profileEmpty.agents.find(a => a.type === 'TECHNICAL');
   assert(techEmpty?.status === 'DATA LIMITED', 'Empty candle array does not create synthetic bars');
   assert(techEmpty?.confidence === 0, 'Empty candle array results in 0% confidence');
@@ -167,11 +170,11 @@ async function runSuite() {
       tickVolume: 50
     });
   }
-  const structureFlat = analyzeMarketStructure(flatCandles, 'XAUUSD', 'M5');
+  const structureFlat = analyzeMarketStructure(flatCandles, 'XAUUSD', 'M5', 'MT5_BROKER_OHLC');
   const buyBp = buildBuyBlueprint(structureFlat, flatCandles, 'XAUUSD', 4360);
   assert(buyBp === null, 'Blueprint is null when market structure has no trending swings or FVG/OB');
 
-  const profileFlat = generateAssetIntelligence('XAUUSD', liveXAU, 'M5', flatCandles, 'LIVE_MT5', 'Exness Technologies Ltd');
+  const profileFlat = generateAssetIntelligence('XAUUSD', liveXAU, 'M5', flatCandles, 'LIVE_MT5', 'Exness Technologies Ltd', deterministicOpenTime);
   const stratFlat = profileFlat.agents.find(a => a.type === 'STRATEGY');
   assert(stratFlat?.status === 'DATA LIMITED', 'Strategy Agent remains DATA LIMITED when blueprint is null');
   assert(stratFlat?.confidence === 0, 'Strategy confidence is 0% when blueprint is null');

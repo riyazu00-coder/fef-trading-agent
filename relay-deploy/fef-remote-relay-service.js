@@ -74,7 +74,7 @@ function hashAuthToken(token, salt = 'fef-device-salt-v1') {
 // Pre-seed authorized device from environment variables if present
 const ENV_DEVICE_ID = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
 const ENV_KEY_ID = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';
-const ENV_DEVICE_SECRET = process.env.FEF_REMOTE_DEVICE_SECRET || 'fef_device_secret_secure_v2';
+const ENV_DEVICE_SECRET = (process.env.FEF_REMOTE_DEVICE_SECRET || '').trim();
 
 if (ENV_DEVICE_ID && ENV_DEVICE_SECRET) {
   registeredDevices.set(ENV_DEVICE_ID, {
@@ -204,8 +204,15 @@ const server = http.createServer(async (req, res) => {
         }, allowedOrigin);
       }
 
-      // If server has strict secret configured, verify token
-      if (ENV_DEVICE_SECRET && authToken !== ENV_DEVICE_SECRET) {
+      if (!ENV_DEVICE_SECRET) {
+        return sendJson(res, 503, {
+          success: false,
+          error: { code: 'DEVICE_REGISTRATION_DISABLED', message: 'Relay device registration requires an explicitly configured server secret.' }
+        }, allowedOrigin);
+      }
+
+      // Verify against the explicitly configured server-side device secret.
+      if (authToken !== ENV_DEVICE_SECRET) {
         return sendJson(res, 401, {
           success: false,
           error: { code: 'INVALID_CREDENTIALS', message: 'Device secret authentication failed.' }
@@ -405,6 +412,16 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && executeMatch) {
     const deviceId = executeMatch[1];
     const device = registeredDevices.get(deviceId);
+
+    return sendJson(res, 403, {
+      success: false,
+      status: 'REJECTED',
+      operatingMode: 'READ_ONLY',
+      error: {
+        code: 'GLOBAL_READ_ONLY_LOCK',
+        message: 'FEF CORTEX V1.1.2-S is READ_ONLY / TELEMETRY ONLY. Relay execution dispatch is disabled.'
+      }
+    });
 
     if (!device) {
       return sendJson(res, 404, {

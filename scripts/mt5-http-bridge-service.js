@@ -26,6 +26,12 @@ const PORT = 5556;
 const HOST = '127.0.0.1';
 const VALID_TOKEN = process.env.FEF_BRIDGE_TOKEN || envToken || 'fef_local_bridge_token_v1';
 const HEARTBEAT_TIMEOUT_MS = 6000; // 6 seconds without heartbeat marks MT5_OFFLINE
+const CANONICAL_EXECUTION_MODE = 'READ_ONLY';
+const MT5_ORDER_TRANSPORT_ENABLED = false;
+const GLOBAL_READ_ONLY_ERROR = {
+  code: 'GLOBAL_READ_ONLY_LOCK',
+  message: 'FEF CORTEX V1.1.2-S is READ_ONLY / TELEMETRY ONLY. All MT5 order transport is disabled.'
+};
 
 // In-Memory Telemetry State & Demo Execution Queues
 const executedRequestIds = new Map();
@@ -188,23 +194,7 @@ function isHeartbeatFresh() {
 
 // Authoritative Single-Source Operating Mode
 function getAuthoritativeOperatingMode() {
-  const isConnected = isHeartbeatFresh();
-  if (!isConnected) {
-    return 'READ_ONLY';
-  }
-  // REAL account hard-lock
-  if (bridgeState.account && String(bridgeState.account.tradeMode).toUpperCase() === 'REAL') {
-    return 'READ_ONLY';
-  }
-  // Terminal disconnected check
-  if (bridgeState.terminal && bridgeState.terminal.terminalConnected === false) {
-    return 'READ_ONLY';
-  }
-  // DEMO account + connected + fresh heartbeat + valid bridge state -> DEMO_EXECUTION
-  if (bridgeState.operatingMode === 'DEMO_EXECUTION' && bridgeState.account && String(bridgeState.account.tradeMode).toUpperCase() === 'DEMO') {
-    return 'DEMO_EXECUTION';
-  }
-  return 'READ_ONLY';
+  return CANONICAL_EXECUTION_MODE;
 }
 
 // Institutional Market Session Evaluator (UTC-based)
@@ -434,25 +424,11 @@ async function handleHttpRequest(req, res) {
     const requestedMode = String(body.operatingMode || 'READ_ONLY').trim().toUpperCase();
     const knownTradeMode = String(bridgeState.account.tradeMode || 'UNKNOWN').trim().toUpperCase();
 
-    if (requestedMode === 'LIVE' || requestedMode === 'LIVE_EXECUTION') {
-      console.warn(`[FEF-HTTP-SECURITY] Rejected illegal execution mode '${requestedMode}'. Forcing READ_ONLY.`);
-      bridgeState.operatingMode = 'READ_ONLY';
-      bridgeState.account.operatingMode = 'READ_ONLY';
-    } else if (requestedMode === 'DEMO_EXECUTION') {
-      // DEMO_EXECUTION may only be armed if the account is verified DEMO and terminal is connected
-      if (knownTradeMode === 'DEMO' && bridgeState.terminal.terminalConnected !== false) {
-        bridgeState.operatingMode = 'DEMO_EXECUTION';
-        bridgeState.account.operatingMode = 'DEMO_EXECUTION';
-      } else {
-        console.warn(`[FEF-HTTP] DEMO_EXECUTION rejected: Account tradeMode is '${knownTradeMode}' (not verified DEMO). Forcing READ_ONLY.`);
-        bridgeState.operatingMode = 'READ_ONLY';
-        bridgeState.account.operatingMode = 'READ_ONLY';
-      }
-    } else {
-      // READ_ONLY or unknown values
-      bridgeState.operatingMode = 'READ_ONLY';
-      bridgeState.account.operatingMode = 'READ_ONLY';
+    if (requestedMode !== 'READ_ONLY') {
+      console.warn(`[FEF-HTTP-SECURITY] Ignored requested mode '${requestedMode}' for ${knownTradeMode} account. Canonical mode remains READ_ONLY.`);
     }
+    bridgeState.operatingMode = CANONICAL_EXECUTION_MODE;
+    bridgeState.account.operatingMode = CANONICAL_EXECUTION_MODE;
 
     const authMode = getAuthoritativeOperatingMode();
     bridgeState.operatingMode = authMode;
@@ -584,10 +560,8 @@ async function handleHttpRequest(req, res) {
     // If account reports REAL, immediately force READ_ONLY
     if (reportedTradeMode === 'REAL') {
       console.warn('⚠️ [FEF-HTTP-SECURITY] REAL account telemetry received! Hard-locking to READ_ONLY.');
-      bridgeState.operatingMode = 'READ_ONLY';
-    } else if (body.operatingMode === 'DEMO_EXECUTION' && reportedTradeMode === 'DEMO') {
-      bridgeState.operatingMode = 'DEMO_EXECUTION';
     }
+    bridgeState.operatingMode = CANONICAL_EXECUTION_MODE;
 
     bridgeState.account = {
       maskedLogin: maskAccount(body.maskedLogin),
@@ -881,6 +855,19 @@ async function handleHttpRequest(req, res) {
     const command = body.command || 'PING';
     const params = body.params || {};
     const reqId = params.requestId || body.requestId || body.reqId || params.reqId || `cmd-${Date.now()}`;
+
+    const mutatingCommands = ['PLACE_ORDER', 'MODIFY_ORDER', 'CANCEL_ORDER', 'CLOSE_POSITION', 'CLOSE_ALL', 'DELETE_ORDER'];
+    if (!MT5_ORDER_TRANSPORT_ENABLED && mutatingCommands.includes(command)) {
+      return sendJson(res, 200, {
+        reqId,
+        command,
+        success: false,
+        state: 'CONNECTED_READ_ONLY',
+        operatingMode: CANONICAL_EXECUTION_MODE,
+        error: GLOBAL_READ_ONLY_ERROR,
+        timestamp: Date.now(),
+      });
+    }
 
     // STRICT DEFENSE-IN-DEPTH SAFETY GATE: LIVE EXECUTION HARD LOCK
     if (body.mode === 'LIVE' || body.operatingMode === 'LIVE' || body.liveTrading === true || params.tradeMode === 'REAL' || params.liveTrading === true) {
@@ -1560,10 +1547,8 @@ function setOperatingMode(mode) {
   if (mode === 'LIVE' || mode === 'LIVE_EXECUTION') {
     throw new Error('LIVE_EXECUTION_LOCKED: Live trading is strictly disabled and locked.');
   }
-  if (mode === 'READ_ONLY' || mode === 'DEMO_EXECUTION') {
-    bridgeState.operatingMode = mode;
-    bridgeState.account.operatingMode = mode;
-  }
+  bridgeState.operatingMode = CANONICAL_EXECUTION_MODE;
+  bridgeState.account.operatingMode = CANONICAL_EXECUTION_MODE;
 }
 
 module.exports = {
