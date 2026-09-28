@@ -49,6 +49,7 @@ export type RiskPosture = 'CLEAR' | 'CAUTION' | 'RESTRICTED';
 export interface AssetIntelligenceProfile {
   symbol: string;
   name: string;
+  timeframe?: string;
   category: MarketCategory | 'COMMODITY' | 'METALS' | 'FOREX' | 'CRYPTO' | 'INDICES';
   regime: string;
   session: string;
@@ -297,6 +298,27 @@ export function generateAssetIntelligence(
     activeBlueprintCache.delete(bpKey);
   }
 
+  // 3b. Specialist Market Diagnostics: Volume Profile & Order Flow
+  const isExchangeVol = (normSymbol === 'BTCUSD' || normSymbol === 'ETHUSD' || normSymbol === 'SOLUSD');
+  const volumeProfile = hasCandles
+    ? calculateVolumeProfile(analysisCandles, normSymbol, structureTf, 24, isExchangeVol)
+    : null;
+
+  const flowCandles = (Array.isArray(microCandles) && microCandles.length >= 3)
+    ? microCandles
+    : (analysisCandles.length >= 3 ? analysisCandles : null);
+
+  const orderFlowRecord = flowCandles
+    ? computeOrderFlowMetrics(flowCandles, normSymbol, 'M5', isExchangeVol)
+    : null;
+
+  // 3c. Synchronous Retrieval of Cached Live Feeds
+  const cachedNews = globalNewsEngine.getCachedNews([normSymbol], 5);
+  const cachedMacro = globalMacroEngine.getCachedIndicators();
+  const cachedEvents = economicCalendarEngine.getCachedUpcomingEvents(24);
+  const cachedAlerts = geopoliticalEngine.getCachedAlerts().filter(a => a.affectedCommodities.includes(normSymbol) || a.region === 'GLOBAL');
+  const cachedSentiment = marketSentimentEngine.getCachedSentiment(normSymbol);
+
   // 4. Assemble the Canonical 15 Agents deterministically
   const assembledAgents: AgentState[] = getBaseAgentRegistry(normSymbol).map((base) => {
     switch (base.type) {
@@ -314,7 +336,8 @@ export function generateAssetIntelligence(
               `Verified ${structureTf} candles: ${marketStructure.candleCount} bars`,
               `Structure trend: ${marketStructure.trend}`,
               marketStructure.lastSwingHigh ? `Swing High: ${marketStructure.lastSwingHigh}` : 'Swing high mapped',
-              marketStructure.lastSwingLow ? `Swing Low: ${marketStructure.lastSwingLow}` : 'Swing low mapped'
+              marketStructure.lastSwingLow ? `Swing Low: ${marketStructure.lastSwingLow}` : 'Swing low mapped',
+              volumeProfile ? `Volume Profile POC: ${volumeProfile.poc} [VAL: ${volumeProfile.val} / VAH: ${volumeProfile.vah}] (${volumeProfile.isExchangeVolume ? 'Exchange Vol' : 'Broker Tick Proxy'})` : 'Volume Profile: CALIBRATING'
             ],
             keyRisk: 'Structural pivot invalidation',
             invalidation: marketStructure.trend === 'BULLISH'
@@ -478,31 +501,52 @@ export function generateAssetIntelligence(
       }
 
       case 'RISK_GUARDIAN': {
+        const nowMs = Date.now();
+        const highImpactNear = cachedEvents.find((e) =>
+          (e.impact === 'CRITICAL' || e.impact === 'HIGH') &&
+          e.relatedSymbols.includes(normSymbol) &&
+          e.epochMs >= nowMs &&
+          e.epochMs <= nowMs + 3600 * 1000
+        );
+
         if (blueprint) {
           return {
             ...base,
-            bias: 'CAUTION',
+            bias: highImpactNear ? 'RESTRICTED' : 'CAUTION',
             confidence: 85,
-            status: 'ONLINE',
-            lastOpinion: `Exposure bounds verified. Mandatory SL enforced at ${blueprint.sl.price}. Risk budget capped at 0.50%.`,
-            evidence: [`Mandatory SL: ${blueprint.sl.price}`, 'Exposure cap: 0.50% equity'],
-            keyRisk: 'Spread widening during volatility',
+            status: highImpactNear ? 'RESTRICTED' : 'ONLINE',
+            lastOpinion: highImpactNear
+              ? `Event Risk Lockout: High-impact release "${highImpactNear.title}" in ${Math.round((highImpactNear.epochMs - nowMs) / 60000)}m. New order dispatch locked.`
+              : `Exposure bounds verified. Mandatory SL enforced at ${blueprint.sl.price}. Risk budget capped at 0.50%.`,
+            evidence: [
+              `Mandatory SL: ${blueprint.sl.price}`,
+              'Exposure cap: 0.50% equity',
+              highImpactNear
+                ? `Event Risk: ${highImpactNear.title} (${highImpactNear.country}) — ${highImpactNear.scheduledAt}`
+                : 'Economic Release Window: CLEAR'
+            ],
+            keyRisk: highImpactNear ? `Imminent release ${highImpactNear.title}` : 'Spread widening during volatility',
             invalidation: 'N/A'
           };
         }
         if (hasCandles && marketStructure) {
           return {
             ...base,
-            bias: 'NEUTRAL',
+            bias: highImpactNear ? 'RESTRICTED' : 'NEUTRAL',
             confidence: 70,
-            status: 'ONLINE',
-            lastOpinion: `Risk Guardian armed. Capital preservation rules active. Maximum 0.50% exposure per execution enforced.`,
+            status: highImpactNear ? 'RESTRICTED' : 'ONLINE',
+            lastOpinion: highImpactNear
+              ? `Risk Guardian armed with event lockout: "${highImpactNear.title}" approaching.`
+              : `Risk Guardian armed. Capital preservation rules active. Maximum 0.50% exposure per execution enforced.`,
             evidence: [
               'Mandatory SL constraint: ARMED',
               'Risk budget cap: 0.50% equity',
-              'Execution state: STANDBY'
+              'Execution state: STANDBY',
+              highImpactNear
+                ? `Event Risk: ${highImpactNear.title} (${highImpactNear.country}) — ${highImpactNear.scheduledAt}`
+                : 'Economic Release Window: CLEAR'
             ],
-            keyRisk: 'Slippage during news spikes',
+            keyRisk: highImpactNear ? `Imminent release ${highImpactNear.title}` : 'Slippage during news spikes',
             invalidation: 'N/A'
           };
         }
@@ -531,20 +575,53 @@ export function generateAssetIntelligence(
         };
       }
 
-      // Specialist feeds: remain honestly DATA LIMITED without live external API connections
+      // Specialist feeds: consume genuine cached records or truthfully report DATA LIMITED
       case 'MACRO': {
+        const relevantMacro = cachedMacro.filter((m) =>
+          !m.affectedAssets || m.affectedAssets.length === 0 || m.affectedAssets.includes(normSymbol)
+        );
+
+        if (relevantMacro.length > 0) {
+          // Determine macro bias from yield / currency / commodity delta
+          let macroBias: BiasType = 'NEUTRAL';
+          let macroConf = 75;
+          const lead = relevantMacro[0];
+          if (lead.bias === 'BULLISH' || lead.bias === 'BEARISH') {
+            macroBias = lead.bias;
+            macroConf = 78;
+          }
+
+          return {
+            ...base,
+            bias: macroBias,
+            confidence: macroConf,
+            status: 'ONLINE',
+            lastOpinion: `Macro telemetry synchronized. ${relevantMacro.map((m) => `${m.name}: ${m.currentValue} (${m.percentageDelta && m.percentageDelta >= 0 ? '+' : ''}${m.percentageDelta ?? 0}%)`).join(' • ')}.`,
+            evidence: relevantMacro.map((m) =>
+              `${m.name}: ${m.currentValue} [${m.regime || 'NORMAL'}] (Delta: ${m.delta ?? '0'}) — ${m.releaseDate}`
+            ),
+            keyRisk: 'Central bank emergency liquidity pivot',
+            invalidation: 'Macro regime breakdown',
+            requiredInputs: ['Sovereign Yields', 'Dollar Index (DXY)', 'Inflation Trajectory'],
+            availableInputs: relevantMacro.map((m) => m.name),
+            missingInputs: [],
+            lastRun: new Date().toISOString(),
+            freshness: 'CURRENT',
+          };
+        }
+
         return {
           ...base,
           bias: 'NEUTRAL',
           confidence: 0,
           status: 'DATA LIMITED',
-          lastOpinion: 'No live macro feed connected. Economic calendar data unavailable.',
-          evidence: ['Live macro API: NOT CONNECTED'],
+          lastOpinion: `No live macro indicators matched for ${normSymbol}. Telemetry awaiting update.`,
+          evidence: ['Live Macro Telemetry: AWAITING REFRESH'],
           keyRisk: 'N/A',
           invalidation: 'N/A',
-          requiredInputs: ['Fed Funds Target', 'US10Y Yield', 'DXY'],
+          requiredInputs: ['Sovereign Yields', 'Dollar Index (DXY)'],
           availableInputs: [],
-          missingInputs: ['Live Macro API'],
+          missingInputs: ['Live Macro API Telemetry'],
           lastRun: new Date().toISOString(),
           freshness: 'OFFLINE',
         };
@@ -568,12 +645,12 @@ export function generateAssetIntelligence(
             freshness: 'OFFLINE',
           };
         }
-        const corrTarget = normSymbol === 'XAUUSD' ? 'DXY' : 'US500';
+        const corrTarget = normSymbol === 'XAUUSD' ? 'DXY' : (normSymbol === 'USOIL' ? 'XAUUSD' : 'US500');
         const expectedBenchmark = normSymbol === 'XAUUSD' ? -0.72 : +0.65;
         return {
           ...base,
           bias: 'NEUTRAL',
-          confidence: 65,
+          confidence: 68,
           status: 'ONLINE',
           lastOpinion: `Intermarket correlation matrix active. Rolling 20-bar beta for ${normSymbol} tracking within normal divergence bounds vs ${corrTarget}.`,
           evidence: [
@@ -593,201 +670,225 @@ export function generateAssetIntelligence(
       }
 
       case 'NEWS': {
+        if (cachedNews.length > 0) {
+          const top = cachedNews[0];
+          let newsBias: BiasType = 'NEUTRAL';
+          if (top.sentimentBias === 'BULLISH') newsBias = 'BULLISH';
+          else if (top.sentimentBias === 'BEARISH') newsBias = 'BEARISH';
+
+          return {
+            ...base,
+            bias: newsBias,
+            confidence: top.impactTier === 'CRITICAL' ? 88 : (top.impactTier === 'HIGH' ? 78 : 65),
+            status: 'ONLINE',
+            lastOpinion: `Live newswire active: "${top.headline.slice(0, 90)}..." (${top.source}).`,
+            evidence: cachedNews.slice(0, 3).map((n) =>
+              `[${n.impactTier}] ${n.headline} (${n.source}) — ${n.publishedAt}`
+            ),
+            keyRisk: 'Unscheduled headline disruption',
+            invalidation: 'Official release revision',
+            requiredInputs: ['Global Newswire Stream', 'Central Bank Wires'],
+            availableInputs: ['Yahoo Market Wire / Fed RSS'],
+            missingInputs: [],
+            lastRun: new Date().toISOString(),
+            freshness: 'CURRENT',
+          };
+        }
+
         return {
           ...base,
           bias: 'NEUTRAL',
           confidence: 0,
           status: 'DATA LIMITED',
-          lastOpinion: 'No live news API connected. Economic wire monitoring unavailable.',
-          evidence: ['News API: NOT CONNECTED'],
+          lastOpinion: `No active wire reports matched for ${normSymbol}. Newswire stream connected.`,
+          evidence: ['Newswire: 0 MATCHED STORIES (AWAITING WIRE)'],
           keyRisk: 'N/A',
           invalidation: 'N/A',
-          requiredInputs: ['Global Newswire Stream', 'Central Bank Wires'],
+          requiredInputs: ['Global Newswire Stream'],
           availableInputs: [],
-          missingInputs: ['Live Newswire API'],
+          missingInputs: ['Matched Newswire Wire'],
           lastRun: new Date().toISOString(),
           freshness: 'OFFLINE',
         };
       }
 
       case 'GEOPOLITICAL': {
-        if (!hasCandles) {
+        if (cachedAlerts.length > 0) {
+          const top = cachedAlerts[0];
+          const hasRisk = normSymbol === 'XAUUSD' || normSymbol === 'USOIL';
+          const geoBias: BiasType = hasRisk && (top.threatLevel === 'CRITICAL' || top.threatLevel === 'HIGH' || top.threatLevel === 'ELEVATED')
+            ? 'BULLISH'
+            : 'NEUTRAL';
+
           return {
             ...base,
-            bias: 'NEUTRAL',
-            confidence: 0,
-            status: 'DATA LIMITED',
-            lastOpinion: 'No geopolitical intelligence feed connected.',
-            evidence: ['Geopolitical API: NOT CONNECTED'],
-            keyRisk: 'N/A',
-            invalidation: 'N/A',
+            bias: geoBias,
+            confidence: top.threatLevel === 'CRITICAL' ? 85 : (top.threatLevel === 'HIGH' ? 76 : 65),
+            status: 'ONLINE',
+            lastOpinion: `[${top.threatLevel}] ${top.headline} (${top.region}). ${top.marketImpactAssessment.slice(0, 100)}...`,
+            evidence: cachedAlerts.map((a) =>
+              `[${a.threatLevel}] ${a.headline} | Impact: ${a.marketImpactAssessment}`
+            ),
+            keyRisk: 'Escalation impacting maritime transit',
+            invalidation: 'Comprehensive geopolitical de-escalation',
             requiredInputs: ['Geopolitical Risk Feed', 'Maritime Transit Alerts'],
-            availableInputs: [],
-            missingInputs: ['Geopolitical Intelligence Stream'],
+            availableInputs: ['Global Wire Surveillance'],
+            missingInputs: [],
             lastRun: new Date().toISOString(),
-            freshness: 'OFFLINE',
+            freshness: 'CURRENT',
           };
         }
-        const hasGeopolRisk = normSymbol === 'XAUUSD' || normSymbol === 'USOIL';
+
+        // No corroborated geopolitical alerts in feed: enter DATA LIMITED
         return {
           ...base,
-          bias: hasGeopolRisk ? 'BULLISH' : 'NEUTRAL',
-          confidence: hasGeopolRisk ? 68 : 55,
-          status: 'ONLINE',
-          lastOpinion: hasGeopolRisk
-            ? 'Maritime transit corridors & Middle East energy logistics maintain elevated structural risk premium, providing underlying safe-haven support.'
-            : 'Geopolitical threat matrix normal across standard currency corridors.',
-          evidence: [
-            'Red Sea / Bab el-Mandeb Corridor: ELEVATED (CONFIRMED)',
-            'Black Sea Transit: NORMAL (CONFIRMED)',
-            `Safe-haven impact on ${normSymbol}: ${hasGeopolRisk ? 'SUPPORTIVE' : 'NEUTRAL'}`,
-            'Threat status: CONFIRMED SURVEILLANCE'
-          ],
-          keyRisk: 'Escalation impacting maritime transit',
-          invalidation: 'Comprehensive geopolitical de-escalation',
+          bias: 'NEUTRAL',
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: `Geopolitical surveillance active. No corroborated risk events recorded for ${normSymbol}.`,
+          evidence: ['Geopolitical stream: NO ACTIVE FLASHPOINTS (DATA LIMITED)'],
+          keyRisk: 'N/A',
+          invalidation: 'N/A',
           requiredInputs: ['Geopolitical Risk Feed', 'Maritime Transit Alerts'],
-          availableInputs: ['Geopolitical Risk Feed', 'Maritime Transit Alerts'],
-          missingInputs: [],
+          availableInputs: [],
+          missingInputs: ['Corroborated Geopolitical Alert Feed'],
           lastRun: new Date().toISOString(),
-          freshness: 'CURRENT',
+          freshness: 'OFFLINE',
         };
       }
 
       case 'SENTIMENT': {
-        if (!hasCandles) {
+        if (cachedSentiment && cachedSentiment.status === 'AVAILABLE') {
+          // Genuine Binance Futures retail positioning for crypto
+          let sentBias: BiasType = 'NEUTRAL';
+          if (cachedSentiment.bullishPercent > 65) sentBias = 'BEARISH'; // Contrarian crowd fade
+          else if (cachedSentiment.bearishPercent > 65) sentBias = 'BULLISH';
+
           return {
             ...base,
-            bias: 'NEUTRAL',
-            confidence: 0,
-            status: 'DATA LIMITED',
-            lastOpinion: 'Broker sentiment feed not connected. Contrarian model inactive.',
-            evidence: ['Sentiment API: NOT CONNECTED'],
-            keyRisk: 'N/A',
-            invalidation: 'N/A',
-            requiredInputs: ['Positioning Flow Stream', 'Social & News Sentiment'],
-            availableInputs: [],
-            missingInputs: ['Broker Sentiment Telemetry'],
+            bias: sentBias,
+            confidence: 74,
+            status: 'ONLINE',
+            lastOpinion: `Binance Futures LSR: ${cachedSentiment.bullishPercent}% Long vs ${cachedSentiment.bearishPercent}% Short. ${cachedSentiment.bullishPercent > 65 ? 'Retail crowd long-heavy (Contrarian Short bias)' : (cachedSentiment.bearishPercent > 65 ? 'Retail crowd short-heavy (Contrarian Long bias)' : 'Balanced crowd positioning')}.`,
+            evidence: [
+              `Long Account Ratio: ${cachedSentiment.bullishPercent}%`,
+              `Short Account Ratio: ${cachedSentiment.bearishPercent}%`,
+              `Contrarian Skew: ${cachedSentiment.overallScore > 0 ? 'LONG_CROWDED' : 'SHORT_CROWDED'}`,
+              `Provenance: ${cachedSentiment.provenance}`
+            ],
+            keyRisk: 'Extreme retail crowding squeeze continuation',
+            invalidation: 'Positioning rebalance past 50/50',
+            requiredInputs: ['Positioning Flow Stream', 'Derivatives Metrics'],
+            availableInputs: ['Binance Futures Public LSR'],
+            missingInputs: [],
             lastRun: new Date().toISOString(),
-            freshness: 'OFFLINE',
+            freshness: 'REALTIME',
           };
         }
+
+        // Truthfully mark OTC spot DATA LIMITED without synthetic percentages
         return {
           ...base,
           bias: 'NEUTRAL',
-          confidence: 64,
-          status: 'ONLINE',
-          lastOpinion: `Positioning flow & sentiment synthesis active for ${normSymbol}. Retail crowding balanced within standard ranges; contrarian threshold not breached.`,
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: `No centralized positioning feed available for OTC spot ${normSymbol}. Crowd positioning unavailable.`,
           evidence: [
-            'Market Flow Sentiment: BALANCED',
-            'Retail Crowding Skew: MODERATE',
-            'Contrarian Trigger: INACTIVE',
-            'Surveillance: ACTIVE'
+            'Retail Positioning: UNAVAILABLE FOR OTC SPOT',
+            'Fabrication Policy: ZERO FAKE PERCENTAGES ENFORCED'
           ],
-          keyRisk: 'Extreme retail crowding squeeze',
-          invalidation: 'Positioning flip past 80/20 threshold',
+          keyRisk: 'N/A',
+          invalidation: 'N/A',
           requiredInputs: ['Positioning Flow Stream', 'Social & News Sentiment'],
-          availableInputs: ['Positioning Flow Stream', 'Social & News Sentiment'],
-          missingInputs: [],
+          availableInputs: [],
+          missingInputs: ['Centralized Positioning Gateway'],
           lastRun: new Date().toISOString(),
-          freshness: 'CURRENT',
+          freshness: 'OFFLINE',
         };
       }
 
       case 'INSTITUTIONAL': {
-        if (!hasCandles) {
+        if (hasCandles && volumeProfile) {
+          const volType = volumeProfile.isExchangeVolume ? 'EXCHANGE_VOLUME' : 'BROKER_TICK_VOLUME_PROXY';
+          const abovePoc = p >= volumeProfile.poc;
+          const instBias: BiasType = abovePoc ? 'BULLISH' : 'BEARISH';
+
           return {
             ...base,
-            bias: 'NEUTRAL',
-            confidence: 0,
-            status: 'DATA LIMITED',
-            lastOpinion: 'Institutional flow feed not connected. COT data unavailable.',
-            evidence: ['COT API: NOT CONNECTED'],
-            keyRisk: 'N/A',
-            invalidation: 'N/A',
-            requiredInputs: ['Volume Profile Engine', 'Fix Imbalance Telemetry'],
-            availableInputs: [],
-            missingInputs: ['COT / Institutional Gateway'],
+            bias: instBias,
+            confidence: 74,
+            status: 'ONLINE',
+            lastOpinion: `Institutional volume profile active (${volType}). Price is trading ${abovePoc ? 'ABOVE' : 'BELOW'} Point of Control (${volumeProfile.poc}). VAH: ${volumeProfile.vah}, VAL: ${volumeProfile.val}.`,
+            evidence: [
+              `Volume Mode: ${volType}`,
+              `Point of Control (POC): ${volumeProfile.poc}`,
+              `Value Area (70%): [${volumeProfile.val} - ${volumeProfile.vah}]`,
+              `High Volume Nodes: ${volumeProfile.hvnLevels.length} mapped`,
+              `Institutional Bias: ${abovePoc ? 'ACCEPTANCE_ABOVE_POC' : 'ACCEPTANCE_BELOW_POC'}`
+            ],
+            keyRisk: 'Late London fix algorithmic rebalancing',
+            invalidation: 'POC level breach and volume migration',
+            requiredInputs: ['Volume Profile Engine', 'Volume Cluster Telemetry'],
+            availableInputs: ['Volume Profile Engine', 'Volume Cluster Telemetry'],
+            missingInputs: [],
             lastRun: new Date().toISOString(),
-            freshness: 'OFFLINE',
+            freshness: 'CURRENT',
           };
         }
+
         return {
           ...base,
           bias: 'NEUTRAL',
-          confidence: 62,
-          status: 'ONLINE',
-          lastOpinion: `Institutional flow modeling active. Evaluating volume profile and fix imbalances for ${normSymbol}. No large block divergence detected.`,
-          evidence: [
-            'Institutional Flow Model: ACTIVE',
-            'Fix Imbalance Detection: NEUTRAL',
-            'Volume Profile Cluster: ALIGNED',
-            'Surveillance: ACTIVE'
-          ],
-          keyRisk: 'Late London fix algorithmic rebalancing',
-          invalidation: 'Dark pool liquidity flush',
-          requiredInputs: ['Volume Profile Engine', 'Fix Imbalance Telemetry'],
-          availableInputs: ['Volume Profile Engine', 'Fix Imbalance Telemetry'],
-          missingInputs: [],
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: `Institutional volume profiling awaiting verified OHLC candles for ${normSymbol}.`,
+          evidence: ['Volume Profile: PENDING CANDLES'],
+          keyRisk: 'N/A',
+          invalidation: 'N/A',
+          requiredInputs: ['Volume Profile Engine', 'Volume Cluster Telemetry'],
+          availableInputs: [],
+          missingInputs: ['Verified OHLC Candles'],
           lastRun: new Date().toISOString(),
-          freshness: 'CURRENT',
+          freshness: 'OFFLINE',
         };
       }
 
       case 'ORDER_FLOW': {
-        const flowCandles = (Array.isArray(microCandles) && microCandles.length >= 3)
-          ? microCandles
-          : (Array.isArray(activeCandles) && activeCandles.length >= 3 ? activeCandles : null);
+        if (orderFlowRecord) {
+          let flowBias: BiasType = 'NEUTRAL';
+          let flowConf = 62;
+          let flowOpinion = '';
 
-        if (flowCandles && flowCandles.length >= 3) {
-          const recent = flowCandles.slice(-5);
-          const lastCandle = recent[recent.length - 1];
-          const prevCandle = recent[recent.length - 2];
-          const candleChange = lastCandle.close - lastCandle.open;
-          const range = lastCandle.high - lastCandle.low;
-          const isExpansion = range > 0 && Math.abs(candleChange) / range > 0.6;
-
-          let scalpBias: BiasType = 'NEUTRAL';
-          let scalpOpinion = '';
-          let scalpConf = 62;
-
-          if (candleChange > 0 && lastCandle.close > prevCandle.high) {
-            scalpBias = 'BULLISH';
-            scalpConf = 72;
-            scalpOpinion = `Micro-momentum expansion detected. Bulls pushing above previous high (${lastCandle.close.toFixed(2)}). Fast scalp bias LONG.`;
-          } else if (candleChange < 0 && lastCandle.close < prevCandle.low) {
-            scalpBias = 'BEARISH';
-            scalpConf = 72;
-            scalpOpinion = `Micro-momentum flush detected. Bears breaking below previous low (${lastCandle.close.toFixed(2)}). Fast scalp bias SHORT.`;
-          } else if (candleChange > 0) {
-            scalpBias = 'BULLISH';
-            scalpConf = 65;
-            scalpOpinion = `Micro-structure leaning bullish on recent bars. Searching for rapid scalp entry on pullbacks.`;
-          } else if (candleChange < 0) {
-            scalpBias = 'BEARISH';
-            scalpConf = 65;
-            scalpOpinion = `Micro-structure leaning bearish on recent bars. Searching for rapid scalp entry on rallies.`;
+          if (orderFlowRecord.buyerSellerDelta > 0.15) {
+            flowBias = 'BULLISH';
+            flowConf = 74;
+            flowOpinion = `Micro-flow buyer aggression detected (${orderFlowRecord.flowType}). Delta: +${(orderFlowRecord.buyerSellerDelta * 100).toFixed(1)}%. Velocity: ${orderFlowRecord.tickVelocity} ticks/bar. Fast bias LONG.`;
+          } else if (orderFlowRecord.buyerSellerDelta < -0.15) {
+            flowBias = 'BEARISH';
+            flowConf = 74;
+            flowOpinion = `Micro-flow selling absorption detected (${orderFlowRecord.flowType}). Delta: ${(orderFlowRecord.buyerSellerDelta * 100).toFixed(1)}%. Velocity: ${orderFlowRecord.tickVelocity} ticks/bar. Fast bias SHORT.`;
           } else {
-            scalpBias = 'NEUTRAL';
-            scalpConf = 60;
-            scalpOpinion = `Micro-range compression. Scalper agent monitoring M1/M5 volatility bursts and order flow imbalances.`;
+            flowBias = 'NEUTRAL';
+            flowConf = 60;
+            flowOpinion = `Micro-flow balanced (${orderFlowRecord.flowType}). Delta within normal bounds. Velocity: ${orderFlowRecord.tickVelocity} ticks/bar.`;
           }
 
           return {
             ...base,
             name: 'Scalper / Flow Sniper',
             role: 'M1/M5 Micro-Structure & Momentum',
-            bias: scalpBias,
-            confidence: scalpConf,
+            bias: flowBias,
+            confidence: flowConf,
             status: 'ONLINE',
-            lastOpinion: scalpOpinion,
+            lastOpinion: flowOpinion,
             evidence: [
-              `Recent candle close: ${lastCandle.close.toFixed(2)}`,
-              `Micro impulse: ${scalpBias}`,
-              `Bar velocity: ${isExpansion ? 'EXPANDING' : 'CONSOLIDATING'}`,
-              `Surveillance: ACTIVE (${flowCandles.length} bars)`
+              `Flow Mode: ${orderFlowRecord.flowType}`,
+              `Buyer/Seller Delta: ${(orderFlowRecord.buyerSellerDelta * 100).toFixed(1)}%`,
+              `Volume Velocity: ${orderFlowRecord.tickVelocity} ticks/bar`,
+              `Timeframe: ${orderFlowRecord.timeframe}`
             ],
             keyRisk: 'Fast mean-reversion whip',
-            invalidation: 'Micro swing break',
+            invalidation: 'Micro delta flip',
             requiredInputs: ['M1/M5 Verified Candles', 'Tick Volume Delta'],
             availableInputs: ['M1/M5 Verified Candles', 'Tick Volume Delta'],
             missingInputs: [],
@@ -795,6 +896,7 @@ export function generateAssetIntelligence(
             freshness: 'REALTIME',
           };
         }
+
         return {
           ...base,
           name: 'Scalper / Flow Sniper',
@@ -802,7 +904,7 @@ export function generateAssetIntelligence(
           bias: 'NEUTRAL',
           confidence: 0,
           status: 'DATA LIMITED',
-          lastOpinion: 'Awaiting verified candle stream to compute micro-momentum and fast scalp flow.',
+          lastOpinion: 'Awaiting verified candle stream to compute micro-momentum and order flow delta.',
           evidence: ['Candle feed: PENDING'],
           keyRisk: 'N/A',
           invalidation: 'N/A',
@@ -813,23 +915,70 @@ export function generateAssetIntelligence(
           freshness: 'OFFLINE',
         };
       }
-      case 'VISION':
-      default:
+
+      case 'VISION': {
+        if (hasCandles && marketStructure) {
+          const visBias: BiasType = marketStructure.trend === 'BULLISH' ? 'BULLISH' : (marketStructure.trend === 'BEARISH' ? 'BEARISH' : 'NEUTRAL');
+          const hasZones = marketStructure.orderBlocks.length > 0 || marketStructure.fvg.length > 0;
+          return {
+            ...base,
+            bias: visBias,
+            confidence: hasZones ? 76 : 65,
+            status: 'ONLINE',
+            lastOpinion: `Structured chart pattern recognition active. ${marketStructure.trend} structure with ${marketStructure.fvg.length} FVGs and ${marketStructure.orderBlocks.length} Order Blocks mapped on ${structureTf}.`,
+            evidence: [
+              `SMC Chart Structure: ${marketStructure.trend} (${marketStructure.candleCount} bars)`,
+              `Active Order Blocks: ${marketStructure.orderBlocks.length}`,
+              `Active Fair Value Gaps: ${marketStructure.fvg.length}`,
+              `Key Swings: [${marketStructure.lastSwingLow ?? 'N/A'} - ${marketStructure.lastSwingHigh ?? 'N/A'}]`,
+              volumeProfile ? `Volume Profile POC: ${volumeProfile.poc}` : 'Volume Profile: CALIBRATING'
+            ],
+            keyRisk: 'Pattern invalidation on opposing boundary break',
+            invalidation: marketStructure.trend === 'BULLISH'
+              ? (marketStructure.lastSwingLow ? `Breach of swing low ${marketStructure.lastSwingLow}` : 'Structure breach')
+              : (marketStructure.lastSwingHigh ? `Breach of swing high ${marketStructure.lastSwingHigh}` : 'Structure breach'),
+            requiredInputs: ['Verified OHLC Candles', 'Structure Geometry'],
+            availableInputs: ['Verified OHLC Candles', 'Structure Geometry'],
+            missingInputs: [],
+            lastRun: new Date().toISOString(),
+            freshness: 'CURRENT',
+          };
+        }
+
         return {
           ...base,
           bias: 'NEUTRAL',
           confidence: 0,
           status: 'DATA LIMITED',
-          lastOpinion: 'Awaiting chart image submission for visual analysis.',
-          evidence: ['Chart image: NOT SUBMITTED'],
+          lastOpinion: `Awaiting verified chart candles for structural vision analysis on ${normSymbol}.`,
+          evidence: ['Chart structure: PENDING CANDLES'],
           keyRisk: 'N/A',
           invalidation: 'N/A',
-          requiredInputs: ['Chart Screenshot (PNG/JPG/WebP)'],
+          requiredInputs: ['Verified OHLC Candles'],
           availableInputs: [],
-          missingInputs: ['Chart Screenshot'],
+          missingInputs: ['Verified OHLC Candles'],
           lastRun: new Date().toISOString(),
           freshness: 'OFFLINE',
         };
+      }
+
+      default: {
+        return {
+          ...base,
+          bias: 'NEUTRAL',
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: `Surveillance active for ${base.name}. Feed connection pending.`,
+          evidence: ['Feed: PENDING'],
+          keyRisk: 'N/A',
+          invalidation: 'N/A',
+          requiredInputs: [],
+          availableInputs: [],
+          missingInputs: [],
+          lastRun: new Date().toISOString(),
+          freshness: 'OFFLINE',
+        };
+      }
     }
   });
 
@@ -1059,6 +1208,7 @@ export function generateAssetIntelligence(
   return {
     symbol: normSymbol,
     name: meta.name,
+    timeframe: normTf,
     category: meta.category as any,
     regime: hasCandles && marketStructure ? `Structure ${marketStructure.trend}` : 'Awaiting Market Structure Analysis',
     session: sessionState.sessionName,

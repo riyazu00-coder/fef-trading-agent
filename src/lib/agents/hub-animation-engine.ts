@@ -269,7 +269,7 @@ export function evaluateTradingRisk(
     volatility: volatilityLevel,
     volatilityDetail: isVolHigh ? 'ATR 35% above 14-period average' : 'ATR within normal regime bounds',
     spreadStatus,
-    spreadDetail: `Current: ${spreadVal > 0 ? spreadVal.toFixed(1) : '1.2'} pips (${isMt5Standby ? 'Exness Tick Standby' : 'MT5 Live'})`,
+    spreadDetail: `Current: ${spreadVal > 0 ? spreadVal.toFixed(1) : '1.2'} pips (${isMt5Standby ? 'Broker Tick Standby' : 'MT5 Live'})`,
     agentDisagreement: disagreement,
     disagreementDetail: `${bullishCount} Bullish, ${cautionCount} Caution, ${bearishCount} Bearish`,
     riskGuardianState: rgState,

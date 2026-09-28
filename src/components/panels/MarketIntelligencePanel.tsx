@@ -24,7 +24,7 @@ export const MarketIntelligencePanel: React.FC<MarketIntelligencePanelProps> = (
     price: 4349.70,
     spread: 0.16,
     change24h: -0.85,
-    source: 'EXNESS Broker Live'
+    source: 'Broker Live'
   };
 
   const macroAssetKeys = ['XAUUSD', 'XAGUSD', 'USOIL', 'EURUSD', 'USDJPY', 'BTCUSD'].filter(

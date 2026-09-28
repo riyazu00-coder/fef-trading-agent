@@ -524,3 +524,86 @@ export function generateGlobalRadarIntelligence(
     },
   };
 }
+
+/**
+ * Evaluates ranked opportunities across pre-computed profiles and market quotes.
+ * Canonical server-side function used by the 24/7 background surveillance worker.
+ */
+export function evaluateOpportunityRadar(
+  profiles: Record<string, AssetIntelligenceProfile>,
+  marketQuotes: Record<string, { price: number; change24h: number }>,
+  evaluationTime: Date = new Date()
+): RadarOpportunityItem[] {
+  const symbols = Object.keys(profiles);
+
+  const opportunities: RadarOpportunityItem[] = symbols.map((sym) => {
+    const profile = profiles[sym];
+    const quote = marketQuotes[sym] || { price: 0, change24h: 0 };
+    const liveAsset: LiveMarketAsset = {
+      symbol: sym,
+      name: profile.name,
+      price: quote.price,
+      bid: quote.price,
+      ask: quote.price,
+      spread: 0,
+      change24h: quote.change24h,
+      high24h: quote.price,
+      low24h: quote.price,
+      volume: '$1B',
+      sparkline: '0,10 100,10',
+      source: 'Radar Surveillance',
+      lastUpdated: evaluationTime.toISOString(),
+      category: profile.category as any,
+    };
+
+    const { score, setupQuality, tradeExecutable, marketState, state, riskLevel, timeframe, whyReasons } =
+      calculateOpportunityScore(profile, liveAsset);
+
+    return {
+      rank: 0,
+      symbol: sym,
+      name: profile.name,
+      category: profile.category as RadarCategory,
+      price: liveAsset.price,
+      change24h: liveAsset.change24h,
+      state,
+      opportunityScore: score,
+      setupQuality,
+      tradeExecutable,
+      executabilityScore: tradeExecutable ? 100 : 0,
+      marketState,
+      sessionCountdown: profile.sessionState?.nextOpenCountdown,
+      aiConfidence: profile.confidence,
+      timeframe,
+      riskLevel,
+      entryZone: profile.entryZone,
+      stopLoss: profile.stopLoss,
+      tp1: profile.tp1,
+      tp2: profile.tp2,
+      tp3: profile.tp3,
+      rr: profile.rr,
+      regime: profile.regime,
+      catalysts: profile.whyThisTrade,
+      invalidation: profile.invalidation,
+      whyRankedReasons: whyReasons,
+      evidenceTrust: profile.evidenceTrust,
+      actionabilityState: profile.actionabilityState,
+      verifiedAgentCount: profile.verifiedAgentCount,
+      feedStatus: 'LIVE',
+      isDataLimited: false,
+    };
+  });
+
+  opportunities.sort((a, b) => {
+    if (b.opportunityScore !== a.opportunityScore) {
+      return b.opportunityScore - a.opportunityScore;
+    }
+    return b.aiConfidence - a.aiConfidence;
+  });
+
+  opportunities.forEach((item, index) => {
+    item.rank = index + 1;
+  });
+
+  return opportunities;
+}

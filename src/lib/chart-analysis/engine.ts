@@ -197,7 +197,7 @@ export async function processChartAnalysis(req: ChartAnalysisRequest): Promise<C
         ? `Price retesting unmitigated institutional Order Block within discount zone.`
         : `Price retesting unmitigated institutional Order Block within premium supply zone.`,
       analysisMode === 'FULL_INTELLIGENCE'
-        ? `Live Exness quote and macroeconomic correlation reinforce institutional order flow momentum.`
+        ? `Live broker quote and macroeconomic correlation reinforce institutional order flow momentum.`
         : `Chart-only geometric structure exhibits clean institutional algorithmic footprint.`
     ],
 
@@ -234,8 +234,8 @@ export async function processChartAnalysis(req: ChartAnalysisRequest): Promise<C
       diffPercent,
       isOutdated,
       warningMessage: isOutdated
-        ? `⚠️ WARNING: Uploaded chart visible price ($${chartDetectedPrice}) differs from live Exness quote ($${p}) by ${diffPercent}%. Re-anchored targets to live market feeds.`
-        : `✓ Chart visible price aligns with live Exness market quote within tight 0.05% tolerance.`
+        ? `⚠️ WARNING: Uploaded chart visible price ($${chartDetectedPrice}) differs from live broker quote ($${p}) by ${diffPercent}%. Re-anchored targets to live market feeds.`
+        : `✓ Chart visible price aligns with live broker market quote within tight 0.05% tolerance.`
     },
 
     providerStatus

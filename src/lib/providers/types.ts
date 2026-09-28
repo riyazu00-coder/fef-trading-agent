@@ -145,8 +145,18 @@ export interface MacroIndicatorRecord {
   currentValue: number | string;
   previousValue: number | string;
   forecastValue?: number | string;
+  delta?: number | string;
+  percentageDelta?: number;
+  velocity?: string;
+  regime?: string;
   unit: string;
-  releaseDate: string;
+  releaseDate: string; // Authentic publication date
+  timestamp?: string; // Retrieval timestamp
+  freshness?: 'REALTIME' | 'CURRENT' | 'DELAYED' | 'STALE' | 'OFFLINE';
+  source?: string;
+  affectedAssets?: string[];
+  directionalImplication?: string;
+  confidence?: number;
   bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   goldCorrelation: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
   classification: EvidenceClassification;
@@ -163,9 +173,11 @@ export interface SentimentRecord {
   bearishPercent: number; // 0 - 100
   neutralPercent: number; // 0 - 100
   sampleSize: number;
-  sentimentType: 'MARKET_FLOW' | 'NEWS_SENTIMENT' | 'SOCIAL_SENTIMENT' | 'POSITIONING_PROXY';
+  sentimentType: 'MARKET_FLOW' | 'NEWS_SENTIMENT' | 'SOCIAL_SENTIMENT' | 'POSITIONING_PROXY' | 'BINANCE_FUTURES_LSR';
   timestamp: string;
   classification: EvidenceClassification;
+  status?: 'AVAILABLE' | 'DATA_LIMITED' | 'UNAVAILABLE';
+  provenance?: string;
 }
 
 export interface SentimentProvider extends BaseProvider {

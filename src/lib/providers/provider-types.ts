@@ -36,7 +36,7 @@ export interface MacroIndicator {
 
 export interface ProviderHealth {
   name: string;
-  type: 'MARKET' | 'NEWS' | 'MACRO' | 'AI' | 'MT5' | 'DATABASE';
+  type: 'MARKET' | 'NEWS' | 'MACRO' | 'AI' | 'MT5' | 'DATABASE' | 'CALENDAR' | 'SENTIMENT';
   status: 'HEALTHY' | 'DEGRADED' | 'OFFLINE';
   latencyMs: number;
   lastChecked: string;

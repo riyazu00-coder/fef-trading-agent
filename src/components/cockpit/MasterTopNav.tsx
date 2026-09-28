@@ -501,7 +501,7 @@ export const MasterTopNav: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-between pt-2 text-[9px] text-gray-400 border-t border-white/5">
-              <span>Source: Shared Agent Blackboard &bull; Exness Live</span>
+              <span>Source: Shared Agent Blackboard &bull; Broker Live</span>
               <button
                 onClick={() => {
                   setShowAiModal(false);

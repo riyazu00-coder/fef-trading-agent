@@ -71,7 +71,7 @@ export const ChartVisionUpload: React.FC = () => {
         />
         <div className="text-gray-400 text-[11px] space-y-1">
           <p className="font-semibold text-gray-200">
-            {uploadedImage ? 'Click to replace screenshot' : 'Drop Exness / MT5 Screenshot Here'}
+            {uploadedImage ? 'Click to replace screenshot' : 'Drop Broker / MT5 Screenshot Here'}
           </p>
           <p className="text-[9px] text-gray-500">
             Supports PNG, JPG, WebP. Auto-detects BOS, CHOCH, FVG, and Liquidity Pools.

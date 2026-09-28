@@ -25,7 +25,7 @@ export const MarketOverviewCard: React.FC = () => {
     ? buildCanonicalFromBrokerQuote(
         activeAsset.symbol,
         brokerQuote,
-        telemetry.account?.broker || telemetry.terminal?.brokerName || 'Exness Technologies Ltd',
+        telemetry.account?.broker || telemetry.terminal?.brokerName || 'Connected Broker',
         telemetry.terminal?.brokerServer,
         Date.now(),
         isRemoteRelay
@@ -115,7 +115,7 @@ export const MarketOverviewCard: React.FC = () => {
                   {isRemoteRelay ? 'REMOTE MT5 TELEMETRY' : 'MT5 BROKER LIVE'}
                 </span>
                 <span className="text-[8.5px] text-gray-400 font-normal">
-                  ({brokerCanonical.broker || 'Exness'}{telemetry.terminal?.brokerServer ? ` • ${telemetry.terminal.brokerServer}` : ''})
+                  ({brokerCanonical.broker || 'Broker'}{telemetry.terminal?.brokerServer ? ` • ${telemetry.terminal.brokerServer}` : ''})
                 </span>
               </div>
               <span className={`text-[8px] ${isRemoteRelay ? 'text-cyan-400' : 'text-emerald-400'} font-mono`}>

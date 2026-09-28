@@ -192,7 +192,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
       try {
         let mt5Data: any = null;
         let isMt5Connected = false;
-        let brokerName = 'Exness';
+        let brokerName = 'Connected Broker';
 
         // 1. Check local HTTP bridge
         const localRes = await fetch('/api/bridge/mt5?action=TELEMETRY', {
@@ -203,7 +203,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (lData.mt5Connected || lData.localBridge === 'ONLINE') {
             mt5Data = lData;
             isMt5Connected = Boolean(lData.mt5Connected);
-            brokerName = lData.broker || lData.terminal?.brokerName || 'Exness';
+            brokerName = lData.broker || lData.terminal?.brokerName || 'Connected Broker';
           }
         }
 
@@ -218,7 +218,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
               if (rData.connected && rData.success) {
                 mt5Data = rData;
                 isMt5Connected = true;
-                brokerName = rData.broker || rData.terminal?.brokerName || 'Exness';
+                brokerName = rData.broker || rData.terminal?.brokerName || 'Connected Broker';
               }
             }
           } catch {}
@@ -363,7 +363,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const activeAsset = useMemo(() => {
     return allAssets[activeSymbol] || INITIAL_LIVE_ASSETS[activeSymbol] || {
       symbol: activeSymbol,
-      name: `${activeSymbol} (Live Exness)`,
+      name: `${activeSymbol} (Live Broker)`,
       price: 1.0,
       bid: 0.999,
       ask: 1.001,
@@ -373,7 +373,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
       low24h: 0.95,
       volume: '$1.2B',
       sparkline: '0,10 100,10',
-      source: 'Exness Tick',
+      source: 'Broker Tick',
       lastUpdated: 'Live',
       category: 'FOREX'
     };

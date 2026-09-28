@@ -97,7 +97,7 @@ export const ChartVisionAnalyzerCard: React.FC = () => {
       '2. Detecting symbol & timeframe...',
       '3. Reading market structure (BOS / CHOCH)...',
       '4. Detecting FVG & Order Blocks...',
-      '5. Cross-checking live Exness market...',
+      '5. Cross-checking live broker market...',
       '6. Synthesizing 15-Agent Swarm...'
     ];
 
@@ -240,7 +240,7 @@ export const ChartVisionAnalyzerCard: React.FC = () => {
             Click, Drop, or Paste (Ctrl+V) Chart
           </span>
           <p className="text-[8.5px] text-gray-400 max-w-[240px]">
-            Supports PNG, JPG, WebP &bull; Extracts BOS, CHOCH, FVG, and validates against live Exness tick stream.
+            Supports PNG, JPG, WebP &bull; Extracts BOS, CHOCH, FVG, and validates against live broker tick stream.
           </p>
         </div>
       )}

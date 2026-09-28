@@ -10,7 +10,7 @@ export const ProviderTelemetryCard: React.FC = () => {
   const isExecutionReady = isMt5Connected && telemetry.operatingMode === 'UNIVERSAL_EXECUTION';
   const brokerName = telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER'
     ? telemetry.account.broker
-    : telemetry.terminal?.brokerName || 'Exness';
+    : telemetry.terminal?.brokerName || 'Connected Broker';
   const pingMs = (telemetry.account as any)?.ping || 5;
 
   const mt5Item = isMt5Connected

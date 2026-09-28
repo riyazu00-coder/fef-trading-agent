@@ -97,6 +97,10 @@ export class ProviderRegistry {
     return this.marketDataProviders.values().next().value || null;
   }
 
+  public getPrimaryMarketProvider(): MarketDataProvider | null {
+    return this.getPrimaryMarketDataProvider();
+  }
+
   public getMarketDataProvider(id: string): MarketDataProvider | null {
     return this.marketDataProviders.get(id) || null;
   }
