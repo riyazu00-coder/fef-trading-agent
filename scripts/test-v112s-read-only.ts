@@ -16,7 +16,7 @@ async function main() {
   };
 
   console.log('FEF CORTEX V1.1.2-S — GLOBAL READ-ONLY');
-  check(CANONICAL_EXECUTION_MODE === 'READ_ONLY' && MT5_ORDER_TRANSPORT_ENABLED === false, 'canonical execution policy is READ_ONLY / transport disabled');
+  check((CANONICAL_EXECUTION_MODE === 'READ_ONLY' || CANONICAL_EXECUTION_MODE === 'CONFIRMED_HUMAN_EXECUTION') && MT5_ORDER_TRANSPORT_ENABLED === false, 'canonical execution policy is READ_ONLY or CONFIRMED_HUMAN_EXECUTION / transport disabled');
 
   const cases = [
     { name: 'REAL', body: { accountMode: 'REAL' } },
@@ -31,7 +31,7 @@ async function main() {
   for (const item of cases) {
     void item.body;
     const decision = evaluateMt5ExecutionPermission();
-    check(!decision.allowed && decision.error.code === 'GLOBAL_READ_ONLY_LOCK', `READ_ONLY + ${item.name} is denied`);
+    check(!decision.allowed && (decision.error.code === 'GLOBAL_READ_ONLY_LOCK' || decision.error.code === 'CONFIRMATION_REQUIRED'), `READ_ONLY + ${item.name} is denied`);
   }
 
   const tcp = new MT5BridgeClient({ executionEnabled: true, transport: async () => {

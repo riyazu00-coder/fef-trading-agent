@@ -16,6 +16,7 @@ import {
 import { validateTradeProtection } from '@/lib/execution/trade-protection-validator';
 import { verifyPostFillProtection, PostFillProtectionStatus } from '@/lib/execution/post-fill-verifier';
 import { generateTicketFingerprint } from '@/lib/remote/remote-security-validator';
+import { FinalOrderConfirmationModal } from '@/components/cockpit/FinalOrderConfirmationModal';
 
 interface OrderItem {
   id: string;
@@ -78,6 +79,8 @@ export default function ExecutionPage() {
   const [manualTp, setManualTp] = useState<string>('');
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
+  const [confirmationArtifact, setConfirmationArtifact] = useState<any>(null);
+  const [isPreparingOrder, setIsPreparingOrder] = useState<boolean>(false);
   const [isExecutingDemo, setIsExecutingDemo] = useState<boolean>(false);
   const [executionResult, setExecutionResult] = useState<{
     success: boolean;
@@ -277,7 +280,7 @@ export default function ExecutionPage() {
     }
   };
 
-  const handleExecuteOrder = () => {
+  const handleExecuteOrder = async () => {
     if (!protectionValidation.valid) {
       alert(`EXECUTION REJECTED: Mandatory trade protection failed (${protectionValidation.state}).\n\n${protectionValidation.reasons.join('\n')}\n\nExecution locked until valid Stop Loss, Take Profit, and broker stop constraints are met.`);
       return;
@@ -308,11 +311,53 @@ export default function ExecutionPage() {
       return;
     }
 
-    // Launch Human Review & Authorization Modal
-    setIsReviewModalOpen(true);
+    // Launch Human Review & Authorization Modal by preparing cryptographic confirmation artifact
+    setIsPreparingOrder(true);
+    try {
+      const res = await fetch('/api/execution/prepare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          canonicalSymbol: activeSymbol,
+          brokerSymbol: brokerSym,
+          direction,
+          volume: calculatedLotSize,
+          entryPrice: resolvedExecutionPrice.price || entryPrice,
+          sl: slPrice,
+          tp1: tpPrice,
+          tp2: assetProfile.tp2,
+          tp3: assetProfile.tp3,
+          tradeMode: telemetry.account?.tradeMode || 'DEMO',
+          accountId: telemetry.account?.maskedLogin || 'MT5-DEMO',
+          brokerServer: telemetry.terminal?.brokerServer || 'MT5-SERVER',
+          evidenceTrust: assetProfile.evidenceTrust,
+          humanConfirmed: false,
+          isAutomatic: false,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(`CANNOT PREPARE ORDER: ${data.message || 'Validation failed'}`);
+        return;
+      }
+
+      setConfirmationArtifact(data.artifact);
+      setIsReviewModalOpen(true);
+    } catch (err: any) {
+      alert(`PREPARATION FAILED: ${err.message || 'Network error'}`);
+    } finally {
+      setIsPreparingOrder(false);
+    }
   };
 
-  const confirmAndExecuteOnDemo = async () => {
+  const confirmAndExecuteOnDemo = async (confirmedToken?: string) => {
+    const tokenToUse = confirmedToken || confirmationArtifact?.token;
+    if (!tokenToUse) {
+      alert('EXECUTION REJECTED: Missing single-use confirmation token. Order cannot be dispatched.');
+      return;
+    }
+
     if (!protectionValidation.valid) {
       alert(`EXECUTION REJECTED: Mandatory protection validation failed (${protectionValidation.state}). Orders cannot be dispatched without valid SL and TP1.`);
       return;
@@ -348,6 +393,7 @@ export default function ExecutionPage() {
           approvalId: `APPR-${Date.now()}`,
           approvalHash: ticketFingerprint,
           humanApproved: true,
+          confirmationToken: tokenToUse,
           evidenceTrust: assetProfile.evidenceTrust,
           riskGuardianState: 'NORMAL',
           accountMode: 'DEMO',
@@ -368,6 +414,7 @@ export default function ExecutionPage() {
             tp: tpPrice,
             comment: `FEF-${activeSymbol}-${direction}`,
             humanApproved: true,
+            confirmationToken: tokenToUse,
             tradeMode: telemetry.account?.tradeMode || 'DEMO',
             timestamp: Date.now()
           }
@@ -1319,7 +1366,7 @@ export default function ExecutionPage() {
                 CANCEL / DISARM
               </button>
               <button
-                onClick={confirmAndExecuteOnDemo}
+                onClick={() => confirmAndExecuteOnDemo()}
                 disabled={isExecutingDemo}
                 className={`px-5 py-2.5 rounded-xl font-bold transition-all flex items-center space-x-2 border shadow-lg ${
                   isExecutingDemo
@@ -1333,6 +1380,21 @@ export default function ExecutionPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Mandatory V1.3 Cryptographic Final Order Confirmation Gate */}
+      {confirmationArtifact && (
+        <FinalOrderConfirmationModal
+          isOpen={isReviewModalOpen}
+          onClose={() => {
+            setIsReviewModalOpen(false);
+            setIsArmed(false);
+            setConfirmationArtifact(null);
+          }}
+          onConfirm={confirmAndExecuteOnDemo}
+          artifact={confirmationArtifact}
+          isSending={isExecutingDemo}
+        />
       )}
     </div>
   );

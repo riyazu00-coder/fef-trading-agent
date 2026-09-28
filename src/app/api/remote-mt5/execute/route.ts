@@ -12,37 +12,68 @@ import {
   CANONICAL_EXECUTION_MODE,
   isMt5OrderTransportAllowed,
   READ_ONLY_EXECUTION_ERROR,
+  CONFIRMATION_REQUIRED_ERROR,
 } from '@/lib/execution/execution-policy';
+import { verifyAndConsumeConfirmationToken } from '@/lib/execution/confirmation-authority';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  if (!isMt5OrderTransportAllowed()) {
-    return NextResponse.json({
-      success: false,
-      status: 'REJECTED',
-      operatingMode: CANONICAL_EXECUTION_MODE,
-      error: READ_ONLY_EXECUTION_ERROR,
-      timestamp: Date.now(),
-    }, { status: 403 });
-  }
-
-  const relayUrl = process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557';
-  const deviceId = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
-  const keyId = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';
-  const deviceSecret = (process.env.FEF_REMOTE_DEVICE_SECRET || '').trim();
-
-  if (!deviceSecret) {
-    return NextResponse.json({
-      success: false,
-      status: 'REJECTED',
-      error: { code: 'EXECUTION_SECRET_NOT_CONFIGURED', message: 'Remote execution credentials are not configured.' },
-      timestamp: Date.now(),
-    }, { status: 503 });
-  }
-
   try {
     const body = await req.json();
+
+    // Invariant: Mandatory Single-Use Confirmation Gate
+    const confToken = body.confirmationToken;
+    if (!confToken) {
+      return NextResponse.json({
+        success: false,
+        status: 'REJECTED',
+        operatingMode: CANONICAL_EXECUTION_MODE,
+        error: CONFIRMATION_REQUIRED_ERROR,
+        timestamp: Date.now(),
+      }, { status: 403 });
+    }
+
+    const verification = verifyAndConsumeConfirmationToken(confToken, {
+      canonicalSymbol: body.symbol,
+      brokerSymbol: body.brokerSymbol || body.symbol,
+      direction: body.direction,
+      orderType: body.orderType || body.direction,
+      volume: Number(body.volume),
+      entryPrice: Number(body.priceBasis || body.entry || 0),
+      stopLoss: Number(body.sl || 0),
+      takeProfit1: Number(body.tp1 || body.tp || 0),
+      takeProfit2: body.tp2 ? Number(body.tp2) : undefined,
+      takeProfit3: body.tp3 ? Number(body.tp3) : undefined,
+      humanConfirmed: body.humanApproved === true,
+      isAutomatic: body.isAutomatic === true,
+    });
+
+    if (!verification.valid) {
+      return NextResponse.json({
+        success: false,
+        status: 'REJECTED',
+        error: {
+          code: verification.errorCode || 'CONFIRMATION_FAILED',
+          message: verification.message || 'Execution confirmation verification failed.',
+        },
+        timestamp: Date.now(),
+      }, { status: 403 });
+    }
+
+    const relayUrl = process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557';
+    const deviceId = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
+    const keyId = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';
+    const deviceSecret = (process.env.FEF_REMOTE_DEVICE_SECRET || '').trim();
+
+    if (!deviceSecret) {
+      return NextResponse.json({
+        success: false,
+        status: 'REJECTED',
+        error: { code: 'EXECUTION_SECRET_NOT_CONFIGURED', message: 'Remote execution credentials are not configured.' },
+        timestamp: Date.now(),
+      }, { status: 503 });
+    }
 
     // 1. Mandatory Human Approval Check
     if (body.humanApproved !== true) {

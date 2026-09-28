@@ -206,6 +206,8 @@ export interface MT5SymbolSpecification {
   tickValue: number;
   tickSize: number;
   tradeMode: 'FULL' | 'CLOSE_ONLY' | 'DISABLED';
+  stopsLevel?: number;
+  freezeLevel?: number;
   pipSize?: number;
   source?: 'BROKER' | 'STATIC' | string;
 }

@@ -14,6 +14,7 @@
     "test:provenance-security": "./node_modules/.bin/sucrase-node scripts/test-v112s-provenance-security.ts",
     "test:read-only": "./node_modules/.bin/sucrase-node scripts/test-v112s-read-only.ts",
     "test:v121-data-integrity": "./node_modules/.bin/sucrase-node scripts/test-v121-data-integrity.ts",
+    "test:v13-universal-mt5": "./node_modules/.bin/sucrase-node scripts/test-v13-universal-mt5-intel.ts",
     "bridge:start": "node scripts/fef-bridge-cli.js start",
     "bridge:status": "node scripts/fef-bridge-cli.js status",
     "bridge:stop": "node scripts/fef-bridge-cli.js stop",

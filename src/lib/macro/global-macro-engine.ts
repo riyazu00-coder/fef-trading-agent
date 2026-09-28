@@ -36,7 +36,7 @@ export class GlobalMacroEngine implements MacroProvider {
       region: 'US',
       unit: 'Index Points',
       goldCorrelation: 'NEGATIVE',
-      affectedAssets: ['XAUUSD', 'EURUSD', 'GBPUSD', 'US500'],
+      affectedAssets: ['XAUUSD', 'EURUSD', 'GBPUSD', 'US500', 'USDJPY', 'USDCAD'],
     },
     {
       name: 'US 10-Year Treasury Yield',
@@ -44,7 +44,7 @@ export class GlobalMacroEngine implements MacroProvider {
       region: 'US',
       unit: '% Yield',
       goldCorrelation: 'NEGATIVE',
-      affectedAssets: ['XAUUSD', 'US100', 'US500', 'USDJPY'],
+      affectedAssets: ['XAUUSD', 'US100', 'US500', 'USDJPY', 'EURUSD'],
     },
     {
       name: 'US 5-Year Treasury Yield',
@@ -57,12 +57,64 @@ export class GlobalMacroEngine implements MacroProvider {
     {
       name: 'WTI Crude Oil Benchmark',
       querySymbol: 'CL=F',
-      region: 'GLOBAL',
+      region: 'COMMODITIES',
       unit: 'USD / Barrel',
       goldCorrelation: 'POSITIVE',
       affectedAssets: ['USOIL', 'XAUUSD', 'US500'],
     },
+    {
+      name: 'Brent Crude Oil Benchmark',
+      querySymbol: 'BZ=F',
+      region: 'COMMODITIES',
+      unit: 'USD / Barrel',
+      goldCorrelation: 'POSITIVE',
+      affectedAssets: ['UKOIL', 'USOIL', 'EURUSD'],
+    },
+    {
+      name: 'Euro Stoxx 50 (Eurozone)',
+      querySymbol: '%5ESTOXX50E',
+      region: 'EUROZONE',
+      unit: 'Index Points',
+      goldCorrelation: 'NEUTRAL',
+      affectedAssets: ['EURUSD', 'US500'],
+    },
+    {
+      name: 'FTSE 100 Index (UK)',
+      querySymbol: '%5EFTSE',
+      region: 'UK',
+      unit: 'Index Points',
+      goldCorrelation: 'NEUTRAL',
+      affectedAssets: ['GBPUSD', 'UKOIL'],
+    },
+    {
+      name: 'Nikkei 225 (Japan)',
+      querySymbol: '%5EN225',
+      region: 'JAPAN',
+      unit: 'Index Points',
+      goldCorrelation: 'NEUTRAL',
+      affectedAssets: ['USDJPY', 'GBPJPY'],
+    },
+    {
+      name: 'Copper Futures (China/Industrial Proxy)',
+      querySymbol: 'HG=F',
+      region: 'COMMODITIES',
+      unit: 'USD / lb',
+      goldCorrelation: 'POSITIVE',
+      affectedAssets: ['XAUUSD', 'AUDUSD', 'US500'],
+    },
   ];
+
+  /**
+   * Filter indicators relevant to a specific canonical asset ticker
+   */
+  public getIndicatorsForAsset(symbol: string): MacroIndicatorRecord[] {
+    const norm = (symbol || '').toUpperCase();
+    return this.indicators.filter((ind) => {
+      const cfg = this.macroConfigs.find((c) => c.name === ind.name);
+      if (!cfg) return false;
+      return cfg.affectedAssets.includes(norm) || cfg.affectedAssets.includes('GLOBAL');
+    });
+  }
 
   public async getHealth(): Promise<ProviderHealth> {
     if (this.indicators.length === 0) {
@@ -85,6 +137,15 @@ export class GlobalMacroEngine implements MacroProvider {
       rateLimit: { isThrottled: false },
       isFreeTier: true,
     };
+  }
+
+  public getMacroConfigs(): readonly MacroSymbolConfig[] {
+    return this.macroConfigs;
+  }
+
+  public setIndicatorsForTesting(indicators: MacroIndicatorRecord[]): void {
+    this.indicators = indicators;
+    this.lastFetchedAt = Date.now();
   }
 
   public getCachedIndicators(region?: string): MacroIndicatorRecord[] {

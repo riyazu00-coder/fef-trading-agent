@@ -21,6 +21,13 @@ export interface VolumeProfileBucket {
   isLVN: boolean;
 }
 
+export type VolumeAcceptanceState =
+  | 'ACCEPTANCE_IN_VALUE'
+  | 'REJECTION_ABOVE_VAH'
+  | 'REJECTION_BELOW_VAL'
+  | 'TRAVERSING_TO_POC'
+  | 'OUTSIDE_VALUE_EXPANSION';
+
 export interface VolumeProfileResult {
   symbol: string;
   timeframe: string;
@@ -29,6 +36,8 @@ export interface VolumeProfileResult {
   val: number;
   totalVolume: number;
   isExchangeVolume: boolean;
+  volumeSourceLabel: 'EXCHANGE_VOLUME' | 'TICK_VOLUME_PROXY';
+  acceptanceState: VolumeAcceptanceState;
   buckets: VolumeProfileBucket[];
   hvnLevels: number[];
   lvnLevels: number[];
@@ -157,6 +166,31 @@ export function calculateVolumeProfile(
     };
   });
 
+  const lastClose = candles[candles.length - 1].close;
+  const prevClose = candles.length > 1 ? candles[candles.length - 2].close : lastClose;
+  const vaSpan = Math.max(0.0001, vahPrice - valPrice);
+
+  let acceptanceState: VolumeAcceptanceState = 'ACCEPTANCE_IN_VALUE';
+  if (lastClose >= valPrice && lastClose <= vahPrice) {
+    if (Math.abs(lastClose - pocPrice) / vaSpan < 0.20) {
+      acceptanceState = 'TRAVERSING_TO_POC';
+    } else {
+      acceptanceState = 'ACCEPTANCE_IN_VALUE';
+    }
+  } else if (lastClose > vahPrice) {
+    if (lastClose < prevClose) {
+      acceptanceState = 'REJECTION_ABOVE_VAH';
+    } else {
+      acceptanceState = 'OUTSIDE_VALUE_EXPANSION';
+    }
+  } else {
+    if (lastClose > prevClose) {
+      acceptanceState = 'REJECTION_BELOW_VAL';
+    } else {
+      acceptanceState = 'OUTSIDE_VALUE_EXPANSION';
+    }
+  }
+
   return {
     symbol,
     timeframe,
@@ -165,6 +199,8 @@ export function calculateVolumeProfile(
     val: valPrice,
     totalVolume: Math.round(totalVol),
     isExchangeVolume,
+    volumeSourceLabel: isExchangeVolume ? 'EXCHANGE_VOLUME' : 'TICK_VOLUME_PROXY',
+    acceptanceState,
     buckets: profileBuckets,
     hvnLevels,
     lvnLevels,

@@ -469,15 +469,54 @@ export function generateAssetIntelligence(
 
       case 'OPPORTUNITY': {
         if (blueprint && blueprint.rrRatio) {
+          const match = blueprint.rrRatio.match(/1:([0-9.]+)/);
+          const rrVal = match ? parseFloat(match[1]) : 0;
+          const isUnfavorable = blueprint.state === 'UNFAVORABLE_RR' || rrVal < 1.5;
+
+          if (isUnfavorable) {
+            return {
+              ...base,
+              bias: blueprint.direction === 'BUY' ? 'BULLISH' : 'BEARISH',
+              confidence: 52,
+              status: 'ONLINE',
+              lastOpinion: `Directional bias: ${blueprint.direction}, but risk/reward (${blueprint.rrRatio}) is below 1:1.5 threshold. Execution gated until asymmetric structure forms.`,
+              evidence: [
+                `Target TP1: ${blueprint.tp1.price}`,
+                `Risk/Reward: ${blueprint.rrRatio} (SUB-OPTIMAL)`,
+                'Opportunity Gate: GATED (MIN 1.5x R:R REQUIRED)'
+              ],
+              keyRisk: 'Premature execution with unfavorable asymmetry',
+              invalidation: 'Structural invalidation breach'
+            };
+          }
+
+          if (blueprint.state === 'EXECUTION READY') {
+            return {
+              ...base,
+              bias: blueprint.direction === 'BUY' ? 'BULLISH' : 'BEARISH',
+              confidence: 84,
+              status: 'ONLINE',
+              lastOpinion: `Execution-ready ${blueprint.direction} setup active. Asymmetric ${blueprint.rrRatio} R:R inside verified entry zone [${blueprint.entryZoneLow.price} - ${blueprint.entryZoneHigh.price}].`,
+              evidence: [
+                `Entry Zone: [${blueprint.entryZoneLow.price} - ${blueprint.entryZoneHigh.price}]`,
+                `Target TP1: ${blueprint.tp1.price}`,
+                `Risk/Reward: ${blueprint.rrRatio}`
+              ],
+              keyRisk: 'Momentum stall before target',
+              invalidation: `Hard stop at ${blueprint.sl.price}`
+            };
+          }
+
           return {
             ...base,
             bias: blueprint.direction === 'BUY' ? 'BULLISH' : 'BEARISH',
-            confidence: 78,
+            confidence: 76,
             status: 'ONLINE',
-            lastOpinion: `Asymmetric ${blueprint.rrRatio} risk-to-reward ratio verified against structural target ${blueprint.tp1.price}.`,
+            lastOpinion: `Asymmetric ${blueprint.rrRatio} risk-to-reward ratio verified. Setup is ${blueprint.state}; awaiting ideal entry zone confluence.`,
             evidence: [
               `Target TP1: ${blueprint.tp1.price}`,
-              `Risk/Reward: ${blueprint.rrRatio}`
+              `Risk/Reward: ${blueprint.rrRatio}`,
+              `Lifecycle State: ${blueprint.state}`
             ],
             keyRisk: 'Momentum stall before target',
             invalidation: 'Momentum breakdown'
@@ -1132,14 +1171,38 @@ export function generateAssetIntelligence(
   }).length;
 
   let effectiveSetupDirection: AssetIntelligenceProfile['setupDirection'] = 'WAIT';
+  let finalReasonNote = '';
+
+  const bpRrMatch = blueprint?.rrRatio?.match(/1:([0-9.]+)/);
+  const bpRrVal = bpRrMatch ? parseFloat(bpRrMatch[1]) : 0;
+  const isRrFavorable = bpRrVal >= 1.5 && blueprint?.state !== 'UNFAVORABLE_RR';
 
   if (blueprint && blueprint.direction === 'BUY' && eligibleBullishCount > 0 && consensusTrust.evidenceTrust >= 40) {
-    effectiveSetupDirection = 'WATCH FOR BUY';
+    if (!isRrFavorable) {
+      effectiveSetupDirection = 'WAIT';
+      finalReasonNote = `Directional bias BULLISH, but R:R (${blueprint.rrRatio}) is sub-threshold (< 1:1.5). Execution gated.`;
+    } else if (blueprint.state === 'EXECUTION READY') {
+      effectiveSetupDirection = 'BUY OPPORTUNITY';
+      finalReasonNote = `Execution-ready BUY setup. Asymmetric ${blueprint.rrRatio} R:R inside structural entry zone.`;
+    } else {
+      effectiveSetupDirection = 'WATCH FOR BUY';
+      finalReasonNote = `Valid BULLISH thesis (${blueprint.state}). Awaiting entry zone alignment.`;
+    }
   } else if (blueprint && blueprint.direction === 'SELL' && eligibleBearishCount > 0 && consensusTrust.evidenceTrust >= 40) {
-    effectiveSetupDirection = 'WATCH FOR SELL';
+    if (!isRrFavorable) {
+      effectiveSetupDirection = 'WAIT';
+      finalReasonNote = `Directional bias BEARISH, but R:R (${blueprint.rrRatio}) is sub-threshold (< 1:1.5). Execution gated.`;
+    } else if (blueprint.state === 'EXECUTION READY') {
+      effectiveSetupDirection = 'SELL OPPORTUNITY';
+      finalReasonNote = `Execution-ready SELL setup. Asymmetric ${blueprint.rrRatio} R:R inside structural entry zone.`;
+    } else {
+      effectiveSetupDirection = 'WATCH FOR SELL';
+      finalReasonNote = `Valid BEARISH thesis (${blueprint.state}). Awaiting entry zone alignment.`;
+    }
   } else {
     // Insufficient evidence or no directional setup -> WAIT
     effectiveSetupDirection = 'WAIT';
+    finalReasonNote = `Awaiting structural alignment or multi-agent quorum.`;
   }
 
   // Session closed override
@@ -1156,14 +1219,20 @@ export function generateAssetIntelligence(
   // 8. Update Final Decision Agent
   const finalAgent = assembledAgents.find((a) => a.type === 'FINAL_DECISION');
   if (finalAgent) {
-    finalAgent.bias = effectiveSetupDirection.includes('BUY')
+    finalAgent.bias = (blueprint?.direction === 'BUY' && eligibleBullishCount > 0)
       ? 'BULLISH'
-      : effectiveSetupDirection.includes('SELL')
+      : (blueprint?.direction === 'SELL' && eligibleBearishCount > 0)
       ? 'BEARISH'
-      : 'NEUTRAL';
+      : (effectiveSetupDirection.includes('BUY')
+        ? 'BULLISH'
+        : effectiveSetupDirection.includes('SELL')
+        ? 'BEARISH'
+        : 'NEUTRAL');
     finalAgent.status = consensusTrust.verifiedAgentCount >= 3 ? 'ONLINE' : 'DATA LIMITED';
     finalAgent.confidence = consensusTrust.evidenceTrust >= 40 ? Math.round(consensusTrust.evidenceTrust) : 0;
-    finalAgent.lastOpinion = `Council consensus: ${effectiveSetupDirection}. Verified agents: ${consensusTrust.verifiedAgentCount}/15. Evidence trust: ${consensusTrust.evidenceTrust}%.`;
+    finalAgent.lastOpinion = finalReasonNote
+      ? `Council consensus: ${effectiveSetupDirection}. ${finalReasonNote} Verified: ${consensusTrust.verifiedAgentCount}/15. Trust: ${consensusTrust.evidenceTrust}%.`
+      : `Council consensus: ${effectiveSetupDirection}. Verified agents: ${consensusTrust.verifiedAgentCount}/15. Evidence trust: ${consensusTrust.evidenceTrust}%.`;
   }
 
   const directionalBias: DirectionalBias = effectiveSetupDirection.includes('BUY')

@@ -135,8 +135,8 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Transform raw account to account context with consistent authoritative operating mode
       const rawAccount = data.account || {
         account: data.maskedAccount || data.accountMasked || '00***00',
-        broker: data.broker || 'Exness',
-        server: data.server || 'Exness-MT5Trial16',
+        broker: data.broker || 'MT5 Broker',
+        server: data.server || 'MT5-Server',
         balance: data.balance || 10000,
         equity: data.equity || 10000,
         margin: data.margin || 0,
@@ -159,8 +159,8 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
         terminal: data.terminal || {
           connected: true,
           tradeAllowed: true,
-          brokerName: data.broker || 'Exness',
-          brokerServer: data.server || 'Exness-MT5Trial16',
+          brokerName: data.broker || 'MT5 Broker',
+          brokerServer: data.server || 'MT5-Server',
           ping: data.ping ?? 5,
         },
         account: accountContext,

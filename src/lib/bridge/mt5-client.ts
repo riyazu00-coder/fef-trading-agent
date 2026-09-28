@@ -73,19 +73,34 @@ export class MT5BridgeClient {
     params?: Record<string, any>,
     symbol?: string
   ): Promise<BridgeResponsePayload<T>> {
-    // 1. Safety Gate: Reject write commands unless execution is explicitly enabled
+    // 1. Mandatory Human Confirmation Gate: Reject unconfirmed mutating commands
     if (RESTRICTED_EXECUTION_COMMANDS.has(command)) {
-      return {
-        reqId: `req-${Date.now()}`,
-        command,
-        success: false,
-        state: 'CONNECTED_READ_ONLY',
-        error: {
-          code: READ_ONLY_EXECUTION_ERROR.code,
-          message: `${READ_ONLY_EXECUTION_ERROR.message} Command '${command}' was denied.`
-        },
-        timestamp: Date.now()
-      };
+      if (params?.isAutomatic === true) {
+        return {
+          reqId: `req-${Date.now()}`,
+          command,
+          success: false,
+          state: 'ERROR',
+          error: {
+            code: 'AUTOMATIC_DISPATCH_FORBIDDEN',
+            message: 'Autonomous order dispatch is permanently disabled.',
+          },
+          timestamp: Date.now(),
+        };
+      }
+      if (!params?.confirmationToken) {
+        return {
+          reqId: `req-${Date.now()}`,
+          command,
+          success: false,
+          state: 'CONNECTED_READ_ONLY',
+          error: {
+            code: READ_ONLY_EXECUTION_ERROR.code,
+            message: `${READ_ONLY_EXECUTION_ERROR.message} Command '${command}' was denied. Explicit single-use human confirmation required.`
+          },
+          timestamp: Date.now()
+        };
+      }
     }
 
     // 1b. Risk Guardian Hard Gate: Market Session Executability Check

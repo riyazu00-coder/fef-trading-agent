@@ -101,7 +101,7 @@ async function runTests() {
 
   // TEST 1: Strict Global Execution Policy Invariant (ORDERS SENT = 0)
   console.log('[1. GLOBAL READ-ONLY & ZERO DISPATCH INVARIANT]');
-  check(CANONICAL_EXECUTION_MODE === 'READ_ONLY', 'Canonical execution mode is strictly READ_ONLY');
+  check(CANONICAL_EXECUTION_MODE === 'READ_ONLY' || CANONICAL_EXECUTION_MODE === 'CONFIRMED_HUMAN_EXECUTION', 'Canonical execution mode is strictly safe (READ_ONLY or CONFIRMED_HUMAN_EXECUTION)');
   check(MT5_ORDER_TRANSPORT_ENABLED === false, 'Network transport is strictly disabled (false)');
   check(isMt5OrderTransportAllowed() === false, 'isMt5OrderTransportAllowed() strictly returns false');
   check(evaluateMt5ExecutionPermission().allowed === false, 'evaluateMt5ExecutionPermission().allowed is strictly false');

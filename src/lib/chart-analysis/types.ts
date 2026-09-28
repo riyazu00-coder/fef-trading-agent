@@ -77,6 +77,7 @@ export interface ChartAnalysisResponse {
   livePriceCrossCheck: {
     chartDetectedPrice: number;
     liveExnessPrice: number;
+    liveBrokerPrice?: number;
     diffPercent: number;
     isOutdated: boolean;
     warningMessage: string;

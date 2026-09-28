@@ -5,6 +5,7 @@ import { BridgeCommand, RESTRICTED_EXECUTION_COMMANDS } from '@/lib/bridge/mt5-b
 import { symbolDirectory } from '@/lib/bridge/symbol-mapper';
 import { evaluateMarketSession } from '@/lib/session/market-session-engine';
 import { validateTradeProtection } from '@/lib/execution/trade-protection-validator';
+import { verifyAndConsumeConfirmationToken } from '@/lib/execution/confirmation-authority';
 import { CANONICAL_EXECUTION_MODE, READ_ONLY_EXECUTION_ERROR } from '@/lib/execution/execution-policy';
 
 export const dynamic = 'force-dynamic';
@@ -185,16 +186,62 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Human Approval check
-      if (params && params.humanApproved === false) {
+      // Invariant 1: Automated execution strictly forbidden
+      if (params && params.isAutomatic === true) {
         return NextResponse.json(
           {
             success: false,
             state: 'REJECTED',
             error: {
-              code: 'HUMAN_APPROVAL_REQUIRED',
-              message: 'Execution rejected: Explicit human approval is required for all orders.'
-            }
+              code: 'AUTOMATIC_DISPATCH_FORBIDDEN',
+              message: 'Execution rejected: Autonomous or programmatic order dispatch is strictly prohibited.',
+            },
+          },
+          { status: 403 }
+        );
+      }
+
+      // Invariant 2: Mandatory Human Confirmation Token Gate
+      const confToken = params?.confirmationToken || body?.confirmationToken;
+      if (!confToken) {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'CONFIRMATION_REQUIRED',
+              message: 'Execution rejected: Mandatory single-use human confirmation token is required.',
+            },
+          },
+          { status: 403 }
+        );
+      }
+
+      // Invariant 3: Verify and consume single-use token
+      const tokenVerification = verifyAndConsumeConfirmationToken(confToken, {
+        canonicalSymbol: targetSym,
+        brokerSymbol: params?.brokerSymbol || targetSym,
+        direction: String(params?.direction || params?.orderType || 'BUY').toUpperCase() as 'BUY' | 'SELL',
+        orderType: String(params?.orderType || params?.direction || 'BUY').toUpperCase(),
+        volume: Number(params?.volume || params?.lots || 0),
+        entryPrice: Number(params?.price || 0),
+        stopLoss: Number(params?.sl ?? params?.stopLoss ?? 0),
+        takeProfit1: Number(params?.tp1 ?? params?.tp ?? params?.takeProfit ?? 0),
+        takeProfit2: params?.tp2 != null ? Number(params.tp2) : undefined,
+        takeProfit3: params?.tp3 != null ? Number(params.tp3) : undefined,
+        humanConfirmed: params?.humanApproved !== false,
+        isAutomatic: false,
+      });
+
+      if (!tokenVerification.valid) {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: tokenVerification.errorCode || 'CONFIRMATION_FAILED',
+              message: tokenVerification.message || 'Execution confirmation verification failed.',
+            },
           },
           { status: 403 }
         );

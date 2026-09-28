@@ -12,8 +12,8 @@ async function resolveCandlesForTimeframe(symbol: string, timeframe: string) {
     if (bridgeCandles.success && Array.isArray(bridgeCandles.candles) && bridgeCandles.candles.length >= 10) {
       const registered = registerTrustedBrokerCandles(symbol, timeframe, bridgeCandles.candles, {
         sourceIdentity: 'AUTHENTICATED_LOCAL_MT5_BRIDGE',
-        broker: 'Exness Technologies Ltd',
-        server: 'Exness-MT5Trial16',
+        broker: (bridgeCandles as any).broker || 'Connected MT5 Broker',
+        server: (bridgeCandles as any).server || 'MT5-Server',
       });
       return {
         success: true,
@@ -53,8 +53,8 @@ async function resolveCandlesForTimeframe(symbol: string, timeframe: string) {
         if (relayData.success && Array.isArray(relayData.candles) && relayData.candles.length >= 10 && !relayData.isStale) {
           const registered = registerTrustedBrokerCandles(symbol, timeframe, relayData.candles, {
             sourceIdentity: 'AUTHENTICATED_REMOTE_MT5_RELAY',
-            broker: relayData.broker || 'Exness Technologies Ltd',
-            server: relayData.server || 'Exness-MT5Trial16',
+            broker: relayData.broker || 'Connected MT5 Broker',
+            server: relayData.server || 'MT5-Server',
           });
           return {
             success: true,

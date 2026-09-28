@@ -195,6 +195,7 @@ export interface OrderFlowRecord {
   pocLevel?: number; // Point of Control
   valueAreaHigh?: number;
   valueAreaLow?: number;
+  flowProvenance?: 'TRUE_FOOTPRINT' | 'FLOW_PROXY';
   isExchangeVolume: boolean;
   classification: EvidenceClassification;
 }

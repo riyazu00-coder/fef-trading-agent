@@ -108,6 +108,7 @@ export type CrossFeedBasisStatus =
   | 'ELEVATED_BASIS'
   | 'STALE_SOURCE'
   | 'SOURCE_DIVERGENCE'
+  | 'REFERENCE_DIVERGENCE'
   | 'UNAVAILABLE';
 
 export interface CrossFeedComparison {
@@ -171,7 +172,7 @@ export function buildCanonicalFromBrokerQuote(
   const bid = Number(quote.bid || 0);
   const ask = Number(quote.ask || 0);
   const mid = Number(((bid + ask) / 2).toFixed(quote.digits || 2));
-  const bName = brokerName || 'Exness Technologies Ltd';
+  const bName = brokerName && brokerName !== 'UNKNOWN BROKER' ? brokerName : 'MT5 Broker';
   const provenance = isRemote
     ? `MT5_REMOTE:${bName}${brokerServer ? ` (${brokerServer})` : ''}`
     : `MT5:${bName}${brokerServer ? ` (${brokerServer})` : ''}`;
@@ -778,7 +779,7 @@ export function evaluateCrossFeedDivergence(
       status: 'NORMAL_BASIS',
       statusLabel: `NORMAL BASIS (${roundedBps} bps)`,
       isStaleComparison: false,
-      explanation: `Healthy basis difference (${roundedBps} bps / ${roundedPct}%) between Exness/MT5 and reference feed.`
+      explanation: `Healthy basis difference (${roundedBps} bps / ${roundedPct}%) between connected MT5 broker and reference feed.`
     };
   }
 
@@ -804,7 +805,7 @@ export function evaluateCrossFeedDivergence(
       status: 'ELEVATED_BASIS',
       statusLabel: `ELEVATED BASIS (${roundedBps} bps)`,
       isStaleComparison: false,
-      explanation: `Elevated basis (${roundedBps} bps). Exness broker spread or session rollover liquidity differs from reference feed.`
+      explanation: `Elevated basis (${roundedBps} bps). Broker spread or session liquidity differs from reference feed.`
     };
   }
 
@@ -826,9 +827,9 @@ export function evaluateCrossFeedDivergence(
     brokerAgeMs: brokerAge,
     referenceTimestamp: now,
     referenceAgeMs: 0,
-    status: 'SOURCE_DIVERGENCE',
-    statusLabel: `SOURCE DIVERGENCE (${roundedBps} bps)`,
+    status: 'REFERENCE_DIVERGENCE',
+    statusLabel: `REFERENCE DIVERGENCE (${roundedBps} bps)`,
     isStaleComparison: false,
-    explanation: `Substantial divergence (${roundedBps} bps / ${roundedPct}%). Broker MT5 price is strictly authoritative for execution.`
+    explanation: `Substantial basis divergence (${roundedBps} bps / ${roundedPct}%). Connected MT5 Broker Bid/Ask is strictly authoritative for execution.`
   };
 }

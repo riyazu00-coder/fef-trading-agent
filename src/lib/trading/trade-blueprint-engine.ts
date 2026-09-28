@@ -14,11 +14,17 @@ import { OHLCCandle } from '../market/canonical-market-snapshot';
 import { calculateATR } from '../market/canonical-market-snapshot';
 
 export type SetupLifecycleState =
+  | 'MONITORING'
+  | 'DEVELOPING'
+  | 'QUALIFIED'
+  | 'EXECUTION READY'
+  | 'INVALIDATED'
+  | 'UNFAVORABLE_RR'
+  | 'AWAITING_RETRACEMENT'
   | 'FORMING'
   | 'WATCH'
   | 'TRIGGER_READY'
   | 'ACTIONABLE'
-  | 'INVALIDATED'
   | 'EXPIRED'
   | 'DATA_LIMITED';
 
@@ -142,7 +148,22 @@ export function buildBuyBlueprint(
 
   const rrDistance = tp1Level.price - entryRef;
   const riskDistance = entryRef - slPrice;
-  const rr = riskDistance > 0 ? `1:${(rrDistance / riskDistance).toFixed(2)}` : null;
+  const rrValue = riskDistance > 0 ? (rrDistance / riskDistance) : 0;
+  const rr = riskDistance > 0 ? `1:${rrValue.toFixed(2)}` : null;
+
+  const isInsideEntryZone = currentPrice >= entryLow && currentPrice <= entryHigh;
+  const isApproaching = currentPrice > entryHigh && (currentPrice - entryHigh) <= (atr || entryHigh * 0.005);
+
+  let initialState: SetupLifecycleState = 'DEVELOPING';
+  if (rrValue < 1.5) {
+    initialState = 'UNFAVORABLE_RR';
+  } else if (isInsideEntryZone) {
+    initialState = 'EXECUTION READY';
+  } else if (isApproaching) {
+    initialState = 'QUALIFIED';
+  } else {
+    initialState = 'AWAITING_RETRACEMENT';
+  }
 
   const now = Date.now();
   return {
@@ -160,9 +181,9 @@ export function buildBuyBlueprint(
     tp3: tp3Level ? { price: tp3Level.price, reason: `Third structural extension target`, source: candleSource, timeframe: tp3Level.timeframe, structureType: tp3Level.type, candleTimestamp: tp3Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' } : undefined,
     rrRatio: rr,
     expiry: now + EXPIRY_MS,
-    state: 'WATCH',
+    state: initialState,
     blueprintProvenanceVerified: true,
-    provenanceNote: `All levels derived from ${candleSource} verified candles on ${entryTf}. Entry: ${entryType}. SL: Swing low + ATR buffer. TP1: Structural swing high.`,
+    provenanceNote: `All levels derived from ${candleSource} verified candles on ${entryTf}. Entry: ${entryType}. SL: Swing low + ATR buffer. TP1: Structural swing high. R:R=${rr || 'N/A'}.`,
   };
 }
 
@@ -227,7 +248,22 @@ export function buildSellBlueprint(
 
   const rrDistance = entryRef - tp1Level.price;
   const riskDistance = slPrice - entryRef;
-  const rr = riskDistance > 0 ? `1:${(rrDistance / riskDistance).toFixed(2)}` : null;
+  const rrValue = riskDistance > 0 ? (rrDistance / riskDistance) : 0;
+  const rr = riskDistance > 0 ? `1:${rrValue.toFixed(2)}` : null;
+
+  const isInsideEntryZone = currentPrice >= entryLow && currentPrice <= entryHigh;
+  const isApproaching = currentPrice < entryLow && (entryLow - currentPrice) <= (atr || entryLow * 0.005);
+
+  let initialState: SetupLifecycleState = 'DEVELOPING';
+  if (rrValue < 1.5) {
+    initialState = 'UNFAVORABLE_RR';
+  } else if (isInsideEntryZone) {
+    initialState = 'EXECUTION READY';
+  } else if (isApproaching) {
+    initialState = 'QUALIFIED';
+  } else {
+    initialState = 'AWAITING_RETRACEMENT';
+  }
 
   const now = Date.now();
   return {
@@ -245,9 +281,9 @@ export function buildSellBlueprint(
     tp3: tp3Level ? { price: tp3Level.price, reason: `Third structural extension target`, source: candleSource, timeframe: tp3Level.timeframe, structureType: tp3Level.type, candleTimestamp: tp3Level.candleTimestamp, classification: 'DERIVED_FROM_VERIFIED' } : undefined,
     rrRatio: rr,
     expiry: now + EXPIRY_MS,
-    state: 'WATCH',
+    state: initialState,
     blueprintProvenanceVerified: true,
-    provenanceNote: `All levels derived from ${candleSource} verified candles on ${entryTf}. Entry: ${entryType}. SL: Swing high + ATR buffer. TP1: Structural swing low.`,
+    provenanceNote: `All levels derived from ${candleSource} verified candles on ${entryTf}. Entry: ${entryType}. SL: Swing high + ATR buffer. TP1: Structural swing low. R:R=${rr || 'N/A'}.`,
   };
 }
 
@@ -259,24 +295,49 @@ export function updateBlueprintLifecycle(bp: TradeBlueprint, currentPrice: numbe
   const now = Date.now();
   let state = bp.state;
 
-  if (state === 'ACTIONABLE' || state === 'TRIGGER_READY' || state === 'WATCH' || state === 'FORMING') {
-    // Check expiry
-    if (now > bp.expiry) {
-      state = 'EXPIRED';
-    }
-    // Check invalidation: if price has closed beyond SL
-    else if (bp.direction === 'BUY' && currentPrice < bp.invalidation.price) {
-      state = 'INVALIDATED';
-    } else if (bp.direction === 'SELL' && currentPrice > bp.invalidation.price) {
-      state = 'INVALIDATED';
-    }
-    // Check if price enters entry zone
-    else if (bp.direction === 'BUY' && currentPrice >= bp.entryZoneLow.price && currentPrice <= bp.entryZoneHigh.price) {
-      state = 'TRIGGER_READY';
-    } else if (bp.direction === 'SELL' && currentPrice >= bp.entryZoneLow.price && currentPrice <= bp.entryZoneHigh.price) {
-      state = 'TRIGGER_READY';
+  // Terminal states remain terminal
+  if (state === 'INVALIDATED' || state === 'EXPIRED') {
+    return { ...bp, updatedAt: now };
+  }
+
+  // 1. Check expiry
+  if (now > bp.expiry) {
+    return { ...bp, state: 'EXPIRED', updatedAt: now };
+  }
+
+  // 2. Check invalidation: price breaching invalidation level or SL
+  if (bp.direction === 'BUY' && currentPrice < bp.invalidation.price) {
+    return { ...bp, state: 'INVALIDATED', updatedAt: now };
+  }
+  if (bp.direction === 'SELL' && currentPrice > bp.invalidation.price) {
+    return { ...bp, state: 'INVALIDATED', updatedAt: now };
+  }
+
+  // 3. Evaluate R:R ratio
+  const match = bp.rrRatio?.match(/1:([0-9.]+)/);
+  const rrVal = match ? parseFloat(match[1]) : 0;
+
+  if (rrVal < 1.5) {
+    state = 'UNFAVORABLE_RR';
+  } else {
+    const isInsideEntry = currentPrice >= bp.entryZoneLow.price && currentPrice <= bp.entryZoneHigh.price;
+    if (isInsideEntry) {
+      state = 'EXECUTION READY';
+    } else if (bp.direction === 'BUY') {
+      if (currentPrice > bp.entryZoneHigh.price) {
+        state = 'AWAITING_RETRACEMENT';
+      } else {
+        state = 'QUALIFIED';
+      }
+    } else { // SELL
+      if (currentPrice < bp.entryZoneLow.price) {
+        state = 'AWAITING_RETRACEMENT';
+      } else {
+        state = 'QUALIFIED';
+      }
     }
   }
 
   return { ...bp, state, updatedAt: now };
 }
+

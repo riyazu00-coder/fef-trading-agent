@@ -172,25 +172,37 @@ export class BrokerSymbolDirectory {
    * Resolve a broker symbol back to FEF canonical ticker
    */
   public toCanonicalSymbol(brokerSymbol: string): string {
-    if (this.brokerToCanonical.has(brokerSymbol)) {
-      return this.brokerToCanonical.get(brokerSymbol)!;
+    if (!brokerSymbol) return 'XAUUSD';
+    const trimmed = brokerSymbol.trim();
+    if (this.brokerToCanonical.has(trimmed)) {
+      return this.brokerToCanonical.get(trimmed)!;
     }
     // Check if broker symbol matches any alias list
     for (const [canonical, aliases] of Object.entries(CANONICAL_SYMBOL_MAPPINGS)) {
-      if (aliases.includes(brokerSymbol)) {
+      if (aliases.includes(trimmed)) {
         return canonical;
       }
     }
 
-    // Dynamic suffix stripping fallback (e.g., XAUUSDm, XAUUSD.a, XAUUSDc, XAUUSD.pro, XAUUSD.ecn, XAUUSD.raw, XAUUSD+)
-    const cleanSym = brokerSymbol
-      .replace(/(\.r|\.a|\.pro|\.ecn|\.raw|m|c|_i|\+|Cash)$/i, '')
+    // Dynamic prefix and suffix stripping fallback
+    // e.g. m_XAUUSD, i_EURUSD, XAUUSDm, XAUUSD.a, XAUUSDc, XAUUSD.pro, XAUUSD.ecn, XAUUSD.raw, XAUUSD+, XAUUSD.std, GOLD.pro
+    const cleanSym = trimmed
+      .replace(/^(m_|i_|c_|r_|ecn\.)/i, '')
+      .replace(/(\.r|\.a|\.pro|\.ecn|\.raw|\.std|m|c|_i|\+|Cash|\.micro|_sb)$/i, '')
       .replace('/', '');
+
     if (CANONICAL_SYMBOL_MAPPINGS[cleanSym]) {
       return cleanSym;
     }
 
-    return brokerSymbol;
+    // Check alias mapping against stripped symbol
+    for (const [canonical, aliases] of Object.entries(CANONICAL_SYMBOL_MAPPINGS)) {
+      if (aliases.includes(cleanSym)) {
+        return canonical;
+      }
+    }
+
+    return trimmed;
   }
 
   /**
@@ -220,3 +232,147 @@ export class BrokerSymbolDirectory {
 }
 
 export const symbolDirectory = new BrokerSymbolDirectory();
+
+/**
+ * Strips common broker prefixes, suffixes, and separators to expose core symbol root.
+ */
+export function stripBrokerSymbolAffixes(symbol: string): string {
+  if (!symbol) return '';
+  return symbol
+    .trim()
+    .replace(/^(m_|i_|c_|r_|ecn\.)/i, '')
+    .replace(/(\.r|\.a|\.pro|\.ecn|\.raw|\.std|m|c|_i|\+|Cash|\.micro|_sb)$/i, '')
+    .replace('/', '');
+}
+
+/**
+ * Resolves any broker symbol to its canonical FEF symbol name.
+ */
+export function resolveCanonicalSymbol(brokerSymbol: string): string {
+  return symbolDirectory.toCanonicalSymbol(brokerSymbol);
+}
+
+export interface OrderSpecValidationResult {
+  valid: boolean;
+  normalizedVolume: number;
+  normalizedSl?: number;
+  normalizedTp?: number;
+  errors: string[];
+  warnings: string[];
+  specUsed: boolean;
+  specDetails?: {
+    minLot: number;
+    maxLot: number;
+    lotStep: number;
+    stopsLevelPoints: number;
+    digits: number;
+    tradeMode: string;
+  };
+}
+
+/**
+ * Validates and normalizes an order volume, SL, and TP against authoritative MT5 broker contract specifications.
+ * Enforces:
+ * 1. Volume within [minLot, maxLot] and multiple of lotStep.
+ * 2. StopsLevel compliance: SL and TP distance >= stopsLevel in points.
+ * 3. Trade mode: not DISABLED.
+ * 4. Price formatting to broker digits.
+ */
+export function validateOrderAgainstSpec(params: {
+  symbol: string;
+  volume: number;
+  sl?: number;
+  tp?: number;
+  entryPrice?: number;
+  orderType?: string;
+  spec?: MT5SymbolSpecification | null;
+}): OrderSpecValidationResult {
+  const { symbol, volume, sl, tp, entryPrice, orderType, spec } = params;
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  const effectiveSpec = spec || symbolDirectory.getSpec(symbol);
+
+  if (!effectiveSpec) {
+    // Spec unavailable: enforce standard prudent defaults
+    warnings.push(`Contract specification unavailable for ${symbol}. Using standard fallback boundaries.`);
+    const fallbackVol = Math.max(0.01, Math.min(100, Number(volume.toFixed(2))));
+    return {
+      valid: volume > 0 && volume <= 100,
+      normalizedVolume: fallbackVol,
+      normalizedSl: sl ? Number(sl.toFixed(5)) : undefined,
+      normalizedTp: tp ? Number(tp.toFixed(5)) : undefined,
+      errors: volume <= 0 ? ['Volume must be greater than 0'] : [],
+      warnings,
+      specUsed: false,
+    };
+  }
+
+  // 1. Trade mode check
+  if (effectiveSpec.tradeMode === 'DISABLED') {
+    errors.push(`Trading is DISABLED by broker for symbol ${effectiveSpec.brokerSymbol || symbol}.`);
+  }
+
+  // 2. Volume bounds check
+  const minLot = effectiveSpec.minLot || 0.01;
+  const maxLot = effectiveSpec.maxLot || 100;
+  const lotStep = effectiveSpec.lotStep || 0.01;
+
+  let normVol = volume;
+  if (volume < minLot) {
+    errors.push(`Requested volume (${volume}) is below broker minimum lot size (${minLot}).`);
+  } else if (volume > maxLot) {
+    errors.push(`Requested volume (${volume}) exceeds broker maximum lot size (${maxLot}).`);
+  } else {
+    // Check lot step alignment
+    const steps = Math.round((volume - minLot) / lotStep);
+    const alignedVol = Number((minLot + steps * lotStep).toFixed(4));
+    if (Math.abs(alignedVol - volume) > 0.0001) {
+      warnings.push(`Volume adjusted from ${volume} to ${alignedVol} to match broker lot step (${lotStep}).`);
+      normVol = alignedVol;
+    }
+  }
+
+  // 3. Price formatting and stopsLevel check
+  const digits = effectiveSpec.digits ?? 2;
+  const point = effectiveSpec.point || Math.pow(10, -digits);
+  const stopsLevelPoints = effectiveSpec.stopsLevel || 0;
+  const minStopDistance = stopsLevelPoints * point;
+
+  let normSl: number | undefined = sl != null ? Number(sl.toFixed(digits)) : undefined;
+  let normTp: number | undefined = tp != null ? Number(tp.toFixed(digits)) : undefined;
+
+  if (entryPrice && entryPrice > 0 && minStopDistance > 0) {
+    if (normSl != null) {
+      const slDist = Math.abs(entryPrice - normSl);
+      if (slDist < minStopDistance) {
+        errors.push(`Stop Loss distance (${slDist.toFixed(digits)}) is less than broker stops level minimum (${minStopDistance.toFixed(digits)} / ${stopsLevelPoints} pts).`);
+      }
+    }
+    if (normTp != null) {
+      const tpDist = Math.abs(normTp - entryPrice);
+      if (tpDist < minStopDistance) {
+        errors.push(`Take Profit distance (${tpDist.toFixed(digits)}) is less than broker stops level minimum (${minStopDistance.toFixed(digits)} / ${stopsLevelPoints} pts).`);
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    normalizedVolume: normVol,
+    normalizedSl: normSl,
+    normalizedTp: normTp,
+    errors,
+    warnings,
+    specUsed: true,
+    specDetails: {
+      minLot,
+      maxLot,
+      lotStep,
+      stopsLevelPoints,
+      digits,
+      tradeMode: effectiveSpec.tradeMode,
+    },
+  };
+}
+

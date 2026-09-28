@@ -50,6 +50,7 @@ export function computeOrderFlowMetrics(
     timeframe,
     timestamp: new Date().toISOString(),
     flowType: isExchangeVolume ? 'EXCHANGE_ORDER_BOOK' : 'BROKER_FLOW_PROXY',
+    flowProvenance: isExchangeVolume ? 'TRUE_FOOTPRINT' : 'FLOW_PROXY',
     buyerSellerDelta: normalizedDelta,
     tickVelocity: avgVelocity,
     isExchangeVolume,
