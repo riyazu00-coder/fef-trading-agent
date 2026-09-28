@@ -16,6 +16,7 @@ import { evaluateRadarTransitions } from '../lib/radar/radar-notifications';
 import { validateCandleSeries } from '../lib/candles/candle-validator';
 import { OHLCCandle } from '../lib/market/canonical-market-snapshot';
 import { EvidenceClassification } from '../lib/evidence/agent-evidence';
+import { LiveIntelligenceFeeds } from '../lib/intelligence/feed-types';
 
 export type CandleLoadingState = 'LOADING' | 'VERIFIED' | 'STALE' | 'UNAVAILABLE' | 'ERROR';
 
@@ -38,6 +39,7 @@ interface ActiveAssetContextType {
   candleCount: number;
   candleProvenance?: EvidenceClassification;
   candleProvider?: string;
+  liveFeeds?: LiveIntelligenceFeeds;
 }
 
 const ActiveAssetContext = createContext<ActiveAssetContextType | null>(null);
@@ -57,6 +59,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [candleProvider, setCandleProvider] = useState<string | undefined>(undefined);
   const [candleState, setCandleState] = useState<CandleLoadingState>('LOADING');
   const [candleCount, setCandleCount] = useState<number>(0);
+  const [liveFeeds, setLiveFeeds] = useState<LiveIntelligenceFeeds | undefined>(undefined);
 
   // Global cache across evaluated assets for multi-asset radar intelligence
   const multiAssetCandleCacheRef = useRef<Record<string, {
@@ -299,6 +302,31 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
     };
   }, [activeSymbol, timeframe, fetchCandles]);
 
+  // Intelligence feeds polling (News, Macro, Calendar, Geopolitical, Sentiment)
+  useEffect(() => {
+    let isMounted = true;
+    const fetchFeeds = async () => {
+      try {
+        const res = await fetch('/api/intelligence/feeds');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && isMounted) {
+            setLiveFeeds(json);
+          }
+        }
+      } catch (err) {
+        // Silently retain current feeds on network hiccups
+      }
+    };
+
+    fetchFeeds();
+    const feedTimer = setInterval(fetchFeeds, 20000);
+    return () => {
+      isMounted = false;
+      clearInterval(feedTimer);
+    };
+  }, []);
+
   // Pre-fetch candle bundles for priority radar assets to prevent multi-asset starvation
   useEffect(() => {
     const prioritySymbols = ['XAUUSD', 'EURUSD', 'BTCUSD', 'US100', 'USOIL', 'GBPUSD'];
@@ -379,7 +407,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
     };
   }, [allAssets, activeSymbol]);
 
-  // Full dynamic multi-agent intelligence recomputed for active symbol & timeframe with verified candles
+  // Full dynamic multi-agent intelligence recomputed for active symbol & timeframe with verified candles and hydrated feeds
   const assetProfile = useMemo(() => {
     return generateAssetIntelligence(
       activeSymbol,
@@ -387,9 +415,11 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
       timeframe,
       candleBundle || candles,
       candleProvenance,
-      candleProvider
+      candleProvider,
+      undefined,
+      liveFeeds
     );
-  }, [activeSymbol, activeAsset, timeframe, candles, candleBundle, candleProvenance, candleProvider]);
+  }, [activeSymbol, activeAsset, timeframe, candles, candleBundle, candleProvenance, candleProvider, liveFeeds]);
 
   const setActiveSymbol = useCallback((sym: string) => {
     const canonical = getMarketDefinition(sym);
@@ -421,7 +451,8 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
       candleState,
       candleCount,
       candleProvenance,
-      candleProvider
+      candleProvider,
+      liveFeeds
     }),
     [
       activeSymbol,
@@ -441,7 +472,8 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
       candleState,
       candleCount,
       candleProvenance,
-      candleProvider
+      candleProvider,
+      liveFeeds
     ]
   );
 

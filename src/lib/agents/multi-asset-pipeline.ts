@@ -41,6 +41,7 @@ import { economicCalendarEngine } from '../calendar/economic-calendar-engine';
 import { globalMacroEngine } from '../macro/global-macro-engine';
 import { geopoliticalEngine } from '../geopolitical/geopolitical-engine';
 import { marketSentimentEngine } from '../sentiment/market-sentiment-engine';
+import { LiveIntelligenceFeeds } from '../intelligence/feed-types';
 
 export type DirectionalBias = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 export type DecisionPosture = 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)' | 'ANALYSIS ONLY' | 'DATA LIMITED';
@@ -150,7 +151,8 @@ export function generateAssetIntelligence(
   verifiedCandles?: OHLCCandle[] | CandleBundle,
   candleProvenance?: EvidenceClassification,
   candleProvider?: string,
-  evaluationTime?: Date
+  evaluationTime?: Date,
+  feeds?: LiveIntelligenceFeeds
 ): AssetIntelligenceProfile {
   const normSymbol = (symbol || 'XAUUSD').toUpperCase();
   const normTf = (timeframe || 'H1').toUpperCase();
@@ -313,11 +315,20 @@ export function generateAssetIntelligence(
     : null;
 
   // 3c. Synchronous Retrieval of Cached Live Feeds
-  const cachedNews = globalNewsEngine.getCachedNews([normSymbol], 5);
-  const cachedMacro = globalMacroEngine.getCachedIndicators();
-  const cachedEvents = economicCalendarEngine.getCachedUpcomingEvents(24);
-  const cachedAlerts = geopoliticalEngine.getCachedAlerts().filter(a => a.affectedCommodities.includes(normSymbol) || a.region === 'GLOBAL');
-  const cachedSentiment = marketSentimentEngine.getCachedSentiment(normSymbol);
+  const cachedNews = (feeds?.news && feeds.news.length > 0)
+    ? feeds.news.filter(n => !n.symbols || n.symbols.length === 0 || n.symbols.includes(normSymbol) || n.symbols.includes('GLOBAL')).slice(0, 5)
+    : globalNewsEngine.getCachedNews([normSymbol], 5);
+  const cachedMacro = (feeds?.macro && feeds.macro.length > 0)
+    ? feeds.macro
+    : globalMacroEngine.getCachedIndicators();
+  const cachedEvents = (feeds?.events && feeds.events.length > 0)
+    ? feeds.events
+    : economicCalendarEngine.getCachedUpcomingEvents(24);
+  const cachedAlerts = (feeds?.alerts && feeds.alerts.length > 0 ? feeds.alerts : geopoliticalEngine.getCachedAlerts())
+    .filter(a => a.affectedCommodities.includes(normSymbol) || a.region === 'GLOBAL');
+  const cachedSentiment = (feeds?.sentiment && feeds.sentiment[normSymbol] !== undefined)
+    ? feeds.sentiment[normSymbol]
+    : marketSentimentEngine.getCachedSentiment(normSymbol);
 
   // 4. Assemble the Canonical 15 Agents deterministically
   const assembledAgents: AgentState[] = getBaseAgentRegistry(normSymbol).map((base) => {

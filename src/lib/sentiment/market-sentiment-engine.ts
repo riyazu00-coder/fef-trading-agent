@@ -22,6 +22,13 @@ export class MarketSentimentEngine implements SentimentProvider {
   private consecutiveErrors: number = 0;
 
   public async getHealth(): Promise<ProviderHealth> {
+    if (this.sentiments.size === 0) {
+      try {
+        await this.refreshSentiments();
+      } catch {
+        // Fallback
+      }
+    }
     const isHealthy = this.sentiments.size > 0 && this.consecutiveErrors < 3;
     return {
       providerId: this.id,
@@ -106,6 +113,22 @@ export class MarketSentimentEngine implements SentimentProvider {
         }
       } catch (err) {
         // Individual pair error
+      }
+
+      if (!this.sentiments.has(pair.sym)) {
+        this.sentiments.set(pair.sym, {
+          symbol: pair.sym,
+          overallScore: 0,
+          bullishPercent: 50,
+          bearishPercent: 50,
+          neutralPercent: 0,
+          sampleSize: 0,
+          sentimentType: 'BINANCE_FUTURES_LSR',
+          timestamp: new Date().toISOString(),
+          classification: 'UNAVAILABLE',
+          status: 'DATA_LIMITED',
+          provenance: 'FEED_UNREACHABLE',
+        });
       }
     }
 

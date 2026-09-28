@@ -22,6 +22,13 @@ export class GeopoliticalEngine implements GeopoliticalProvider {
   private readonly cacheTtlMs = 120_000; // 2 min cache
 
   public async getHealth(): Promise<ProviderHealth> {
+    if (this.alerts.length === 0) {
+      try {
+        await this.refreshAlerts();
+      } catch {
+        // Fallback
+      }
+    }
     const newsHealth = await globalNewsEngine.getHealth();
     return {
       providerId: this.id,

@@ -31,6 +31,13 @@ export class GlobalNewsEngine implements NewsProvider {
   private lastErrorMsg: string | null = null;
 
   public async getHealth(): Promise<ProviderHealth> {
+    if (this.cachedNews.length === 0) {
+      try {
+        await this.refreshNews();
+      } catch {
+        // Fallback
+      }
+    }
     const isHealthy = this.cachedNews.length > 0 && this.consecutiveErrors < 3;
     return {
       providerId: this.id,

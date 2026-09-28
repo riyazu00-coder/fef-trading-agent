@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { providerRegistry } from '@/lib/providers/provider-registry';
+import { ensureProvidersRegistered } from '@/lib/providers/init-providers';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    ensureProvidersRegistered();
     const health = await providerRegistry.getAllProviderHealth();
     return NextResponse.json({
       timestamp: new Date().toISOString(),

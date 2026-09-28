@@ -65,6 +65,13 @@ export class GlobalMacroEngine implements MacroProvider {
   ];
 
   public async getHealth(): Promise<ProviderHealth> {
+    if (this.indicators.length === 0) {
+      try {
+        await this.refreshIndicators();
+      } catch {
+        // Fallback
+      }
+    }
     const isHealthy = this.indicators.length > 0 && this.consecutiveErrors < 3;
     return {
       providerId: this.id,

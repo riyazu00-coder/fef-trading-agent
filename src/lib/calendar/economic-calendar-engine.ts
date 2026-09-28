@@ -31,6 +31,13 @@ export class EconomicCalendarEngine implements CalendarProvider {
   private consecutiveErrors: number = 0;
 
   public async getHealth(): Promise<ProviderHealth> {
+    if (this.events.length === 0) {
+      try {
+        await this.refreshCalendar();
+      } catch {
+        // Fallback
+      }
+    }
     const isHealthy = this.events.length > 0 && this.consecutiveErrors < 3;
     return {
       providerId: this.id,
