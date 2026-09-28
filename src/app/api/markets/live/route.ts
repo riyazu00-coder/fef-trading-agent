@@ -84,15 +84,19 @@ export async function GET(req: Request) {
   const assets = buildBaselineAssets();
   const timeStr = new Date().toTimeString().split(' ')[0];
 
-  // 1. Fetch Real Gold and Silver Spot
+  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+  // 1. Fetch Real Gold and Silver Spot (User-Agent required for Gold-API to resolve)
   try {
     const [goldRes, silverRes] = await Promise.allSettled([
-      fetch('https://api.gold-api.com/price/XAU', { next: { revalidate: 4 } }).then((r) =>
-        r.ok ? r.json() : null
-      ),
-      fetch('https://api.gold-api.com/price/XAG', { next: { revalidate: 4 } }).then((r) =>
-        r.ok ? r.json() : null
-      )
+      fetch('https://api.gold-api.com/price/XAU', {
+        next: { revalidate: 4 },
+        headers: { 'User-Agent': UA }
+      }).then((r) => r.ok ? r.json() : null),
+      fetch('https://api.gold-api.com/price/XAG', {
+        next: { revalidate: 4 },
+        headers: { 'User-Agent': UA }
+      }).then((r) => r.ok ? r.json() : null)
     ]);
 
     if (goldRes.status === 'fulfilled' && goldRes.value && typeof goldRes.value.price === 'number') {
@@ -219,6 +223,82 @@ export async function GET(req: Request) {
   } catch (e: any) {
     // Graceful offline fallback
   }
+
+  // 4. Fetch Live Indices & Commodities from Yahoo Finance
+  const yahooSymbols: Array<{ sym: string; ticker: string; decimals: number; spread: number }> = [
+    { sym: 'US100',  ticker: 'NQ=F',  decimals: 2, spread: 3.0  },
+    { sym: 'US30',   ticker: 'YM=F',  decimals: 2, spread: 5.0  },
+    { sym: 'US500',  ticker: 'ES=F',  decimals: 2, spread: 0.5  },
+    { sym: 'USOIL',  ticker: 'CL=F',  decimals: 2, spread: 0.03 },
+    { sym: 'UKOIL',  ticker: 'BZ=F',  decimals: 2, spread: 0.04 },
+    { sym: 'NATGAS', ticker: 'NG=F',  decimals: 3, spread: 0.005 },
+    // Gold via Yahoo as primary fallback if Gold-API failed
+    { sym: 'XAUUSD_YF', ticker: 'GC=F', decimals: 2, spread: 0.18 }
+  ];
+
+  try {
+    const yTickers = yahooSymbols.map(s => s.ticker).join(',');
+    const yRes = await fetch(
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yTickers)}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketDayHigh,regularMarketDayLow`,
+      { next: { revalidate: 15 }, headers: { 'User-Agent': UA } }
+    );
+    if (yRes.ok) {
+      const yJson = await yRes.json();
+      const quotes: any[] = yJson?.quoteResponse?.result || [];
+      for (const q of quotes) {
+        const p: number = q.regularMarketPrice;
+        if (!p || p <= 0) continue;
+        const chg: number = q.regularMarketChangePercent || 0;
+        const high: number = q.regularMarketDayHigh || p * 1.005;
+        const low: number  = q.regularMarketDayLow  || p * 0.995;
+
+        const entry = yahooSymbols.find(s => s.ticker === q.symbol);
+        if (!entry) continue;
+
+        // Gold fallback — only patch if Gold-API didn't already set a LIVE price
+        if (entry.sym === 'XAUUSD_YF') {
+          if (assets.XAUUSD?.feedStatus !== 'LIVE') {
+            assets.XAUUSD = {
+              ...assets.XAUUSD,
+              price: p,
+              bid:  Number((p - entry.spread / 2).toFixed(entry.decimals)),
+              ask:  Number((p + entry.spread / 2).toFixed(entry.decimals)),
+              change24h: Number(chg.toFixed(2)),
+              high24h: Number(high.toFixed(entry.decimals)),
+              low24h:  Number(low.toFixed(entry.decimals)),
+              source: 'Yahoo Finance GC=F (Fallback)',
+              provider: 'Yahoo Finance',
+              classification: 'LIVE',
+              feedStatus: 'LIVE',
+              priceType: 'LAST',
+              lastUpdated: timeStr
+            };
+          }
+          continue;
+        }
+
+        if (!assets[entry.sym]) continue;
+        assets[entry.sym] = {
+          ...assets[entry.sym],
+          price: p,
+          bid:  Number((p - entry.spread / 2).toFixed(entry.decimals)),
+          ask:  Number((p + entry.spread / 2).toFixed(entry.decimals)),
+          change24h: Number(chg.toFixed(2)),
+          high24h: Number(high.toFixed(entry.decimals)),
+          low24h:  Number(low.toFixed(entry.decimals)),
+          source: `Yahoo Finance ${q.symbol}`,
+          provider: 'Yahoo Finance',
+          classification: 'LIVE',
+          feedStatus: 'LIVE',
+          priceType: 'LAST',
+          lastUpdated: timeStr
+        };
+      }
+    }
+  } catch (e: any) {
+    // Yahoo Finance offline — assets stay at registry basePrice for indices
+  }
+
 
   if (!isProbe) {
     cachedData = {

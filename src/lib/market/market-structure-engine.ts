@@ -103,19 +103,51 @@ function detectSwings(candles: OHLCCandle[], timeframe: string, source: MarketSt
  * Determine trend direction from most recent swing highs and lows.
  * Bullish = HH + HL sequence. Bearish = LH + LL sequence.
  */
-function classifyTrend(highs: StructureLevel[], lows: StructureLevel[]): 'BULLISH' | 'BEARISH' | 'RANGING' | 'INSUFFICIENT_DATA' {
-  if (highs.length < 2 || lows.length < 2) return 'INSUFFICIENT_DATA';
-  const recentHighs = highs.slice(-3);
-  const recentLows = lows.slice(-3);
+function classifyTrend(highs: StructureLevel[], lows: StructureLevel[], candles?: OHLCCandle[]): 'BULLISH' | 'BEARISH' | 'RANGING' | 'INSUFFICIENT_DATA' {
+  if (highs.length >= 2 && lows.length >= 2) {
+    const recentHighs = highs.slice(-3);
+    const recentLows = lows.slice(-3);
 
-  const hhCount = recentHighs.filter((h, i) => i > 0 && h.price > recentHighs[i - 1].price).length;
-  const hlCount = recentLows.filter((l, i) => i > 0 && l.price > recentLows[i - 1].price).length;
-  const lhCount = recentHighs.filter((h, i) => i > 0 && h.price < recentHighs[i - 1].price).length;
-  const llCount = recentLows.filter((l, i) => i > 0 && l.price < recentLows[i - 1].price).length;
+    const hhCount = recentHighs.filter((h, i) => i > 0 && h.price > recentHighs[i - 1].price).length;
+    const hlCount = recentLows.filter((l, i) => i > 0 && l.price > recentLows[i - 1].price).length;
+    const lhCount = recentHighs.filter((h, i) => i > 0 && h.price < recentHighs[i - 1].price).length;
+    const llCount = recentLows.filter((l, i) => i > 0 && l.price < recentLows[i - 1].price).length;
 
-  if (hhCount >= 1 && hlCount >= 1) return 'BULLISH';
-  if (lhCount >= 1 && llCount >= 1) return 'BEARISH';
-  return 'RANGING';
+    if (hhCount >= 1 && hlCount >= 1) return 'BULLISH';
+    if (lhCount >= 1 && llCount >= 1) return 'BEARISH';
+    return 'RANGING';
+  }
+
+  // Handle unidirectional expansion cascade where swings on one side haven't formed yet
+  if (highs.length >= 2 && lows.length < 2) {
+    const recentHighs = highs.slice(-3);
+    const hhCount = recentHighs.filter((h, i) => i > 0 && h.price > recentHighs[i - 1].price).length;
+    const lhCount = recentHighs.filter((h, i) => i > 0 && h.price < recentHighs[i - 1].price).length;
+    if (hhCount >= 1 && lhCount === 0) return 'BULLISH';
+    if (lhCount >= 1 && hhCount === 0) return 'BEARISH';
+  }
+
+  if (lows.length >= 2 && highs.length < 2) {
+    const recentLows = lows.slice(-3);
+    const llCount = recentLows.filter((l, i) => i > 0 && l.price < recentLows[i - 1].price).length;
+    const hlCount = recentLows.filter((l, i) => i > 0 && l.price > recentLows[i - 1].price).length;
+    if (llCount >= 1 && hlCount === 0) return 'BEARISH';
+    if (hlCount >= 1 && llCount === 0) return 'BULLISH';
+  }
+
+  // Fallback to candle momentum slope if at least 10 candles are available
+  if (candles && candles.length >= 10) {
+    const recent = candles.slice(-5);
+    const netChange = recent[recent.length - 1].close - recent[0].open;
+    const range = Math.max(...recent.map(c => c.high)) - Math.min(...recent.map(c => c.low));
+    if (range > 0) {
+      if (netChange / range > 0.45) return 'BULLISH';
+      if (netChange / range < -0.45) return 'BEARISH';
+      return 'RANGING';
+    }
+  }
+
+  return 'INSUFFICIENT_DATA';
 }
 
 /**
@@ -180,7 +212,13 @@ function detectFVGs(candles: OHLCCandle[], timeframe: string, source: MarketStru
 
     // Bullish FVG: gap between prev.high and next.low
     if (next.low > prev.high) {
-      const isFilled = lastClose < next.low || lastClose > prev.high + (next.low - prev.high);
+      let isFilled = false;
+      for (let k = i + 3; k < candles.length; k++) {
+        if (candles[k].close < prev.high) {
+          isFilled = true;
+          break;
+        }
+      }
       if (!isFilled) {
         fvgs.push({
           type: 'BULLISH_FVG',
@@ -198,7 +236,13 @@ function detectFVGs(candles: OHLCCandle[], timeframe: string, source: MarketStru
 
     // Bearish FVG: gap between prev.low and next.high
     if (next.high < prev.low) {
-      const isFilled = lastClose > next.high || lastClose < prev.low - (prev.low - next.high);
+      let isFilled = false;
+      for (let k = i + 3; k < candles.length; k++) {
+        if (candles[k].close > prev.low) {
+          isFilled = true;
+          break;
+        }
+      }
       if (!isFilled) {
         fvgs.push({
           type: 'BEARISH_FVG',
@@ -328,8 +372,44 @@ export function analyzeMarketStructure(
     };
   }
 
-  const { highs: swingHighs, lows: swingLows } = detectSwings(candles, timeframe, source);
-  const trend = classifyTrend(swingHighs, swingLows);
+  const { highs: detectedHighs, lows: detectedLows } = detectSwings(candles, timeframe, source);
+  const swingHighs = [...detectedHighs];
+  const swingLows = [...detectedLows];
+
+  // If fractal lookback didn't find swings due to monotonic trend or narrow window, anchor on absolute extrema
+  if (swingHighs.length === 0 && candles.length >= 10) {
+    let maxIdx = 0;
+    for (let i = 1; i < candles.length; i++) {
+      if (candles[i].high > candles[maxIdx].high) maxIdx = i;
+    }
+    swingHighs.push({
+      price: candles[maxIdx].high,
+      type: 'SWING_HIGH',
+      timeframe,
+      candleTimestamp: candles[maxIdx].timestamp,
+      candleIndex: maxIdx,
+      source,
+      classification: 'DERIVED_FROM_VERIFIED'
+    });
+  }
+
+  if (swingLows.length === 0 && candles.length >= 10) {
+    let minIdx = 0;
+    for (let i = 1; i < candles.length; i++) {
+      if (candles[i].low < candles[minIdx].low) minIdx = i;
+    }
+    swingLows.push({
+      price: candles[minIdx].low,
+      type: 'SWING_LOW',
+      timeframe,
+      candleTimestamp: candles[minIdx].timestamp,
+      candleIndex: minIdx,
+      source,
+      classification: 'DERIVED_FROM_VERIFIED'
+    });
+  }
+
+  const trend = classifyTrend(swingHighs, swingLows, candles);
   const bos = detectBOS(candles, swingHighs, swingLows, timeframe, source);
   const choch = detectCHOCH(candles, swingHighs, swingLows, trend, timeframe, source);
   const fvg = detectFVGs(candles, timeframe, source);

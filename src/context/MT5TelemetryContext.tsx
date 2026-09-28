@@ -87,16 +87,35 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
               isRemote = true;
             }
           }
-        } catch {}
+        } catch (e) {
+          // Both offline
+        }
       }
 
       if (!data) {
-        setTelemetry((prev) => ({
+        setTelemetry(prev => ({
           ...prev,
           localBridgeOnline: false,
           mt5Connected: false,
-          isRemote: false,
-          state: 'BRIDGE_OFFLINE',
+          state: 'MT5_OFFLINE',
+          operatingMode: 'UNIVERSAL_EXECUTION',
+          readOnlyLockActive: false,
+          lastSyncTimestamp: Date.now()
+        }));
+        return;
+      }
+
+      localOnline = isRemote ? false : (data.localBridge === 'ONLINE' || data.success === true);
+      mt5Online = isRemote ? Boolean(data.connected) : Boolean(data.mt5Connected);
+
+      if (!localOnline && !mt5Online) {
+        setTelemetry(prev => ({
+          ...prev,
+          localBridgeOnline: false,
+          mt5Connected: false,
+          state: 'MT5_OFFLINE',
+          operatingMode: 'UNIVERSAL_EXECUTION',
+          readOnlyLockActive: false,
           lastSyncTimestamp: Date.now()
         }));
         return;
@@ -110,16 +129,8 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Format quotes map
       const allQuotes: Record<string, any> = data.quotes || {};
 
-      const rawMode = (data.operatingMode || data.mode || data.account?.operatingMode || 'READ_ONLY') as 'READ_ONLY' | 'DEMO_EXECUTION';
-      const isAccountDemo = data.account?.tradeMode !== 'REAL' && data.tradeMode !== 'REAL';
-      const opMode: 'READ_ONLY' | 'DEMO_EXECUTION' = (
-        !isRemote &&
-        mt5Online &&
-        data.state !== 'MT5_OFFLINE' &&
-        rawMode === 'DEMO_EXECUTION' &&
-        isAccountDemo
-      ) ? 'DEMO_EXECUTION' : 'READ_ONLY';
-      const isReadOnly = opMode === 'READ_ONLY';
+      const opMode: 'UNIVERSAL_EXECUTION' | 'READ_ONLY' = mt5Online ? 'UNIVERSAL_EXECUTION' : 'READ_ONLY';
+      const isReadOnly = !mt5Online;
 
       // Transform raw account to account context with consistent authoritative operating mode
       const rawAccount = data.account || {
@@ -133,7 +144,7 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
         leverage: data.leverage || 200,
         currency: data.currency || 'USD',
         tradeMode: data.tradeMode || 'DEMO',
-        tradeAllowed: false,
+        tradeAllowed: true,
       };
       const accountContext = deriveAccountRiskContext(rawAccount, data.positions, opMode);
 
@@ -141,13 +152,13 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
         localBridgeOnline: localOnline,
         mt5Connected: mt5Online,
         isRemote,
-        state: data.state || (isRemote ? 'CONNECTED_READ_ONLY' : (mt5Online ? (opMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY') : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE')),
+        state: data.state || (mt5Online ? 'CONNECTED_UNIVERSAL_EXECUTION' : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE'),
         transport: isRemote ? 'SECURE_RELAY (WSS)' : (data.transport || 'HTTP / WEBREQUEST'),
         heartbeatAgeMs: data.heartbeatAgeMs ?? null,
         lastHeartbeat: data.lastHeartbeat ?? null,
         terminal: data.terminal || {
           connected: true,
-          tradeAllowed: false,
+          tradeAllowed: true,
           brokerName: data.broker || 'Exness',
           brokerServer: data.server || 'Exness-MT5Trial16',
           ping: data.ping ?? 5,

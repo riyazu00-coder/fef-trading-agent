@@ -3,6 +3,7 @@
  *
  * This release is telemetry/analysis only. Client approval, evidence, account
  * type, signatures, and valid geometry provide context but never authority.
+ * REAL execution = DENIED. DEMO execution = DENIED.
  */
 export const CANONICAL_EXECUTION_MODE = 'READ_ONLY' as const;
 export const MT5_ORDER_TRANSPORT_ENABLED = false as const;

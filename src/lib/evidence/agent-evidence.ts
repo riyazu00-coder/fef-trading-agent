@@ -120,18 +120,12 @@ export function isEvidenceDecisionEligible(
       return { eligible: true, verified: true, reason: 'Mathematically derived from verified price/OHLC' };
     }
 
-    case 'INDEPENDENT_REFERENCE': {
-      const maxAge = FRESHNESS_POLICIES.INDEPENDENT_REFERENCE;
-      if (freshnessMs > maxAge) {
-        return {
-          eligible: false,
-          verified: false,
-          reason: `Stale reference proxy: ${Math.round(freshnessMs / 1000)}s`
-        };
-      }
-      // Reference/proxy market feed: verified for market intelligence, strictly non-executable
-      return { eligible: false, verified: true, reason: 'Verified market reference / proxy (non-executable)' };
-    }
+    case 'INDEPENDENT_REFERENCE':
+      return {
+        eligible: false,
+        verified: false,
+        reason: 'Reference proxy feed contributes analytical context only, not verified execution evidence'
+      };
 
     case 'DELAYED_EXTERNAL':
     case 'CACHED': {
@@ -188,12 +182,13 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
   evidences.forEach((ev) => {
     totalWeight += 1;
 
-    switch (ev.classification) {
+    switch (ev.classification as string) {
       case 'LIVE_MT5':
         earnedScore += 1.0;
         verifiedCount += 1;
         break;
       case 'INDEPENDENT_VERIFIED':
+      case 'INDEPENDENT_VERIFIED_OHLC':
       case 'LIVE_EXTERNAL':
         earnedScore += 0.95;
         verifiedCount += 1;
@@ -204,6 +199,7 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
         verifiedCount += 1;
         break;
       case 'INDEPENDENT_REFERENCE':
+      case 'INDEPENDENT_REFERENCE_OHLC':
         earnedScore += 0.80;
         verifiedCount += 1;
         break;
@@ -236,9 +232,9 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
   let badge: ProvenanceBadgeType = 'UNAVAILABLE';
   if (evidences.some((e) => e.classification === 'LIVE_MT5')) {
     badge = 'MT5';
-  } else if (evidences.some((e) => e.classification === 'INDEPENDENT_VERIFIED' || e.classification === 'LIVE_EXTERNAL')) {
+  } else if (evidences.some((e) => (e.classification as string).startsWith('INDEPENDENT_VERIFIED') || e.classification === 'LIVE_EXTERNAL')) {
     badge = 'INDEPENDENT';
-  } else if (evidences.some((e) => e.classification === 'INDEPENDENT_REFERENCE')) {
+  } else if (evidences.some((e) => (e.classification as string).startsWith('INDEPENDENT_REFERENCE'))) {
     badge = 'REFERENCE';
   } else if (evidences.some((e) => e.classification === 'DERIVED_FROM_VERIFIED' || e.classification === 'DERIVED')) {
     badge = 'DERIVED';

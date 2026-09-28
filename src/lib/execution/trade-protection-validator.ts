@@ -63,8 +63,8 @@ export interface TradeProtectionInput {
 
 export interface NormalizedProtectionLevels {
   entry: number;
-  sl: number;
-  tp1: number;
+  sl?: number;
+  tp1?: number;
   tp2?: number;
   tp3?: number;
   slDistance: number;
@@ -79,7 +79,7 @@ export interface NormalizedProtectionLevels {
 export interface TradeProtectionResult {
   valid: boolean;
   state: TradeProtectionState;
-  statusLabel: 'PROTECTED ORDER' | 'PROTECTION INVALID / EXECUTION LOCKED';
+  statusLabel: 'PROTECTED ORDER' | 'ORDER READY' | 'PROTECTION INVALID / EXECUTION LOCKED';
   reasons: string[];
   normalized?: NormalizedProtectionLevels;
   minStopDistance?: number;
@@ -152,9 +152,10 @@ export function validateTradeProtection(input: TradeProtectionInput): TradeProte
       valid: false,
       state: 'MISSING_SL',
       statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-      reasons: ['Stop Loss (SL) is mandatory under institutional protection policy and must be a positive number.']
+      reasons: ['Stop Loss (SL) is mandatory. Set your SL level on the cone before dispatching.']
     };
   }
+  const hasSL = true;
 
   // 4. Mandatory Take Profit 1 Check
   if (typeof tp1 !== 'number' || isNaN(tp1) || !isFinite(tp1) || tp1 <= 0) {
@@ -162,33 +163,25 @@ export function validateTradeProtection(input: TradeProtectionInput): TradeProte
       valid: false,
       state: 'MISSING_TP1',
       statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-      reasons: ['Take Profit 1 (TP1) is mandatory under institutional protection policy and must be a positive number.']
+      reasons: ['Take Profit (TP) is mandatory. Set your TP level on the cone before dispatching.']
     };
   }
+  const hasTP1 = true;
 
-  // 5. Zero-Distance Check
-  const slDistance = Math.abs(entry - sl);
-  const tp1Distance = Math.abs(tp1 - entry);
-  if (slDistance === 0) {
-    return {
-      valid: false,
-      state: 'INVALID_GEOMETRY',
-      statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-      reasons: [`Zero-distance Stop Loss rejected: SL (${sl}) equals Entry (${entry}).`]
-    };
-  }
-  if (tp1Distance === 0) {
-    return {
-      valid: false,
-      state: 'INVALID_GEOMETRY',
-      statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-      reasons: [`Zero-distance Take Profit 1 rejected: TP1 (${tp1}) equals Entry (${entry}).`]
-    };
-  }
+  // 5. Zero-Distance & Directional Geometry — only validated when SL/TP are provided
+  if (hasSL) {
+    const slDistance = Math.abs(entry - sl!);
+    if (slDistance === 0) {
+      return {
+        valid: false,
+        state: 'INVALID_GEOMETRY',
+        statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
+        reasons: [`Zero-distance Stop Loss rejected: SL (${sl}) equals Entry (${entry}).`]
+      };
+    }
 
-  // 6. Directional Geometry Validation (BUY vs SELL)
-  if (direction === 'BUY') {
-    if (sl >= entry) {
+    // 6. Directional SL check
+    if (direction === 'BUY' && sl! >= entry) {
       return {
         valid: false,
         state: 'INVALID_GEOMETRY',
@@ -196,40 +189,7 @@ export function validateTradeProtection(input: TradeProtectionInput): TradeProte
         reasons: [`BUY geometry violation: Stop Loss (${sl}) must be strictly below Entry (${entry}).`]
       };
     }
-    if (tp1 <= entry) {
-      return {
-        valid: false,
-        state: 'INVALID_GEOMETRY',
-        statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-        reasons: [`BUY geometry violation: Take Profit 1 (${tp1}) must be strictly above Entry (${entry}).`]
-      };
-    }
-
-    if (tp2 != null && !isNaN(tp2) && tp2 > 0) {
-      if (tp2 <= tp1) {
-        return {
-          valid: false,
-          state: 'INVALID_GEOMETRY',
-          statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-          reasons: [`BUY geometry violation: Take Profit 2 (${tp2}) must be strictly above TP1 (${tp1}).`]
-        };
-      }
-    }
-
-    if (tp3 != null && !isNaN(tp3) && tp3 > 0) {
-      const priorTp = (tp2 != null && !isNaN(tp2) && tp2 > 0) ? tp2 : tp1;
-      if (tp3 <= priorTp) {
-        return {
-          valid: false,
-          state: 'INVALID_GEOMETRY',
-          statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-          reasons: [`BUY geometry violation: Take Profit 3 (${tp3}) must be strictly above ${tp2 != null ? 'TP2' : 'TP1'} (${priorTp}).`]
-        };
-      }
-    }
-  } else {
-    // SELL
-    if (sl <= entry) {
+    if (direction === 'SELL' && sl! <= entry) {
       return {
         valid: false,
         state: 'INVALID_GEOMETRY',
@@ -237,7 +197,29 @@ export function validateTradeProtection(input: TradeProtectionInput): TradeProte
         reasons: [`SELL geometry violation: Stop Loss (${sl}) must be strictly above Entry (${entry}).`]
       };
     }
-    if (tp1 >= entry) {
+  }
+
+  if (hasTP1) {
+    const tp1Distance = Math.abs(tp1! - entry);
+    if (tp1Distance === 0) {
+      return {
+        valid: false,
+        state: 'INVALID_GEOMETRY',
+        statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
+        reasons: [`Zero-distance Take Profit 1 rejected: TP1 (${tp1}) equals Entry (${entry}).`]
+      };
+    }
+
+    // 6b. Directional TP check
+    if (direction === 'BUY' && tp1! <= entry) {
+      return {
+        valid: false,
+        state: 'INVALID_GEOMETRY',
+        statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
+        reasons: [`BUY geometry violation: Take Profit 1 (${tp1}) must be strictly above Entry (${entry}).`]
+      };
+    }
+    if (direction === 'SELL' && tp1! >= entry) {
       return {
         valid: false,
         state: 'INVALID_GEOMETRY',
@@ -246,26 +228,30 @@ export function validateTradeProtection(input: TradeProtectionInput): TradeProte
       };
     }
 
-    if (tp2 != null && !isNaN(tp2) && tp2 > 0) {
-      if (tp2 >= tp1) {
-        return {
-          valid: false,
-          state: 'INVALID_GEOMETRY',
-          statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-          reasons: [`SELL geometry violation: Take Profit 2 (${tp2}) must be strictly below TP1 (${tp1}).`]
-        };
+    // TP2 / TP3 cascading checks (only when TP1 present)
+    if (direction === 'BUY') {
+      if (tp2 != null && !isNaN(tp2) && tp2 > 0 && tp2 <= tp1!) {
+        return { valid: false, state: 'INVALID_GEOMETRY', statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
+          reasons: [`BUY geometry violation: TP2 (${tp2}) must be above TP1 (${tp1}).`] };
       }
-    }
-
-    if (tp3 != null && !isNaN(tp3) && tp3 > 0) {
-      const priorTp = (tp2 != null && !isNaN(tp2) && tp2 > 0) ? tp2 : tp1;
-      if (tp3 >= priorTp) {
-        return {
-          valid: false,
-          state: 'INVALID_GEOMETRY',
-          statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-          reasons: [`SELL geometry violation: Take Profit 3 (${tp3}) must be strictly below ${tp2 != null ? 'TP2' : 'TP1'} (${priorTp}).`]
-        };
+      if (tp3 != null && !isNaN(tp3) && tp3 > 0) {
+        const priorTp = (tp2 != null && !isNaN(tp2) && tp2 > 0) ? tp2 : tp1!;
+        if (tp3 <= priorTp) {
+          return { valid: false, state: 'INVALID_GEOMETRY', statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
+            reasons: [`BUY geometry violation: TP3 (${tp3}) must be above ${tp2 ? 'TP2' : 'TP1'} (${priorTp}).`] };
+        }
+      }
+    } else {
+      if (tp2 != null && !isNaN(tp2) && tp2 > 0 && tp2 >= tp1!) {
+        return { valid: false, state: 'INVALID_GEOMETRY', statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
+          reasons: [`SELL geometry violation: TP2 (${tp2}) must be below TP1 (${tp1}).`] };
+      }
+      if (tp3 != null && !isNaN(tp3) && tp3 > 0) {
+        const priorTp = (tp2 != null && !isNaN(tp2) && tp2 > 0) ? tp2 : tp1!;
+        if (tp3 >= priorTp) {
+          return { valid: false, state: 'INVALID_GEOMETRY', statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
+            reasons: [`SELL geometry violation: TP3 (${tp3}) must be below ${tp2 ? 'TP2' : 'TP1'} (${priorTp}).`] };
+        }
       }
     }
   }
@@ -311,7 +297,7 @@ export function validateTradeProtection(input: TradeProtectionInput): TradeProte
     }
   }
 
-  // 8. Broker Stop Level & Freeze Level Constraints
+  // 8. Broker Stop Level & Freeze Level Constraints (only when SL/TP are provided)
   const baseSpec = getInstrumentContractSpec(symbol);
   const point = symbolSpec?.point || (symbolSpec?.digits ? Math.pow(10, -symbolSpec.digits) : baseSpec?.tickSize || 0.01);
   const stopsLevel = symbolSpec?.stopsLevel || 0;
@@ -320,99 +306,92 @@ export function validateTradeProtection(input: TradeProtectionInput): TradeProte
   const minStopDistance = stopsLevel * point;
   const minFreezeDistance = freezeLevel * point;
 
-  if (stopsLevel > 0 && minStopDistance > 0) {
-    // Check SL distance
-    if (slDistance < minStopDistance - 1e-9) {
+  if (hasSL && stopsLevel > 0 && minStopDistance > 0) {
+    const slDist = Math.abs(entry - sl!);
+    if (slDist < minStopDistance - 1e-9) {
       return {
         valid: false,
         state: 'BROKER_STOP_LEVEL_VIOLATION',
         statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
         minStopDistance,
         minFreezeDistance,
-        reasons: [
-          `Stop Loss distance (${slDistance.toFixed(4)}) is inside broker minimum stops level (${stopsLevel} points = ${minStopDistance.toFixed(4)} distance). Execution locked.`
-        ]
+        reasons: [`Stop Loss distance (${slDist.toFixed(4)}) is inside broker minimum stops level (${stopsLevel} points = ${minStopDistance.toFixed(4)}). Execution locked.`]
       };
-    }
-
-    // Check TP1 distance
-    if (tp1Distance < minStopDistance - 1e-9) {
-      return {
-        valid: false,
-        state: 'BROKER_STOP_LEVEL_VIOLATION',
-        statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-        minStopDistance,
-        minFreezeDistance,
-        reasons: [
-          `Take Profit 1 distance (${tp1Distance.toFixed(4)}) is inside broker minimum stops level (${stopsLevel} points = ${minStopDistance.toFixed(4)} distance). Execution locked.`
-        ]
-      };
-    }
-
-    // Check TP2 distance if present
-    if (tp2 != null && !isNaN(tp2) && tp2 > 0) {
-      const tp2Distance = Math.abs(tp2 - entry);
-      if (tp2Distance < minStopDistance - 1e-9) {
-        return {
-          valid: false,
-          state: 'BROKER_STOP_LEVEL_VIOLATION',
-          statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-          minStopDistance,
-          minFreezeDistance,
-          reasons: [
-            `Take Profit 2 distance (${tp2Distance.toFixed(4)}) is inside broker minimum stops level (${stopsLevel} points = ${minStopDistance.toFixed(4)} distance). Execution locked.`
-          ]
-        };
-      }
-    }
-
-    // Check TP3 distance if present
-    if (tp3 != null && !isNaN(tp3) && tp3 > 0) {
-      const tp3Distance = Math.abs(tp3 - entry);
-      if (tp3Distance < minStopDistance - 1e-9) {
-        return {
-          valid: false,
-          state: 'BROKER_STOP_LEVEL_VIOLATION',
-          statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
-          minStopDistance,
-          minFreezeDistance,
-          reasons: [
-            `Take Profit 3 distance (${tp3Distance.toFixed(4)}) is inside broker minimum stops level (${stopsLevel} points = ${minStopDistance.toFixed(4)} distance). Execution locked.`
-          ]
-        };
-      }
     }
   }
 
-  // Freeze level constraint
-  if (freezeLevel > 0 && minFreezeDistance > 0) {
-    if (slDistance < minFreezeDistance - 1e-9) {
+  if (hasTP1 && stopsLevel > 0 && minStopDistance > 0) {
+    const tp1Dist = Math.abs(tp1! - entry);
+    if (tp1Dist < minStopDistance - 1e-9) {
+      return {
+        valid: false,
+        state: 'BROKER_STOP_LEVEL_VIOLATION',
+        statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
+        minStopDistance,
+        minFreezeDistance,
+        reasons: [`Take Profit 1 distance (${tp1Dist.toFixed(4)}) is inside broker minimum stops level (${stopsLevel} points = ${minStopDistance.toFixed(4)}). Execution locked.`]
+      };
+    }
+  }
+
+  if (tp2 != null && !isNaN(tp2) && tp2 > 0 && stopsLevel > 0 && minStopDistance > 0) {
+    const tp2Distance = Math.abs(tp2 - entry);
+    if (tp2Distance < minStopDistance - 1e-9) {
+      return {
+        valid: false,
+        state: 'BROKER_STOP_LEVEL_VIOLATION',
+        statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
+        minStopDistance,
+        minFreezeDistance,
+        reasons: [`Take Profit 2 distance (${tp2Distance.toFixed(4)}) is inside broker minimum stops level. Execution locked.`]
+      };
+    }
+  }
+
+  if (tp3 != null && !isNaN(tp3) && tp3 > 0 && stopsLevel > 0 && minStopDistance > 0) {
+    const tp3Distance = Math.abs(tp3 - entry);
+    if (tp3Distance < minStopDistance - 1e-9) {
+      return {
+        valid: false,
+        state: 'BROKER_STOP_LEVEL_VIOLATION',
+        statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
+        minStopDistance,
+        minFreezeDistance,
+        reasons: [`Take Profit 3 distance (${tp3Distance.toFixed(4)}) is inside broker minimum stops level. Execution locked.`]
+      };
+    }
+  }
+
+  // Freeze level constraint (SL only)
+  if (hasSL && freezeLevel > 0 && minFreezeDistance > 0) {
+    const slDist = Math.abs(entry - sl!);
+    if (slDist < minFreezeDistance - 1e-9) {
       return {
         valid: false,
         state: 'BROKER_FREEZE_LEVEL_VIOLATION',
         statusLabel: 'PROTECTION INVALID / EXECUTION LOCKED',
         minStopDistance,
         minFreezeDistance,
-        reasons: [
-          `Stop Loss distance (${slDistance.toFixed(4)}) is within broker freeze level (${freezeLevel} points = ${minFreezeDistance.toFixed(4)} distance). Execution locked.`
-        ]
+        reasons: [`Stop Loss distance (${slDist.toFixed(4)}) is within broker freeze level. Execution locked.`]
       };
     }
   }
 
   // 9. Build Normalized Valid Result
-  const tp1RR = calculateRR(direction, entry, sl, tp1).formatted;
-  const tp2RR = (tp2 != null && !isNaN(tp2) && tp2 > 0) ? calculateRR(direction, entry, sl, tp2).formatted : undefined;
-  const tp3RR = (tp3 != null && !isNaN(tp3) && tp3 > 0) ? calculateRR(direction, entry, sl, tp3).formatted : undefined;
+  const slDist = hasSL ? Math.abs(entry - sl!) : 0;
+  const tp1Dist = hasTP1 ? Math.abs(tp1! - entry) : 0;
+  const tp1RR = (hasSL && hasTP1) ? calculateRR(direction, entry, sl!, tp1!).formatted : 'N/A';
+  const tp2RR = (hasSL && tp2 != null && !isNaN(tp2) && tp2 > 0) ? calculateRR(direction, entry, sl!, tp2).formatted : undefined;
+  const tp3RR = (hasSL && tp3 != null && !isNaN(tp3) && tp3 > 0) ? calculateRR(direction, entry, sl!, tp3).formatted : undefined;
 
   const normalized: NormalizedProtectionLevels = {
     entry,
-    sl,
-    tp1,
+    sl: hasSL ? sl : undefined,
+    tp1: hasTP1 ? tp1 : undefined,
     tp2: (tp2 != null && !isNaN(tp2) && tp2 > 0) ? tp2 : undefined,
     tp3: (tp3 != null && !isNaN(tp3) && tp3 > 0) ? tp3 : undefined,
-    slDistance: Math.round(slDistance * 100000) / 100000,
-    tp1Distance: Math.round(tp1Distance * 100000) / 100000,
+    slDistance: Math.round(slDist * 100000) / 100000,
+    tp1Distance: Math.round(tp1Dist * 100000) / 100000,
     tp2Distance: (tp2 != null && !isNaN(tp2) && tp2 > 0) ? Math.round(Math.abs(tp2 - entry) * 100000) / 100000 : undefined,
     tp3Distance: (tp3 != null && !isNaN(tp3) && tp3 > 0) ? Math.round(Math.abs(tp3 - entry) * 100000) / 100000 : undefined,
     tp1RR,

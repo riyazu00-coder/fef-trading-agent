@@ -58,7 +58,7 @@ export interface MT5AccountContext extends MT5AccountInfo {
   floatingPnl: number;
   floatingPnlPct: number;
   isDemo: boolean;
-  operatingMode: 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION';
+  operatingMode: 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION' | 'UNIVERSAL_EXECUTION';
 }
 
 export interface MT5ActiveSymbolTelemetry {
@@ -85,7 +85,7 @@ export interface MT5UnifiedTelemetry {
   allPositions: MT5PositionItem[];
   allPendingOrders: MT5PendingOrderItem[];
   allQuotes: Record<string, MT5QuoteData>;
-  operatingMode: 'READ_ONLY' | 'DEMO_EXECUTION';
+  operatingMode: 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION' | 'UNIVERSAL_EXECUTION';
   readOnlyLockActive: boolean;
   lastSyncTimestamp: number;
 }
@@ -178,7 +178,7 @@ export function compareBrokerQuote(
 export function deriveAccountRiskContext(
   account: Partial<MT5AccountInfo> | null | undefined,
   positions: MT5PositionItem[] = [],
-  effectiveOperatingMode?: 'READ_ONLY' | 'DEMO_EXECUTION'
+  effectiveOperatingMode?: 'READ_ONLY' | 'DEMO_EXECUTION' | 'UNIVERSAL_EXECUTION'
 ): MT5AccountContext | null {
   if (!account || typeof account.balance !== 'number') {
     return null;

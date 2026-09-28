@@ -144,9 +144,10 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
   for (const opp of opportunities) {
     const prev = lastKnownStates.get(opp.symbol);
 
-    // Only actionable opportunities if state is BUY or SELL (closed markets produce MONITOR NEXT OPEN / PRE-OPEN WATCH)
+    // Actionable opportunities if state is BUY or SELL (closed markets produce MONITOR NEXT OPEN / PRE-OPEN WATCH)
     const isOpportunityState = opp.tradeExecutable && (opp.state.includes('BUY') || opp.state.includes('SELL'));
     const isDevelopingClosed = !opp.tradeExecutable && (opp.state === 'MONITOR NEXT OPEN' || opp.state === 'PRE-OPEN WATCH' || opp.state === 'WAIT (MARKET CLOSED)') && opp.opportunityScore >= 75;
+    const isDevelopingOpen = opp.tradeExecutable && (opp.state.includes('WATCH') || (opp.opportunityScore >= 60 && !opp.state.includes('BUY') && !opp.state.includes('SELL') && opp.state !== 'NO TRADE'));
     const isStrong = opp.state.includes('STRONG');
     const meetsThreshold = opp.opportunityScore >= 75 && opp.aiConfidence >= 78;
     const catalyst = opp.catalysts?.[0] || 'Multi-agent structural alignment confirmed across HTF & LTF.';
@@ -161,8 +162,9 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
         eventType: isOpportunityState ? 'TRADE_OPPORTUNITY_CONFIRMED' : 'SETUP_DEVELOPING'
       });
 
-      // If high-conviction opportunity right on boot, create initial alert
-      if ((isOpportunityState || isDevelopingClosed) && meetsThreshold) {
+      // If actionable or developing setup right on boot, create initial alert
+      const shouldBootAlert = (isOpportunityState || isDevelopingClosed) ? meetsThreshold : (isDevelopingOpen && opp.opportunityScore >= 62);
+      if (shouldBootAlert) {
         const notif: RadarNotification = {
           id: `radar-boot-${opp.symbol}-${now}`,
           symbol: opp.symbol,
@@ -170,14 +172,18 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
           createdTimeMs: now,
           title: isOpportunityState
             ? `${opp.symbol} — ${opp.state}`
+            : isDevelopingOpen
+            ? `${opp.symbol} — Setup Developing (${opp.state})`
             : `${opp.symbol} — SETUP DEVELOPING (MARKET CLOSED)`,
           message: isOpportunityState
             ? `${catalyst} Score: ${opp.opportunityScore}/100, AI Conviction: ${opp.aiConfidence}%, RR: ${opp.rr}. Entry: ${opp.entryZone[0]} - ${opp.entryZone[1]}.`
+            : isDevelopingOpen
+            ? `${catalyst} Setup Score: ${opp.opportunityScore}/100. Surveillance active on M30/M5. Awaiting trigger entry confirmation.`
             : `${catalyst} Setup Quality: ${opp.opportunityScore}/100. Market is closed (${opp.marketState}). Next open: ${opp.sessionCountdown || 'scheduled'}. Orders locked; revalidation required at next open.`,
           newState: opp.state,
           score: opp.opportunityScore,
           read: false,
-          priority: isStrong ? 'CRITICAL' : 'HIGH',
+          priority: isStrong ? 'CRITICAL' : isOpportunityState ? 'HIGH' : 'NORMAL',
           category: opp.category,
           confidence: opp.aiConfidence,
           rr: opp.rr,
@@ -225,6 +231,9 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
       } else if (isDevelopingClosed && meetsThreshold) {
         eventType = 'SETUP_DEVELOPING';
         priority = 'HIGH';
+      } else if (isDevelopingOpen) {
+        eventType = 'SETUP_DEVELOPING';
+        priority = 'NORMAL';
       } else if (prevWasActionable && (opp.state === 'NO TRADE' || opp.state === 'WAIT')) {
         eventType = 'SETUP_INVALIDATED';
         priority = 'HIGH';
@@ -238,6 +247,9 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
     } else if (cooldownExpired && isDevelopingClosed && meetsThreshold) {
       eventType = 'SETUP_DEVELOPING';
       priority = 'HIGH';
+    } else if (cooldownExpired && isDevelopingOpen) {
+      eventType = 'SETUP_DEVELOPING';
+      priority = 'NORMAL';
     }
 
     // Trigger alert only when transition occurred or cooldown refreshed an actionable trade
@@ -253,7 +265,7 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
       const title = eventType === 'TRADE_OPPORTUNITY_CONFIRMED'
         ? `${opp.symbol} — ${opp.state}`
         : eventType === 'SETUP_DEVELOPING'
-        ? `${opp.symbol} — SETUP DEVELOPING (MARKET CLOSED)`
+        ? (opp.tradeExecutable ? `${opp.symbol} — Setup Developing (${opp.state})` : `${opp.symbol} — SETUP DEVELOPING (MARKET CLOSED)`)
         : eventType === 'SETUP_INVALIDATED'
         ? `${opp.symbol} — Setup Invalidated`
         : `${opp.symbol} — Risk Guardian Restricted`;
@@ -261,7 +273,9 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
       const message = eventType === 'TRADE_OPPORTUNITY_CONFIRMED'
         ? `${catalyst} Score: ${opp.opportunityScore}/100, AI Conviction: ${opp.aiConfidence}%, Target 1: ${opp.tp1}.`
         : eventType === 'SETUP_DEVELOPING'
-        ? `${catalyst} Setup Quality: ${opp.opportunityScore}/100. Market closed (${opp.marketState}). Next open: ${opp.sessionCountdown || 'scheduled'}. Revalidation required at next open.`
+        ? (opp.tradeExecutable
+            ? `${catalyst} Setup Score: ${opp.opportunityScore}/100. Surveillance active on M30/M5. Awaiting trigger entry confirmation.`
+            : `${catalyst} Setup Quality: ${opp.opportunityScore}/100. Market closed (${opp.marketState}). Next open: ${opp.sessionCountdown || 'scheduled'}. Revalidation required at next open.`)
         : eventType === 'SETUP_INVALIDATED'
         ? `Setup invalidated: Price moved beyond structural boundaries. Swarm reassessing orderflow.`
         : `Volatility spike / event buffer reached. Risk Guardian has paused execution.`;

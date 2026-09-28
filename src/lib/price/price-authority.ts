@@ -77,7 +77,7 @@ export interface PriceResolutionContext {
   brokerQuote?: MT5QuoteData | null;
   referenceAsset?: LiveMarketAsset | null;
   isMt5Connected?: boolean;
-  operatingMode?: 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION';
+  operatingMode?: 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION' | 'UNIVERSAL_EXECUTION';
   direction?: 'BUY' | 'SELL';
   side?: 'BUY' | 'SELL';
   brokerName?: string;
@@ -351,8 +351,7 @@ export function resolvePriceForPurpose(
         freshness: referenceCanonical ? referenceCanonical.freshness : 'UNAVAILABLE'
       };
     }
-
-    if (context.operatingMode !== 'DEMO_EXECUTION') {
+    if (context.operatingMode === 'READ_ONLY' || (context.operatingMode && context.operatingMode !== 'DEMO_EXECUTION')) {
       return {
         price: brokerCanonical.mid,
         canonical: brokerCanonical,
@@ -370,7 +369,6 @@ export function resolvePriceForPurpose(
         freshness: brokerCanonical.freshness
       };
     }
-
     if (!brokerCanonical.executable || brokerCanonical.freshness !== 'FRESH') {
       return {
         price: brokerCanonical.mid,

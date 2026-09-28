@@ -124,8 +124,9 @@ export async function fetchLiveMarketPrices(): Promise<Record<string, LiveMarket
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
   // 1. Fetch Real Gold Spot from Gold-API with Binance PAXGUSDT fallback
+  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
   try {
-    const goldRes = await fetch('https://api.gold-api.com/price/XAU');
+    const goldRes = await fetch('https://api.gold-api.com/price/XAU', { headers: { 'User-Agent': UA } });
     if (goldRes.ok) {
       const data = await goldRes.json();
       if (data && data.price && typeof data.price === 'number') {
@@ -165,7 +166,7 @@ export async function fetchLiveMarketPrices(): Promise<Record<string, LiveMarket
 
   // 1b. Fetch Real Silver Spot from Gold-API
   try {
-    const silverRes = await fetch('https://api.gold-api.com/price/XAG');
+    const silverRes = await fetch('https://api.gold-api.com/price/XAG', { headers: { 'User-Agent': UA } });
     if (silverRes.ok) {
       const data = await silverRes.json();
       if (data && data.price && typeof data.price === 'number') {
@@ -350,27 +351,74 @@ export async function fetchLiveMarketPrices(): Promise<Record<string, LiveMarket
     }
   } catch {}
 
-  // 4. US Indices & Commodities Realistic Tick Micro-Variations
-  const simTick = (sym: string, deltaRange: number, decimals: number) => {
-    if (!assets[sym]) return;
-    const delta = (Math.random() - 0.48) * deltaRange;
-    const p = Number((assets[sym].price + delta).toFixed(decimals));
-    const sp = assets[sym].spread;
-    assets[sym] = {
-      ...assets[sym],
-      price: p,
-      bid: Number((p - sp / 2).toFixed(decimals)),
-      ask: Number((p + sp / 2).toFixed(decimals)),
-      lastUpdated: timeStr
-    };
-  };
+  // 4. US Indices & Commodities — real prices from Yahoo Finance
+  const yahooMap: Array<{ sym: string; ticker: string; decimals: number; spread: number }> = [
+    { sym: 'US100',  ticker: 'NQ=F',  decimals: 2, spread: 3.0   },
+    { sym: 'US30',   ticker: 'YM=F',  decimals: 2, spread: 5.0   },
+    { sym: 'US500',  ticker: 'ES=F',  decimals: 2, spread: 0.5   },
+    { sym: 'USOIL',  ticker: 'CL=F',  decimals: 2, spread: 0.03  },
+    { sym: 'UKOIL',  ticker: 'BZ=F',  decimals: 2, spread: 0.04  },
+    { sym: 'NATGAS', ticker: 'NG=F',  decimals: 3, spread: 0.005 },
+    // Gold via Yahoo — only if Gold-API block above failed
+    { sym: 'XAUUSD_YF', ticker: 'GC=F', decimals: 2, spread: 0.18 }
+  ];
 
-  simTick('US100', 1.8, 2);
-  simTick('US30', 3.5, 2);
-  simTick('US500', 0.6, 2);
-  simTick('USOIL', 0.06, 2);
-  simTick('UKOIL', 0.06, 2);
-  simTick('NATGAS', 0.003, 3);
+  try {
+    const yTickers = yahooMap.map(s => s.ticker).join(',');
+    const yRes = await fetch(
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yTickers)}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketDayHigh,regularMarketDayLow`,
+      { headers: { 'User-Agent': UA } }
+    );
+    if (yRes.ok) {
+      const yJson = await yRes.json();
+      const quotes: any[] = yJson?.quoteResponse?.result || [];
+      for (const q of quotes) {
+        const p: number = q.regularMarketPrice;
+        if (!p || p <= 0) continue;
+        const chg: number = q.regularMarketChangePercent || 0;
+        const high: number = q.regularMarketDayHigh || p * 1.005;
+        const low: number  = q.regularMarketDayLow  || p * 0.995;
+
+        const entry = yahooMap.find(s => s.ticker === q.symbol);
+        if (!entry) continue;
+
+        // Gold fallback — only patch if Gold-API didn't already succeed
+        if (entry.sym === 'XAUUSD_YF') {
+          if (assets.XAUUSD?.feedStatus !== 'LIVE') {
+            assets.XAUUSD = {
+              ...assets.XAUUSD,
+              price: p,
+              bid:  Number((p - entry.spread / 2).toFixed(entry.decimals)),
+              ask:  Number((p + entry.spread / 2).toFixed(entry.decimals)),
+              change24h: Number(chg.toFixed(2)),
+              high24h: Number(high.toFixed(entry.decimals)),
+              low24h:  Number(low.toFixed(entry.decimals)),
+              source: 'Yahoo Finance GC=F (Fallback)',
+              feedStatus: 'LIVE',
+              lastUpdated: timeStr
+            };
+          }
+          continue;
+        }
+
+        if (!assets[entry.sym]) continue;
+        assets[entry.sym] = {
+          ...assets[entry.sym],
+          price: p,
+          bid:  Number((p - entry.spread / 2).toFixed(entry.decimals)),
+          ask:  Number((p + entry.spread / 2).toFixed(entry.decimals)),
+          change24h: Number(chg.toFixed(2)),
+          high24h: Number(high.toFixed(entry.decimals)),
+          low24h:  Number(low.toFixed(entry.decimals)),
+          source: `Yahoo Finance ${q.symbol}`,
+          feedStatus: 'LIVE',
+          lastUpdated: timeStr
+        };
+      }
+    }
+  } catch {
+    // Yahoo Finance offline — keep registry baseline for indices
+  }
 
   return assets;
 }

@@ -268,8 +268,30 @@ export function calculateOpportunityScore(
     const countdown = sessionState?.nextOpenCountdown ? ` in ${sessionState.nextOpenCountdown}` : '';
     reasons.unshift(`[MARKET ${sessionState?.statusLabel || 'CLOSED'}] Analysis active; execution gated until session opens${countdown}`);
   } else {
-    // Market is OPEN and executable
-    if (setupQuality >= 84) {
+    // If the swarm profile has an established setup direction, adhere to it without flapping
+    if (profile.setupDirection === 'WATCH FOR BUY' || profile.setupDirection === 'BUY OPPORTUNITY') {
+      if (setupQuality >= 84) {
+        state = 'STRONG BUY OPPORTUNITY';
+        riskLevel = 'LOW';
+      } else if (setupQuality >= 70) {
+        state = 'BUY OPPORTUNITY';
+        if (riskLevel !== 'ELEVATED') riskLevel = 'LOW';
+      } else {
+        state = 'WATCH FOR BUY';
+        riskLevel = 'MEDIUM';
+      }
+    } else if (profile.setupDirection === 'WATCH FOR SELL' || profile.setupDirection === 'SELL OPPORTUNITY') {
+      if (setupQuality >= 84) {
+        state = 'STRONG SELL OPPORTUNITY';
+        riskLevel = 'LOW';
+      } else if (setupQuality >= 70) {
+        state = 'SELL OPPORTUNITY';
+        if (riskLevel !== 'ELEVATED') riskLevel = 'LOW';
+      } else {
+        state = 'WATCH FOR SELL';
+        riskLevel = 'MEDIUM';
+      }
+    } else if (setupQuality >= 84) {
       state = isBullishDominant ? 'STRONG BUY OPPORTUNITY' : 'STRONG SELL OPPORTUNITY';
       riskLevel = 'LOW';
     } else if (setupQuality >= 72) {
@@ -313,6 +335,13 @@ export function calculateOpportunityScore(
   };
 }
 
+export interface SymbolCandleFeed {
+  candles: OHLCCandle[];
+  bundle?: Record<string, OHLCCandle[]>;
+  provenance?: EvidenceClassification;
+  provider?: string;
+}
+
 /**
  * Continuous Multi-Asset Radar Intelligence Generator
  */
@@ -322,18 +351,31 @@ export function generateGlobalRadarIntelligence(
   activeCandles?: {
     symbol: string;
     candles: OHLCCandle[];
+    bundle?: Record<string, OHLCCandle[]>;
     provenance?: EvidenceClassification;
     provider?: string;
-  }
+  },
+  multiAssetCandles?: Record<string, SymbolCandleFeed>
 ): GlobalRadarIntelligence {
   const symbols = Object.keys(assets);
 
   const opportunities: RadarOpportunityItem[] = symbols.map((sym) => {
     const liveAsset = assets[sym];
     const isMatched = activeCandles && activeCandles.symbol === sym && Array.isArray(activeCandles.candles) && activeCandles.candles.length >= 10;
-    const profile = isMatched
-      ? generateAssetIntelligence(sym, liveAsset, currentTimeframe, activeCandles.candles, activeCandles.provenance, activeCandles.provider)
-      : generateAssetIntelligence(sym, liveAsset, currentTimeframe);
+    const multiFeed = multiAssetCandles && multiAssetCandles[sym];
+    const hasMultiCandles = multiFeed && Array.isArray(multiFeed.candles) && multiFeed.candles.length >= 10;
+
+    let profile: AssetIntelligenceProfile;
+    if (isMatched) {
+      const feedBundle = activeCandles.bundle || activeCandles.candles;
+      profile = generateAssetIntelligence(sym, liveAsset, currentTimeframe, feedBundle, activeCandles.provenance, activeCandles.provider);
+    } else if (hasMultiCandles) {
+      const feedBundle = multiFeed.bundle || multiFeed.candles;
+      profile = generateAssetIntelligence(sym, liveAsset, currentTimeframe, feedBundle, multiFeed.provenance, multiFeed.provider);
+    } else {
+      profile = generateAssetIntelligence(sym, liveAsset, currentTimeframe);
+    }
+
     const { score, setupQuality, tradeExecutable, marketState, state, riskLevel, timeframe, whyReasons } = calculateOpportunityScore(profile, liveAsset);
 
     return {

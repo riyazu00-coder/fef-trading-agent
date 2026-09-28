@@ -20,7 +20,7 @@ type SubTabType = 'RADAR_TABLE' | 'DEVELOPING' | 'INVALIDATED' | 'REGIME_MAP';
 type AvailabilityFilterType = 'ALL' | 'TRADEABLE_NOW' | 'DEVELOPING' | 'MARKET_CLOSED';
 
 export const GlobalOpportunityRadar: React.FC = () => {
-  const { activeSymbol, setActiveSymbol, allAssets, timeframe } = useActiveAsset();
+  const { activeSymbol, setActiveSymbol, allAssets, timeframe, candles, candleProvenance, candleProvider } = useActiveAsset();
 
   const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilterType>('ALL');
   const [stateFilter, setStateFilter] = useState<StateFilterType>('ALL');
@@ -29,15 +29,17 @@ export const GlobalOpportunityRadar: React.FC = () => {
   const [subTab, setSubTab] = useState<SubTabType>('RADAR_TABLE');
   const [lastScanTime, setLastScanTime] = useState<string>('Live');
 
-  // Generate continuous multi-asset radar intelligence from live assets
+  // Generate continuous multi-asset radar intelligence from live assets with active candles
   const radarData = useMemo(() => {
-    return generateGlobalRadarIntelligence(allAssets, timeframe);
-  }, [allAssets, timeframe]);
+    const activeCandlesPayload = candles && candles.length >= 10
+      ? { symbol: activeSymbol, candles, provenance: candleProvenance, provider: candleProvider }
+      : undefined;
+    return generateGlobalRadarIntelligence(allAssets, timeframe, activeCandlesPayload);
+  }, [allAssets, timeframe, activeSymbol, candles, candleProvenance, candleProvider]);
 
-  // Evaluate state transitions & deduplicated notifications
+  // Update last scan timestamp on fresh data
   useEffect(() => {
     if (radarData.rankedOpportunities.length > 0) {
-      evaluateRadarTransitions(radarData.rankedOpportunities);
       setLastScanTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     }
   }, [radarData]);

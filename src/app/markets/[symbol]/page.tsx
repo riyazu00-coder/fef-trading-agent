@@ -217,7 +217,9 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
                             row.trend === 'BULLISH' 
                               ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' 
-                              : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                              : row.trend === 'BEARISH'
+                              ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                              : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                           }`}>
                             {row.trend}
                           </span>

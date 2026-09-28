@@ -155,8 +155,8 @@ async function runSuite() {
   assert(profileWithCandles.setupDirection === 'WAIT', 'Setup direction truthfully remains WAIT when criteria not fulfilled');
   assert(profileWithCandles.confidence === 0, 'Confluence is 0% (INSUFFICIENT EVIDENCE) when direction not qualifying');
 
-  // TEST 10: Strategy remains DATA LIMITED without valid blueprint
-  console.log('\n[TEST 10: STRATEGY GATING]');
+  // TEST 10: Strategy remains ONLINE in continuous surveillance mode without blueprint
+  console.log('\n[TEST 10: STRATEGY CONTINUOUS SURVEILLANCE]');
   // Passing candles that do not meet blueprint structure requirements
   const flatCandles: OHLCCandle[] = [];
   const startTs = Date.now() - 30 * 300_000;
@@ -176,14 +176,14 @@ async function runSuite() {
 
   const profileFlat = generateAssetIntelligence('XAUUSD', liveXAU, 'M5', flatCandles, 'LIVE_MT5', 'Exness Technologies Ltd', deterministicOpenTime);
   const stratFlat = profileFlat.agents.find(a => a.type === 'STRATEGY');
-  assert(stratFlat?.status === 'DATA LIMITED', 'Strategy Agent remains DATA LIMITED when blueprint is null');
-  assert(stratFlat?.confidence === 0, 'Strategy confidence is 0% when blueprint is null');
+  assert(stratFlat?.status === 'ONLINE', 'Strategy Agent is ONLINE (CONTINUOUS SURVEILLANCE) when candles exist but blueprint is null');
+  assert(stratFlat?.bias === 'NEUTRAL', 'Strategy bias is NEUTRAL when awaiting setup');
 
-  // TEST 11: Opportunity remains DATA LIMITED without valid setup
-  console.log('\n[TEST 11: OPPORTUNITY GATING]');
+  // TEST 11: Opportunity remains ONLINE in active scanning mode without valid setup
+  console.log('\n[TEST 11: OPPORTUNITY CONTINUOUS SURVEILLANCE]');
   const oppFlat = profileFlat.agents.find(a => a.type === 'OPPORTUNITY');
-  assert(oppFlat?.status === 'DATA LIMITED', 'Opportunity Agent remains DATA LIMITED when setup is null');
-  assert(oppFlat?.confidence === 0, 'Opportunity confidence is 0% when setup is null');
+  assert(oppFlat?.status === 'ONLINE', 'Opportunity Agent is ONLINE (ACTIVE SCANNING) when setup is null');
+  assert(oppFlat?.bias === 'NEUTRAL', 'Opportunity bias is NEUTRAL when scanning');
 
   console.log('\n=================================================================');
   console.log('ALL 11 V1.1.2A CANDLE CONSUMPTION REGRESSION TESTS PASSED CLEANLY');

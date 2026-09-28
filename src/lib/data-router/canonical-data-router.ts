@@ -114,9 +114,9 @@ export class CanonicalDataRouter {
   /**
    * Resolve authoritative OHLC candles for an asset and timeframe
    */
-  public async resolveCandles(symbol: string, timeframe: string = 'H1'): Promise<RoutedCandles> {
+  public async resolveCandles(symbol: string, timeframe: string = 'M30'): Promise<RoutedCandles> {
     const normSymbol = (symbol || 'XAUUSD').toUpperCase();
-    const normTf = (timeframe || 'H1').toUpperCase();
+    const normTf = (timeframe || 'M30').toUpperCase();
 
     const candleRes: VerifiedCandleResponse = await getVerifiedCandles(normSymbol, normTf);
     const hasCandles = candleRes.success && candleRes.candles.length >= 10;

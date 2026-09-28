@@ -155,9 +155,12 @@ async function syncCandlesForTimeframe(symbol = 'XAUUSD', timeframe = 'H1', forc
 }
 
 async function syncAllCandles(force = false) {
+  const symbols = ['XAUUSD', 'EURUSD', 'BTCUSD', 'US100', 'USOIL'];
   const tfs = ['M5', 'M15', 'H1', 'H4', 'D1'];
-  for (const tf of tfs) {
-    await syncCandlesForTimeframe('XAUUSD', tf, force);
+  for (const sym of symbols) {
+    for (const tf of tfs) {
+      await syncCandlesForTimeframe(sym, tf, force);
+    }
   }
 }
 
@@ -551,16 +554,21 @@ function startTelemetryStream() {
       snapshot,
     }));
 
-    // Timeframe-aware periodic candle synchronization
+    // Timeframe-aware periodic candle synchronization across priority symbols
     candleTickCount++;
+    const prioritySymbols = ['XAUUSD', 'EURUSD', 'BTCUSD', 'US100', 'USOIL'];
     if (candleTickCount % 4 === 0) {
-      syncCandlesForTimeframe('XAUUSD', 'M5', false).catch(() => {});
-      syncCandlesForTimeframe('XAUUSD', 'M15', false).catch(() => {});
+      for (const sym of prioritySymbols) {
+        syncCandlesForTimeframe(sym, 'M5', false).catch(() => {});
+        syncCandlesForTimeframe(sym, 'M15', false).catch(() => {});
+      }
     }
     if (candleTickCount % 16 === 0) {
-      syncCandlesForTimeframe('XAUUSD', 'H1', false).catch(() => {});
-      syncCandlesForTimeframe('XAUUSD', 'H4', false).catch(() => {});
-      syncCandlesForTimeframe('XAUUSD', 'D1', false).catch(() => {});
+      for (const sym of prioritySymbols) {
+        syncCandlesForTimeframe(sym, 'H1', false).catch(() => {});
+        syncCandlesForTimeframe(sym, 'H4', false).catch(() => {});
+        syncCandlesForTimeframe(sym, 'D1', false).catch(() => {});
+      }
     }
   }, POLL_INTERVAL_MS);
 }

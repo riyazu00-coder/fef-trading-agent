@@ -52,8 +52,10 @@ export interface CandleProviderAdapter {
 // Global memory cache for verified candle batches
 const candleCache = new Map<string, { response: VerifiedCandleResponse; cachedAt: number }>();
 const CACHE_TTL_MS: Record<string, number> = {
+  M1: 15_000,
   M5: 30_000,
   M15: 60_000,
+  M30: 90_000,
   H1: 120_000,
   H4: 300_000,
   D1: 600_000,
@@ -64,8 +66,10 @@ const CACHE_TTL_MS: Record<string, number> = {
 // =========================================================================
 
 const BINANCE_INTERVAL_MAP: Record<string, string> = {
+  M1: '1m',
   M5: '5m',
   M15: '15m',
+  M30: '30m',
   H1: '1h',
   H4: '4h',
   D1: '1d',
@@ -211,7 +215,7 @@ export class YahooFinanceChartAdapter implements CandleProviderAdapter {
   supports(symbol: string, timeframe: string): boolean {
     const sym = symbol.toUpperCase();
     const tf = timeframe.toUpperCase();
-    const validTfs = ['M5', 'M15', 'H1', 'H4', 'D1'];
+    const validTfs = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
     return Boolean(YAHOO_SYMBOLS[sym] && validTfs.includes(tf));
   }
 
@@ -228,11 +232,17 @@ export class YahooFinanceChartAdapter implements CandleProviderAdapter {
     let interval = '1h';
     let range = '5d';
 
-    if (tf === 'M5') {
+    if (tf === 'M1') {
+      interval = '1m';
+      range = '1d';
+    } else if (tf === 'M5') {
       interval = '5m';
       range = '1d';
     } else if (tf === 'M15') {
       interval = '15m';
+      range = '5d';
+    } else if (tf === 'M30') {
+      interval = '30m';
       range = '5d';
     } else if (tf === 'H1') {
       interval = '1h';
@@ -257,8 +267,9 @@ export class YahooFinanceChartAdapter implements CandleProviderAdapter {
         const res = await fetch(url, {
           signal: controller.signal,
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            Accept: '*/*',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
           },
         });
         clearTimeout(timer);
@@ -289,12 +300,16 @@ export class YahooFinanceChartAdapter implements CandleProviderAdapter {
 
           // Skip null or corrupted intervals
           if (o != null && h != null && l != null && c != null && !isNaN(o) && !isNaN(h) && !isNaN(l) && !isNaN(c)) {
+            const numOpen = Number(o.toFixed(5));
+            const numClose = Number(c.toFixed(5));
+            const numHigh = Number(Math.max(h, o, c).toFixed(5));
+            const numLow = Number(Math.min(l, o, c).toFixed(5));
             parsed.push({
               timestamp: timestamps[i] * 1000,
-              open: Number(o.toFixed(5)),
-              high: Number(h.toFixed(5)),
-              low: Number(l.toFixed(5)),
-              close: Number(c.toFixed(5)),
+              open: numOpen,
+              high: numHigh,
+              low: numLow,
+              close: numClose,
               tickVolume: v,
             });
           }
@@ -357,11 +372,11 @@ const yahooAdapter = new YahooFinanceChartAdapter();
  */
 export async function getVerifiedCandles(
   symbol: string,
-  timeframe: string = 'H1',
+  timeframe: string = 'M30',
   limit: number = 40
 ): Promise<VerifiedCandleResponse> {
   const normSymbol = (symbol || 'XAUUSD').toUpperCase();
-  const normTf = (timeframe || 'H1').toUpperCase();
+  const normTf = (timeframe || 'M30').toUpperCase();
   const cacheKey = `${normSymbol}:${normTf}`;
   const now = Date.now();
 

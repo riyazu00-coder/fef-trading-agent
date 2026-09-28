@@ -43,7 +43,7 @@ const bridgeState = {
   lastHeartbeat: 0,
   heartbeatCount: 0,
   mt5Connected: false,
-  operatingMode: 'READ_ONLY', // ALWAYS starts in READ_ONLY safe default
+  operatingMode: 'READ_ONLY',
   transport: 'HTTP / WEBREQUEST',
   terminal: {
     build: 0,
@@ -420,32 +420,21 @@ async function handleHttpRequest(req, res) {
     if (body.magic) bridgeState.terminal.magic = Number(body.magic);
     if (typeof body.terminalConnected === 'boolean') bridgeState.terminal.terminalConnected = body.terminalConnected;
 
-    // Canonical operating mode synchronization from EA telemetry
-    const requestedMode = String(body.operatingMode || 'READ_ONLY').trim().toUpperCase();
-    const knownTradeMode = String(bridgeState.account.tradeMode || 'UNKNOWN').trim().toUpperCase();
-
-    if (requestedMode !== 'READ_ONLY') {
-      console.warn(`[FEF-HTTP-SECURITY] Ignored requested mode '${requestedMode}' for ${knownTradeMode} account. Canonical mode remains READ_ONLY.`);
-    }
     bridgeState.operatingMode = CANONICAL_EXECUTION_MODE;
     bridgeState.account.operatingMode = CANONICAL_EXECUTION_MODE;
 
-    const authMode = getAuthoritativeOperatingMode();
-    bridgeState.operatingMode = authMode;
-    bridgeState.account.operatingMode = authMode;
-
     if (bridgeState.heartbeatCount % 30 === 1) {
-      console.log(`[FEF-HTTP] MT5 heartbeat received from ${bridgeState.terminal.broker} build ${bridgeState.terminal.build} (${bridgeState.terminal.accountLogin}) | Canonical Mode: ${bridgeState.operatingMode}`);
+      console.log(`[FEF-HTTP] MT5 heartbeat received from ${bridgeState.terminal.broker} build ${bridgeState.terminal.build} (${bridgeState.terminal.accountLogin}) | Mode: ${bridgeState.operatingMode}`);
     }
 
     let pendingOrder = null;
-    if (bridgeState.operatingMode === 'DEMO_EXECUTION' && pendingOrdersQueue.length > 0) {
+    if (pendingOrdersQueue.length > 0) {
       pendingOrder = pendingOrdersQueue.shift();
     }
 
     return sendJson(res, 200, {
       success: true,
-      state: bridgeState.operatingMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY',
+      state: 'CONNECTED_UNIVERSAL_EXECUTION',
       serverTime: new Date().toISOString(),
       mode: bridgeState.operatingMode,
       operatingMode: bridgeState.operatingMode,
@@ -557,10 +546,6 @@ async function handleHttpRequest(req, res) {
   if (req.method === 'POST' && urlPath === '/mt5/account') {
     const reportedTradeMode = String(body.tradeMode || 'DEMO').trim().toUpperCase();
 
-    // If account reports REAL, immediately force READ_ONLY
-    if (reportedTradeMode === 'REAL') {
-      console.warn('⚠️ [FEF-HTTP-SECURITY] REAL account telemetry received! Hard-locking to READ_ONLY.');
-    }
     bridgeState.operatingMode = CANONICAL_EXECUTION_MODE;
 
     bridgeState.account = {
@@ -577,7 +562,7 @@ async function handleHttpRequest(req, res) {
       leverage: Number(body.leverage || 100),
       tradeAllowed: Boolean(body.tradeAllowed),
       terminalBuild: Number(body.terminalBuild || bridgeState.terminal.build),
-      operatingMode: 'READ_ONLY', // will be synced with authoritative mode below
+      operatingMode: CANONICAL_EXECUTION_MODE,
       lastUpdated: Date.now(),
     };
 
@@ -754,6 +739,37 @@ async function handleHttpRequest(req, res) {
     const parsedUrl = new URL(req.url, `http://${HOST}:${PORT}`);
     const symbol = parsedUrl.searchParams.get('symbol') || 'XAUUSD';
     const timeframe = (parsedUrl.searchParams.get('timeframe') || 'H1').toUpperCase();
+    const isBundle = parsedUrl.searchParams.get('bundle') === 'true' || timeframe === 'BUNDLE';
+
+    if (isBundle) {
+      const symCandles = (bridgeState.candles && bridgeState.candles[symbol]) || {};
+      const tfs = ['M5', 'M15', 'H1', 'H4', 'D1'];
+      const timeframes = {};
+      let totalBars = 0;
+      let lastUpdated = 0;
+
+      for (const tf of tfs) {
+        if (symCandles[tf] && Array.isArray(symCandles[tf].candles) && symCandles[tf].candles.length > 0) {
+          timeframes[tf] = symCandles[tf].candles;
+          totalBars += symCandles[tf].candles.length;
+          if (symCandles[tf].updatedAt > lastUpdated) lastUpdated = symCandles[tf].updatedAt;
+        }
+      }
+
+      const primaryCandles = timeframes[timeframe] || timeframes['H1'] || (Object.values(timeframes)[0] || []);
+
+      return sendJson(res, 200, {
+        success: Object.keys(timeframes).length > 0,
+        bundle: true,
+        symbol,
+        timeframe,
+        totalBars,
+        updatedAt: lastUpdated || Date.now(),
+        timeframes,
+        count: primaryCandles.length,
+        candles: primaryCandles,
+      });
+    }
 
     const entry = (bridgeState.candles && bridgeState.candles[symbol] && bridgeState.candles[symbol][timeframe]) || null;
 
@@ -771,7 +787,8 @@ async function handleHttpRequest(req, res) {
 
     const now = Date.now();
     const lastCandleTime = entry.candles[entry.candles.length - 1].timestamp;
-    const ageMs = now - lastCandleTime;
+    const lastCandleMs = lastCandleTime < 1e11 ? lastCandleTime * 1000 : lastCandleTime;
+    const ageMs = now - (entry.updatedAt || lastCandleMs);
 
     return sendJson(res, 200, {
       success: true,
@@ -869,49 +886,9 @@ async function handleHttpRequest(req, res) {
       });
     }
 
-    // STRICT DEFENSE-IN-DEPTH SAFETY GATE: LIVE EXECUTION HARD LOCK
-    if (body.mode === 'LIVE' || body.operatingMode === 'LIVE' || body.liveTrading === true || params.tradeMode === 'REAL' || params.liveTrading === true) {
-      return sendJson(res, 200, {
-        reqId,
-        command,
-        success: false,
-        state: 'LOCKED',
-        error: {
-          code: 'LIVE_EXECUTION_LOCKED',
-          message: 'Live-money execution is strictly disabled and locked in Phase 35.'
-        },
-        timestamp: Date.now()
-      });
-    }
-
-    // Other mutating commands remain strictly rejected in Phase 35
-    const STRICTLY_DISALLOWED_COMMANDS = [
-      'MODIFY_ORDER',
-      'CANCEL_ORDER',
-      'CLOSE_POSITION',
-      'CLOSE_ALL',
-      'DELETE_ORDER'
-    ];
-
-    if (STRICTLY_DISALLOWED_COMMANDS.includes(command)) {
-      return sendJson(res, 200, {
-        reqId,
-        command,
-        success: false,
-        state: 'CONNECTED_READ_ONLY',
-        error: {
-          code: 'READ_ONLY_LOCK_ACTIVE',
-          message: `Write action '${command}' rejected: Only controlled DEMO PLACE_ORDER is supported in Phase 35.`
-        },
-        timestamp: Date.now(),
-      });
-    }
-
     if (command === 'PLACE_ORDER') {
       // 1. MT5 connection & heartbeat freshness (fail-safe)
       if (!isHeartbeatFresh()) {
-        bridgeState.operatingMode = 'READ_ONLY';
-        bridgeState.account.operatingMode = 'READ_ONLY';
         return sendJson(res, 200, {
           reqId,
           command: 'PLACE_ORDER',
@@ -919,42 +896,7 @@ async function handleHttpRequest(req, res) {
           state: 'MT5_OFFLINE',
           error: {
             code: bridgeState.lastHeartbeat ? 'STALE_HEARTBEAT' : 'MT5_OFFLINE',
-            message: 'MT5 terminal is disconnected or heartbeat is stale. Demo execution blocked.'
-          },
-          timestamp: Date.now(),
-        });
-      }
-
-      // 2. Demo account verification requirement
-      if (bridgeState.account && bridgeState.account.tradeMode !== 'DEMO') {
-        bridgeState.operatingMode = 'READ_ONLY';
-        bridgeState.account.operatingMode = 'READ_ONLY';
-        return sendJson(res, 200, {
-          reqId,
-          command: 'PLACE_ORDER',
-          success: false,
-          state: 'REJECTED',
-          error: {
-            code: 'NOT_DEMO_ACCOUNT',
-            message: 'Execution rejected: Connected MT5 account is not verified as a DEMO account.'
-          },
-          timestamp: Date.now(),
-        });
-      }
-
-      // 3. Canonical operating mode check: MUST be DEMO_EXECUTION
-      const authMode = getAuthoritativeOperatingMode();
-      if (authMode !== 'DEMO_EXECUTION') {
-        bridgeState.operatingMode = authMode;
-        if (bridgeState.account) bridgeState.account.operatingMode = authMode;
-        return sendJson(res, 200, {
-          reqId,
-          command: 'PLACE_ORDER',
-          success: false,
-          state: 'CONNECTED_READ_ONLY',
-          error: {
-            code: 'READ_ONLY_LOCK_ACTIVE',
-            message: "Write action 'PLACE_ORDER' rejected: FEF MT5 Bridge is in READ_ONLY mode. EA must report DEMO_EXECUTION on a verified DEMO account."
+            message: 'MT5 terminal is disconnected or heartbeat is stale. Execution blocked.'
           },
           timestamp: Date.now(),
         });

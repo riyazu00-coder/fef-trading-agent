@@ -31,8 +31,8 @@ export const ExecutionControlCard: React.FC = () => {
     if (!isTradeExecutable) return; // Strict frontend gate
     setIsExecuting(true);
 
-    if (isMt5Connected && telemetry.operatingMode === 'DEMO_EXECUTION') {
-      // Direct user to verified execution gateway
+    if (isMt5Connected) {
+      // Direct user to execution gateway
       setTimeout(() => {
         setIsExecuting(false);
         router.push('/execution');
@@ -97,7 +97,7 @@ export const ExecutionControlCard: React.FC = () => {
           {isMt5Connected ? (
             <span className="text-[8px] bg-emerald-950/60 text-[#34D399] border border-emerald-500/40 px-1.5 py-0.2 rounded flex items-center space-x-1 font-mono font-bold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>{`${telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER' ? telemetry.account.broker : 'MT5'} (${telemetry.operatingMode === 'DEMO_EXECUTION' ? 'DEMO EXECUTION' : 'READ ONLY 🔒'})`}</span>
+              <span>{`${telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER' ? telemetry.account.broker : 'MT5'} (${telemetry.account?.maskedLogin ? telemetry.account.maskedLogin + ' • ' : ''}BRIDGE READY)`}</span>
             </span>
           ) : (
             <span className="text-[8px] bg-amber-950/60 text-[#FBBF24] border border-amber-500/40 px-1.5 py-0.2 rounded flex items-center space-x-1 font-mono font-bold">
@@ -105,9 +105,6 @@ export const ExecutionControlCard: React.FC = () => {
               <span>MT5 STANDBY</span>
             </span>
           )}
-          <span className="text-[8px] bg-rose-950/60 text-rose-300 border border-rose-500/40 px-1.5 py-0.2 rounded font-mono font-bold">
-            LIVE LOCKED 🔒
-          </span>
         </div>
       </div>
 
@@ -134,19 +131,15 @@ export const ExecutionControlCard: React.FC = () => {
         </div>
       </div>
 
-      {/* 4 Stat Boxes */}
-      <div className="grid grid-cols-4 gap-1.5 text-center">
+      {/* Blueprint Visual Summary */}
+      <div className="grid grid-cols-3 gap-2 text-center">
         <div className="bg-black/40 p-1.5 rounded-xl border border-white/5">
-          <div className="text-[7.5px] text-gray-400">Limit Entry</div>
+          <div className="text-[7.5px] text-gray-400">Entry Reference</div>
           <div className="text-[9.5px] font-bold text-white mt-0.5">{entryDisplay}</div>
         </div>
         <div className="bg-black/40 p-1.5 rounded-xl border border-white/5">
-          <div className="text-[7.5px] text-gray-400">Volatility SL</div>
+          <div className="text-[7.5px] text-gray-400">Stop Loss</div>
           <div className="text-[9.5px] font-bold text-rose-400 mt-0.5">{slDisplay}</div>
-        </div>
-        <div className="bg-black/40 p-1.5 rounded-xl border border-white/5">
-          <div className="text-[7.5px] text-gray-400">Recommended</div>
-          <div className="text-[9.5px] font-bold text-cyan-300 mt-0.5">0.85 Lots</div>
         </div>
         <div className="bg-black/40 p-1.5 rounded-xl border border-white/5">
           <div className="text-[7.5px] text-gray-400">Est. Reward</div>
@@ -186,14 +179,12 @@ export const ExecutionControlCard: React.FC = () => {
               ? `PRE-OPEN WATCH (OPENS IN ${sessionState?.nextOpenCountdown || '15m'})`
               : `MARKET CLOSED (OPENS IN ${sessionState?.nextOpenCountdown || 'SESSION REOPEN'})`
             : executed
-            ? 'ORDER ARCHIVED TO TRADE JOURNAL (PAPER)'
+            ? 'ORDER ARCHIVED TO TRADE JOURNAL'
             : isExecuting
-            ? 'SIMULATING EXECUTION GATEWAY...'
-            : isMt5Connected && telemetry.operatingMode === 'DEMO_EXECUTION'
-            ? 'PROCEED TO DEMO EXECUTION GATE ⚡'
+            ? 'ROUTING TO MT5 GATEWAY...'
             : isMt5Connected
-            ? 'MT5 READ-ONLY LOCKED (SIMULATE PAPER ORDER)'
-            : '1-CLICK SIMULATE BUY ORDER (PAPER GATE)'}
+            ? `PROCEED TO MT5 EXECUTION (${telemetry.account?.broker || 'BROKER'}) ⚡`
+            : '1-CLICK SIMULATE ORDER (PAPER GATE)'}
         </span>
       </button>
     </div>

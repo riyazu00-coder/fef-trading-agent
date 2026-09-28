@@ -5,11 +5,7 @@ import { evaluateExternalCandleMutation } from '@/lib/candles/candle-provenance-
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const symbol = (searchParams.get('symbol') || 'XAUUSD').toUpperCase();
-  const timeframe = (searchParams.get('timeframe') || 'H1').toUpperCase();
-
+async function resolveCandlesForTimeframe(symbol: string, timeframe: string) {
   // 1. Try MT5 Broker bridge first if connected
   try {
     const bridgeCandles = await mt5HttpClient.getCandles(symbol, timeframe);
@@ -19,7 +15,7 @@ export async function GET(req: NextRequest) {
         broker: 'Exness Technologies Ltd',
         server: 'Exness-MT5Trial16',
       });
-      return NextResponse.json({
+      return {
         success: true,
         state: 'VERIFIED',
         symbol,
@@ -33,7 +29,7 @@ export async function GET(req: NextRequest) {
         updatedAt: bridgeCandles.updatedAt || Date.now(),
         ageMs: bridgeCandles.ageMs || 0,
         candles: registered.candles,
-      });
+      };
     }
   } catch {}
 
@@ -60,7 +56,7 @@ export async function GET(req: NextRequest) {
             broker: relayData.broker || 'Exness Technologies Ltd',
             server: relayData.server || 'Exness-MT5Trial16',
           });
-          return NextResponse.json({
+          return {
             success: true,
             state: 'VERIFIED',
             symbol,
@@ -75,15 +71,72 @@ export async function GET(req: NextRequest) {
             ageMs: relayData.ageMs || 0,
             freshness: relayData.freshness || 'FRESH',
             candles: registered.candles,
-          });
+          };
         }
       }
     } catch {}
   }
 
-  // 3. Fall back to independent verified candle feed (e.g. Binance for Crypto/PAXG)
-  const indyCandles = await getVerifiedCandles(symbol, timeframe);
-  return NextResponse.json(indyCandles);
+  // 3. Fall back to independent verified candle feed (e.g. Binance for Crypto/PAXG, Yahoo for FX/Indices)
+  return await getVerifiedCandles(symbol, timeframe);
+}
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const symbol = (searchParams.get('symbol') || 'XAUUSD').toUpperCase();
+  const timeframe = (searchParams.get('timeframe') || 'H1').toUpperCase();
+  const isBundle = searchParams.get('bundle') === 'true' || timeframe === 'BUNDLE';
+
+  if (isBundle) {
+    const bundleTimeframes = ['M5', 'M15', 'H1', 'H4', 'D1'];
+    const results = await Promise.allSettled(
+      bundleTimeframes.map((tf) => resolveCandlesForTimeframe(symbol, tf))
+    );
+
+    const timeframes: Record<string, any[]> = {};
+    const bundleDetails: Record<string, any> = {};
+    let dominantProvenance = 'UNAVAILABLE';
+    let dominantProvider = 'NONE';
+    let totalBars = 0;
+
+    results.forEach((res, i) => {
+      const tf = bundleTimeframes[i];
+      if (res.status === 'fulfilled' && res.value && res.value.success && Array.isArray(res.value.candles)) {
+        timeframes[tf] = res.value.candles;
+        bundleDetails[tf] = {
+          count: res.value.candles.length,
+          provenance: res.value.provenance,
+          provider: res.value.provider,
+          updatedAt: res.value.updatedAt,
+        };
+        totalBars += res.value.candles.length;
+        if (res.value.provenance === 'LIVE_MT5' || dominantProvenance === 'UNAVAILABLE') {
+          dominantProvenance = res.value.provenance;
+          dominantProvider = res.value.provider || res.value.broker || 'Provider';
+        }
+      }
+    });
+
+    const primaryTf = timeframes[timeframe] ? timeframe : (timeframes['H1'] ? 'H1' : Object.keys(timeframes)[0]);
+    const primaryCandles = primaryTf ? timeframes[primaryTf] : [];
+
+    return NextResponse.json({
+      success: Object.keys(timeframes).length > 0,
+      bundle: true,
+      symbol,
+      timeframe: primaryTf || timeframe,
+      timeframes,
+      bundleDetails,
+      provenance: dominantProvenance,
+      provider: dominantProvider,
+      totalBars,
+      count: primaryCandles.length,
+      candles: primaryCandles,
+    });
+  }
+
+  const result = await resolveCandlesForTimeframe(symbol, timeframe);
+  return NextResponse.json(result);
 }
 
 export async function POST(req: NextRequest) {

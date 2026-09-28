@@ -30,7 +30,7 @@ import {
   EvidenceClassification
 } from '../evidence/agent-evidence';
 import { analyzeMarketStructure, MarketStructure } from '../market/market-structure-engine';
-import { buildBuyBlueprint, buildSellBlueprint, BlueprintCandleSource, TradeBlueprint } from '../trading/trade-blueprint-engine';
+import { buildBuyBlueprint, buildSellBlueprint, updateBlueprintLifecycle, BlueprintCandleSource, TradeBlueprint } from '../trading/trade-blueprint-engine';
 import { OHLCCandle } from '../market/canonical-market-snapshot';
 
 export type DirectionalBias = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -97,7 +97,7 @@ export const CANONICAL_COUNCIL_KEYS: { type: AgentType; name: string; role: stri
   { type: 'VISION', name: 'Vision / Chart Agent', role: 'Computer Vision Technical Detection' },
   { type: 'OPPORTUNITY', name: 'Opportunity Agent', role: 'Risk / Reward Optimization' },
   { type: 'STRATEGY', name: 'Strategy Agent', role: 'Execution Protocols & Rules' },
-  { type: 'ORDER_FLOW', name: 'Order Flow Agent', role: 'CVD, Footprint & Absorption' },
+  { type: 'ORDER_FLOW', name: 'Scalper / Flow Sniper', role: 'M1/M5 Micro-Structure & Momentum' },
   { type: 'KILLZONE', name: 'Session / Killzone Agent', role: 'ICT Algorithmic Timing & IPDA' },
   { type: 'LIQUIDITY_MAP', name: 'Liquidity Agent', role: 'Resting BSL/SSL Pools & Heatmaps' },
   { type: 'FINAL_DECISION', name: 'Final Decision Agent', role: 'Swarm Consensus Engine' },
@@ -121,6 +121,15 @@ export function getBaseAgentRegistry(symbol: string): AgentState[] {
   }));
 }
 
+// In-memory cache for active trade blueprints to guarantee state stability across tick fluctuations
+const activeBlueprintCache = new Map<string, TradeBlueprint>();
+
+export function clearBlueprintCacheForTesting(): void {
+  activeBlueprintCache.clear();
+}
+
+export type CandleBundle = Record<string, OHLCCandle[]>;
+
 /**
  * Canonical 15-Agent Swarm Pipeline Engine
  */
@@ -128,7 +137,7 @@ export function generateAssetIntelligence(
   symbol: string,
   liveAsset: LiveMarketAsset,
   timeframe: string = 'H1',
-  verifiedCandles?: OHLCCandle[],
+  verifiedCandles?: OHLCCandle[] | CandleBundle,
   candleProvenance?: EvidenceClassification,
   candleProvider?: string,
   evaluationTime?: Date
@@ -137,6 +146,28 @@ export function generateAssetIntelligence(
   const normTf = (timeframe || 'H1').toUpperCase();
   const p = liveAsset?.price || 0;
   const isPos = (liveAsset?.change24h || 0) >= 0;
+
+  let candleBundle: CandleBundle | null = null;
+  let activeCandles: OHLCCandle[] | undefined = undefined;
+
+  if (Array.isArray(verifiedCandles)) {
+    activeCandles = verifiedCandles;
+  } else if (verifiedCandles && typeof verifiedCandles === 'object') {
+    candleBundle = verifiedCandles as CandleBundle;
+    activeCandles = candleBundle[normTf] || candleBundle['H1'] || candleBundle['M15'] || candleBundle['M5'] || Object.values(candleBundle)[0];
+  }
+
+  // Canonical multi-timeframe resolution:
+  // Structure (SMC, Strategy, Liquidity): prefer H1 or H4 from bundle
+  const structureCandles = (candleBundle && (candleBundle['H1'] || candleBundle['H4'] || candleBundle['M15']))
+    ? (candleBundle['H1'] || candleBundle['H4'] || candleBundle['M15'])
+    : activeCandles;
+  const structureTf = (candleBundle && candleBundle['H1']) ? 'H1' : (candleBundle && candleBundle['H4']) ? 'H4' : normTf;
+
+  // Micro-momentum (Scalper / Order Flow): prefer M5 or M15 from bundle
+  const microCandles = (candleBundle && (candleBundle['M5'] || candleBundle['M15']))
+    ? (candleBundle['M5'] || candleBundle['M15'])
+    : activeCandles;
 
   const symbolMeta: Record<string, { name: string; category: string }> = {
     XAUUSD: { name: 'Gold Spot / USD', category: 'METALS' },
@@ -166,7 +197,8 @@ export function generateAssetIntelligence(
   const setupQuality = sessionState.setupQuality;
 
   // 2. Market Structure Analysis if verified candles are provided
-  const hasCandles = Array.isArray(verifiedCandles) && verifiedCandles.length >= 10;
+  const hasCandles = (Array.isArray(activeCandles) && activeCandles.length >= 10) ||
+                     (Array.isArray(structureCandles) && structureCandles.length >= 10);
   let marketStructure: MarketStructure | null = null;
 
   // Resolve truthful provenance & provider metadata
@@ -175,7 +207,14 @@ export function generateAssetIntelligence(
 
   if (hasCandles) {
     if (candleProvenance) {
-      effectiveCandleProvenance = candleProvenance;
+      const rawProv = candleProvenance as string;
+      if (rawProv === 'INDEPENDENT_VERIFIED_OHLC') {
+        effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
+      } else if (rawProv === 'INDEPENDENT_REFERENCE_OHLC') {
+        effectiveCandleProvenance = 'INDEPENDENT_REFERENCE';
+      } else {
+        effectiveCandleProvenance = candleProvenance;
+      }
       effectiveCandleProvider = candleProvider || 'Verified Provider';
     } else if (normSymbol === 'BTCUSD' || normSymbol === 'ETHUSD' || normSymbol === 'SOLUSD') {
       effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
@@ -195,22 +234,58 @@ export function generateAssetIntelligence(
     }
   }
 
-  // 3. Trade Blueprint Synthesis from real structure
+  // 3. Trade Blueprint Synthesis from real structure with hysteresis & persistence
   let blueprint: TradeBlueprint | null = null;
   const blueprintCandleSource: BlueprintCandleSource = effectiveCandleProvenance === 'LIVE_MT5'
     ? 'MT5_BROKER_OHLC'
     : effectiveCandleProvenance === 'INDEPENDENT_REFERENCE'
       ? 'INDEPENDENT_REFERENCE_OHLC'
       : 'INDEPENDENT_VERIFIED_OHLC';
-  marketStructure = hasCandles
-    ? analyzeMarketStructure(verifiedCandles!, normSymbol, normTf, blueprintCandleSource)
+
+  const analysisCandles = (Array.isArray(structureCandles) && structureCandles.length >= 10)
+    ? structureCandles
+    : (Array.isArray(activeCandles) ? activeCandles : []);
+
+  marketStructure = analysisCandles.length >= 10
+    ? analyzeMarketStructure(analysisCandles, normSymbol, structureTf, blueprintCandleSource)
     : null;
+
+  const bpKey = `${normSymbol}:${structureTf}`;
+  const cachedBp = activeBlueprintCache.get(bpKey);
+
   if (marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
+    let freshBlueprint: TradeBlueprint | null = null;
     if (marketStructure.trend === 'BULLISH') {
-      blueprint = buildBuyBlueprint(marketStructure, verifiedCandles!, normSymbol, p, blueprintCandleSource);
+      freshBlueprint = buildBuyBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
     } else if (marketStructure.trend === 'BEARISH') {
-      blueprint = buildSellBlueprint(marketStructure, verifiedCandles!, normSymbol, p, blueprintCandleSource);
+      freshBlueprint = buildSellBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
     }
+
+    if (freshBlueprint) {
+      activeBlueprintCache.set(bpKey, freshBlueprint);
+      blueprint = freshBlueprint;
+    } else if (cachedBp) {
+      // Check if existing cached blueprint is still structurally valid or invalidated
+      const isTrendMismatch = (cachedBp.direction === 'BUY' && marketStructure.trend === 'BEARISH') ||
+                              (cachedBp.direction === 'SELL' && marketStructure.trend === 'BULLISH');
+      const isInvalidated = (cachedBp.direction === 'BUY' && p < cachedBp.sl.price) ||
+                            (cachedBp.direction === 'SELL' && p > cachedBp.sl.price);
+      const isTargetReached = (cachedBp.direction === 'BUY' && p >= cachedBp.tp1.price) ||
+                              (cachedBp.direction === 'SELL' && p <= cachedBp.tp1.price);
+      const isExpired = Date.now() > cachedBp.expiry;
+
+      if (isTrendMismatch || isInvalidated || isTargetReached || isExpired) {
+        activeBlueprintCache.delete(bpKey);
+        blueprint = null;
+      } else {
+        // Blueprint remains active with updated lifecycle state
+        const updatedBp = updateBlueprintLifecycle(cachedBp, p);
+        activeBlueprintCache.set(bpKey, updatedBp);
+        blueprint = updatedBp;
+      }
+    }
+  } else {
+    activeBlueprintCache.delete(bpKey);
   }
 
   // 4. Assemble the Canonical 15 Agents deterministically
@@ -225,9 +300,9 @@ export function generateAssetIntelligence(
             bias,
             confidence: conf,
             status: 'ONLINE',
-            lastOpinion: `${normTf} structure: ${marketStructure.trend}. Swings: ${marketStructure.swingHighs.length}H / ${marketStructure.swingLows.length}L.`,
+            lastOpinion: `${structureTf} structure: ${marketStructure.trend}. Swings: ${marketStructure.swingHighs.length}H / ${marketStructure.swingLows.length}L.`,
             evidence: [
-              `Verified ${normTf} candles: ${marketStructure.candleCount} bars`,
+              `Verified ${structureTf} candles: ${marketStructure.candleCount} bars`,
               `Structure trend: ${marketStructure.trend}`,
               marketStructure.lastSwingHigh ? `Swing High: ${marketStructure.lastSwingHigh}` : 'Swing high mapped',
               marketStructure.lastSwingLow ? `Swing Low: ${marketStructure.lastSwingLow}` : 'Swing low mapped'
@@ -269,17 +344,21 @@ export function generateAssetIntelligence(
       }
 
       case 'LIQUIDITY_MAP': {
-        if (hasCandles && marketStructure && (marketStructure.fvg.length > 0 || marketStructure.orderBlocks.length > 0)) {
+        if (hasCandles && marketStructure) {
           const bias: BiasType = marketStructure.trend === 'BULLISH' ? 'BULLISH' : marketStructure.trend === 'BEARISH' ? 'BEARISH' : 'NEUTRAL';
+          const hasZones = marketStructure.fvg.length > 0 || marketStructure.orderBlocks.length > 0;
           return {
             ...base,
             bias,
-            confidence: 72,
+            confidence: hasZones ? 72 : 62,
             status: 'ONLINE',
-            lastOpinion: `Resting liquidity mapped. ${marketStructure.fvg.length} active FVGs, ${marketStructure.orderBlocks.length} Order Blocks.`,
+            lastOpinion: hasZones
+              ? `Resting liquidity mapped. ${marketStructure.fvg.length} active FVGs, ${marketStructure.orderBlocks.length} Order Blocks.`
+              : `Liquidity surveillance active. Monitoring key liquidity pools around recent swings [${marketStructure.lastSwingLow ?? 'N/A'} - ${marketStructure.lastSwingHigh ?? 'N/A'}].`,
             evidence: [
               `FVG count: ${marketStructure.fvg.length}`,
-              `Order Blocks: ${marketStructure.orderBlocks.length}`
+              `Order Blocks: ${marketStructure.orderBlocks.length}`,
+              `Surveillance: ACTIVE (${marketStructure.candleCount} bars)`
             ],
             keyRisk: 'Liquidity sweep continuation',
             invalidation: 'Opposing pool breach'
@@ -315,6 +394,24 @@ export function generateAssetIntelligence(
             invalidation: `Hard stop at ${blueprint.sl.price}`
           };
         }
+        if (hasCandles && marketStructure) {
+          const trendBias: BiasType = marketStructure.trend === 'BULLISH' ? 'BULLISH' : marketStructure.trend === 'BEARISH' ? 'BEARISH' : 'NEUTRAL';
+          return {
+            ...base,
+            bias: trendBias,
+            confidence: 65,
+            status: 'ONLINE',
+            lastOpinion: `${normTf} continuous surveillance active. Monitoring price action for liquidity sweep & CHOCH displacement on ${normSymbol}.`,
+            evidence: [
+              `Verified ${normTf} candles: ${marketStructure.candleCount} bars`,
+              `Structure state: ${marketStructure.trend}`,
+              'Execution protocol: CONTINUOUS SEARCHING',
+              'Trigger criteria: Liquidity sweep validation required'
+            ],
+            keyRisk: 'Premature entry during range chop',
+            invalidation: 'Break of structure'
+          };
+        }
         return {
           ...base,
           bias: 'NEUTRAL',
@@ -343,6 +440,22 @@ export function generateAssetIntelligence(
             invalidation: 'Momentum breakdown'
           };
         }
+        if (hasCandles && marketStructure) {
+          return {
+            ...base,
+            bias: 'NEUTRAL',
+            confidence: 60,
+            status: 'ONLINE',
+            lastOpinion: `Continuous surveillance active. Scanning ${normTf} swings for asymmetric >= 2.0x R:R setups on ${normSymbol}.`,
+            evidence: [
+              `Verified ${normTf} candles: ${marketStructure.candleCount} bars`,
+              'Target criteria: Min 2.0x Risk/Reward',
+              'Opportunity radar: ACTIVE SURVEILLANCE'
+            ],
+            keyRisk: 'Risk/reward compression in narrow ranges',
+            invalidation: 'Adverse volatility spike'
+          };
+        }
         return {
           ...base,
           bias: 'NEUTRAL',
@@ -356,16 +469,42 @@ export function generateAssetIntelligence(
       }
 
       case 'RISK_GUARDIAN': {
+        if (blueprint) {
+          return {
+            ...base,
+            bias: 'CAUTION',
+            confidence: 85,
+            status: 'ONLINE',
+            lastOpinion: `Exposure bounds verified. Mandatory SL enforced at ${blueprint.sl.price}. Risk budget capped at 0.50%.`,
+            evidence: [`Mandatory SL: ${blueprint.sl.price}`, 'Exposure cap: 0.50% equity'],
+            keyRisk: 'Spread widening during volatility',
+            invalidation: 'N/A'
+          };
+        }
+        if (hasCandles && marketStructure) {
+          return {
+            ...base,
+            bias: 'NEUTRAL',
+            confidence: 70,
+            status: 'ONLINE',
+            lastOpinion: `Risk Guardian armed. Capital preservation rules active. Maximum 0.50% exposure per execution enforced.`,
+            evidence: [
+              'Mandatory SL constraint: ARMED',
+              'Risk budget cap: 0.50% equity',
+              'Execution state: STANDBY'
+            ],
+            keyRisk: 'Slippage during news spikes',
+            invalidation: 'N/A'
+          };
+        }
         return {
           ...base,
           bias: 'CAUTION',
-          confidence: blueprint ? 85 : 0,
+          confidence: 0,
           status: 'CAUTION',
-          lastOpinion: blueprint
-            ? `Exposure bounds verified. Mandatory SL enforced at ${blueprint.sl.price}. Risk budget capped at 0.50%.`
-            : `Risk Guardian armed. Execution locked until verified structure blueprint exists.`,
-          evidence: [blueprint ? `Mandatory SL: ${blueprint.sl.price}` : 'Blueprint: PENDING'],
-          keyRisk: blueprint ? 'Spread widening during volatility' : 'No SL available',
+          lastOpinion: `Risk Guardian armed. Execution locked until verified structure blueprint exists.`,
+          evidence: ['Blueprint: PENDING'],
+          keyRisk: 'No SL available',
           invalidation: 'N/A'
         };
       }
@@ -396,8 +535,76 @@ export function generateAssetIntelligence(
         return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Broker sentiment feed not connected. Contrarian model inactive.', evidence: ['Sentiment API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' };
       case 'INSTITUTIONAL':
         return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Institutional flow feed not connected. COT data unavailable.', evidence: ['COT API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' };
-      case 'ORDER_FLOW':
-        return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Level-2 order flow feed not connected. Tick data unavailable.', evidence: ['Order flow API: NOT CONNECTED'], keyRisk: 'N/A', invalidation: 'N/A' };
+      case 'ORDER_FLOW': {
+        const flowCandles = (Array.isArray(microCandles) && microCandles.length >= 3)
+          ? microCandles
+          : (Array.isArray(activeCandles) && activeCandles.length >= 3 ? activeCandles : null);
+
+        if (flowCandles && flowCandles.length >= 3) {
+          const recent = flowCandles.slice(-5);
+          const lastCandle = recent[recent.length - 1];
+          const prevCandle = recent[recent.length - 2];
+          const candleChange = lastCandle.close - lastCandle.open;
+          const range = lastCandle.high - lastCandle.low;
+          const isExpansion = range > 0 && Math.abs(candleChange) / range > 0.6;
+
+          let scalpBias: BiasType = 'NEUTRAL';
+          let scalpOpinion = '';
+          let scalpConf = 62;
+
+          if (candleChange > 0 && lastCandle.close > prevCandle.high) {
+            scalpBias = 'BULLISH';
+            scalpConf = 72;
+            scalpOpinion = `Micro-momentum expansion detected. Bulls pushing above previous high (${lastCandle.close.toFixed(2)}). Fast scalp bias LONG.`;
+          } else if (candleChange < 0 && lastCandle.close < prevCandle.low) {
+            scalpBias = 'BEARISH';
+            scalpConf = 72;
+            scalpOpinion = `Micro-momentum flush detected. Bears breaking below previous low (${lastCandle.close.toFixed(2)}). Fast scalp bias SHORT.`;
+          } else if (candleChange > 0) {
+            scalpBias = 'BULLISH';
+            scalpConf = 65;
+            scalpOpinion = `Micro-structure leaning bullish on recent bars. Searching for rapid scalp entry on pullbacks.`;
+          } else if (candleChange < 0) {
+            scalpBias = 'BEARISH';
+            scalpConf = 65;
+            scalpOpinion = `Micro-structure leaning bearish on recent bars. Searching for rapid scalp entry on rallies.`;
+          } else {
+            scalpBias = 'NEUTRAL';
+            scalpConf = 60;
+            scalpOpinion = `Micro-range compression. Scalper agent monitoring M1/M5 volatility bursts and order flow imbalances.`;
+          }
+
+          return {
+            ...base,
+            name: 'Scalper / Flow Sniper',
+            role: 'M1/M5 Micro-Structure & Momentum',
+            bias: scalpBias,
+            confidence: scalpConf,
+            status: 'ONLINE',
+            lastOpinion: scalpOpinion,
+            evidence: [
+              `Recent candle close: ${lastCandle.close.toFixed(2)}`,
+              `Micro impulse: ${scalpBias}`,
+              `Bar velocity: ${isExpansion ? 'EXPANDING' : 'CONSOLIDATING'}`,
+              `Surveillance: ACTIVE (${flowCandles.length} bars)`
+            ],
+            keyRisk: 'Fast mean-reversion whip',
+            invalidation: 'Micro swing break'
+          };
+        }
+        return {
+          ...base,
+          name: 'Scalper / Flow Sniper',
+          role: 'M1/M5 Micro-Structure & Momentum',
+          bias: 'NEUTRAL',
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: 'Awaiting verified candle stream to compute micro-momentum and fast scalp flow.',
+          evidence: ['Candle feed: PENDING'],
+          keyRisk: 'N/A',
+          invalidation: 'N/A'
+        };
+      }
       case 'VISION':
       default:
         return { ...base, bias: 'NEUTRAL', confidence: 0, status: 'DATA LIMITED', lastOpinion: 'Awaiting chart image submission for visual analysis.', evidence: ['Chart image: NOT SUBMITTED'], keyRisk: 'N/A', invalidation: 'N/A' };
@@ -427,9 +634,9 @@ export function generateAssetIntelligence(
         verified = false;
         decisionEligible = false;
         sourceName = 'Unconnected Feed';
-      } else if (ag.type === 'RISK_GUARDIAN') {
-        classification = blueprint ? 'DERIVED' : 'HEURISTIC';
-        verified = Boolean(blueprint);
+      } else if (ag.type === 'RISK_GUARDIAN' && (blueprint || hasCandles)) {
+        classification = 'DERIVED';
+        verified = true;
         decisionEligible = Boolean(blueprint);
         sourceName = 'Risk Rules Matrix';
       } else if (ag.type === 'KILLZONE') {
@@ -440,27 +647,28 @@ export function generateAssetIntelligence(
       } else if (ag.type === 'TECHNICAL' && hasCandles) {
         classification = effectiveCandleProvenance;
         verified = true;
-        // Independent reference proxy (e.g. PAXG) is verified for analysis but strictly non-executable
-        decisionEligible = (effectiveCandleProvenance !== 'INDEPENDENT_REFERENCE');
+        decisionEligible = effectiveCandleProvenance !== 'INDEPENDENT_REFERENCE';
         sourceName = effectiveCandleProvenance === 'LIVE_MT5'
           ? 'MT5 Broker Telemetry'
           : effectiveCandleProvider;
-      } else if ((ag.type === 'STRATEGY' || ag.type === 'OPPORTUNITY' || ag.type === 'LIQUIDITY_MAP') && hasCandles && blueprint) {
+      } else if ((ag.type === 'STRATEGY' || ag.type === 'OPPORTUNITY' || ag.type === 'LIQUIDITY_MAP' || ag.type === 'ORDER_FLOW') && hasCandles) {
         if (effectiveCandleProvenance === 'LIVE_MT5') {
           classification = 'DERIVED';
-          decisionEligible = true;
+          decisionEligible = Boolean(blueprint);
         } else if (effectiveCandleProvenance === 'INDEPENDENT_VERIFIED') {
           classification = 'DERIVED_FROM_VERIFIED';
-          decisionEligible = true;
+          decisionEligible = Boolean(blueprint);
         } else if (effectiveCandleProvenance === 'INDEPENDENT_REFERENCE') {
-          classification = 'INDEPENDENT_REFERENCE';
+          classification = 'DERIVED_FROM_VERIFIED';
           decisionEligible = false;
         } else {
           classification = 'DERIVED';
-          decisionEligible = true;
+          decisionEligible = Boolean(blueprint);
         }
         verified = true;
-        sourceName = `Deterministic SMC (${effectiveCandleProvider})`;
+        sourceName = ag.type === 'ORDER_FLOW'
+          ? `Micro-Momentum Engine (${effectiveCandleProvider})`
+          : `Deterministic SMC (${effectiveCandleProvider})`;
       } else if (lower.includes('mt5 broker') || lower.includes('live_mt5') || lower.includes('broker candle')) {
         classification = 'LIVE_MT5';
         verified = true;
@@ -573,7 +781,7 @@ export function generateAssetIntelligence(
   const votingAgents = assembledAgents.slice(0, 15);
   const totalConfidence = votingAgents.reduce((sum, a) => sum + (a.confidence || 0), 0);
   const rawAvgConfidence = Math.round(totalConfidence / (votingAgents.length || 1));
-  const avgConfidence = (consensusTrust.evidenceTrust < 30 || (eligibleBullishCount === 0 && eligibleBearishCount === 0))
+  const avgConfidence = (consensusTrust.evidenceTrust < 30 || effectiveSetupDirection === 'WAIT' || (eligibleBullishCount === 0 && eligibleBearishCount === 0))
     ? 0
     : rawAvgConfidence;
 

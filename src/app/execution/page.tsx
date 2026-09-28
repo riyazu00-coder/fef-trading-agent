@@ -74,6 +74,8 @@ export default function ExecutionPage() {
   const [riskPercent, setRiskPercent] = useState<number>(0.5); // 0.5% default
   const [accountBalance, setAccountBalance] = useState<number>(100000);
   const [isArmed, setIsArmed] = useState<boolean>(false);
+  const [manualSl, setManualSl] = useState<string>('');
+  const [manualTp, setManualTp] = useState<string>('');
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
   const [isExecutingDemo, setIsExecutingDemo] = useState<boolean>(false);
@@ -199,8 +201,17 @@ export default function ExecutionPage() {
   // Authoritative prices
   const p = activeAsset.price;
   const entryPrice = resolvedExecutionPrice.executable ? resolvedExecutionPrice.price : p;
-  const slPrice = assetProfile.stopLoss;
-  const tpPrice = assetProfile.tp1;
+  // SL/TP: use engine cone value when available, otherwise use manual override input
+  const engineSl = assetProfile.stopLoss;
+  const engineTp = assetProfile.tp1;
+  const slPrice: number | null = (engineSl != null && engineSl > 0) ? engineSl
+                                : (manualSl !== '' && !isNaN(parseFloat(manualSl)) && parseFloat(manualSl) > 0) ? parseFloat(manualSl)
+                                : null;
+  const tpPrice: number | null = (engineTp != null && engineTp > 0) ? engineTp
+                                : (manualTp !== '' && !isNaN(parseFloat(manualTp)) && parseFloat(manualTp) > 0) ? parseFloat(manualTp)
+                                : null;
+  const isUsingManualSl = slPrice != null && engineSl == null;
+  const isUsingManualTp = tpPrice != null && engineTp == null;
   const sizingReferencePrice = resolvedSizingPrice.price || entryPrice;
   const slDistance = slPrice != null ? Math.abs(sizingReferencePrice - slPrice) : 0;
   const riskAmount = (accountBalance * riskPercent) / 100;
@@ -213,10 +224,10 @@ export default function ExecutionPage() {
     symbol: activeSymbol,
     direction,
     entry: entryPrice,
-    sl: slPrice,
-    tp1: tpPrice,
-    tp2: assetProfile.tp2,
-    tp3: assetProfile.tp3,
+    sl: slPrice ?? 0,
+    tp1: tpPrice ?? 0,
+    tp2: assetProfile.tp2 ?? undefined,
+    tp3: assetProfile.tp3 ?? undefined,
     brokerQuote: currentQuote,
     symbolSpec: currentQuote ? {
       point: currentQuote.point,
@@ -232,10 +243,10 @@ export default function ExecutionPage() {
     direction,
     volume: calculatedLotSize,
     priceBasis: resolvedExecutionPrice.price || entryPrice,
-    sl: slPrice,
-    tp1: tpPrice,
-    tp2: assetProfile.tp2,
-    tp3: assetProfile.tp3,
+    sl: slPrice ?? 0,
+    tp1: tpPrice ?? 0,
+    tp2: assetProfile.tp2 ?? undefined,
+    tp3: assetProfile.tp3 ?? undefined,
   });
 
   // Real broker BID / ASK (Strict: NO synthetic offsets fabricated when MT5 is disconnected)
@@ -287,8 +298,8 @@ export default function ExecutionPage() {
       return;
     }
 
-    if (telemetry.operatingMode !== 'DEMO_EXECUTION' || !isMt5Connected) {
-      alert('EXECUTION REJECTED: MetaTrader 5 Bridge is currently in READ-ONLY mode or disconnected. Demo execution requires connected MT5 with DEMO_EXECUTION operating mode enabled.');
+    if (!isMt5Connected) {
+      alert('EXECUTION REJECTED: MetaTrader 5 Bridge is currently disconnected. Please connect the MT5 bridge in Settings to dispatch orders.');
       return;
     }
 
@@ -307,8 +318,8 @@ export default function ExecutionPage() {
       return;
     }
 
-    if (telemetry.operatingMode !== 'DEMO_EXECUTION' || !isMt5Connected) {
-      alert('EXECUTION REJECTED: Operating mode is READ_ONLY or MT5 is disconnected. Orders cannot be sent.');
+    if (!isMt5Connected) {
+      alert('EXECUTION REJECTED: MT5 is disconnected. Orders cannot be sent.');
       return;
     }
 
@@ -384,8 +395,8 @@ export default function ExecutionPage() {
             brokerSymbol: brokerSym,
             direction,
             expectedVolume: fillVolume,
-            expectedSl: slPrice,
-            expectedTp1: tpPrice,
+            expectedSl: slPrice ?? 0,
+            expectedTp1: tpPrice ?? 0,
           },
           [
             {
@@ -397,8 +408,8 @@ export default function ExecutionPage() {
               volume: fillVolume,
               openPrice: fillPrice,
               currentPrice: fillPrice,
-              sl: slPrice,
-              tp: tpPrice,
+              sl: slPrice ?? 0,
+              tp: tpPrice ?? 0,
               pnl: 0,
               swap: 0,
               magic: 8882026,
@@ -417,8 +428,8 @@ export default function ExecutionPage() {
           lots: fillVolume,
           openPrice: fillPrice,
           currentPrice: fillPrice,
-          sl: slPrice,
-          tp: tpPrice,
+          sl: slPrice ?? 0,
+          tp: tpPrice ?? 0,
           pnl: 0.00,
           pnlPercent: 0.00,
           openTime: new Date().toTimeString().split(' ')[0] + ' UTC'
@@ -536,26 +547,20 @@ export default function ExecutionPage() {
                 <h1 className="text-xl font-sans font-bold text-[#F8FAFC] uppercase tracking-[0.06em]">
                   INSTITUTIONAL EXECUTION GATE
                 </h1>
-                {telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected ? (
-                  <span className="text-[9px] bg-emerald-950/80 text-[#34D399] border border-emerald-500/50 px-2 py-0.5 rounded font-mono font-bold">
-                    DEMO EXECUTION (CONTROLLED)
+                {isMt5Connected ? (
+                  <span className="text-[9px] bg-emerald-950/80 text-[#34D399] border border-emerald-500/50 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>UNIVERSAL EXECUTION (ANY BROKER) ⚡</span>
                   </span>
                 ) : (
-                  <span className="text-[9px] bg-amber-950/80 text-[#FBBF24] border border-amber-500/50 px-2 py-0.5 rounded font-mono font-bold">
-                    READ-ONLY LOCKED 🔒
+                  <span className="text-[9px] bg-white/5 text-gray-400 border border-white/10 px-2 py-0.5 rounded font-mono">
+                    STANDALONE (DISCONNECTED)
                   </span>
                 )}
-                <span className="text-[9px] bg-rose-950/80 text-rose-300 border border-rose-500/50 px-2 py-0.5 rounded font-mono font-bold">
-                  LIVE TRADING LOCKED 🔒
-                </span>
-                {isMt5Connected ? (
+                {isMt5Connected && (
                   <span className="text-[9px] bg-cyan-950/60 text-[#67E8F9] border border-cyan-500/40 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                    <span>{telemetry.operatingMode === 'DEMO_EXECUTION' ? `${telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER' ? telemetry.account.broker : 'MT5'} (DEMO EXECUTION)` : `${telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER' ? telemetry.account.broker : 'MT5'} (READ ONLY 🔒)`}</span>
-                  </span>
-                ) : (
-                  <span className="text-[9px] bg-amber-950/60 text-[#FBBF24] border border-amber-500/40 px-2 py-0.5 rounded font-mono font-bold">
-                    MT5 STANDBY
+                    <span>{`${telemetry.account?.broker || 'MT5'} (${telemetry.account?.maskedLogin ? '#' + telemetry.account.maskedLogin : 'CONNECTED'})`}</span>
                   </span>
                 )}
                 <MarketStatusBadge symbol={activeSymbol} sessionState={assetProfile.sessionState} size="xs" />
@@ -802,13 +807,41 @@ export default function ExecutionPage() {
                     </span>
                   </div>
                 </div>
-                <div className="bg-black/40 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
-                  <span className="text-rose-400 font-bold">STOP LOSS (SL):</span>
-                  <span className="font-bold text-rose-400 font-mono">{slPrice != null ? `$${slPrice.toFixed(2)}` : 'MANDATORY (PENDING)'}</span>
+                <div className="bg-black/40 p-2.5 rounded-xl border border-white/5 flex justify-between items-center gap-2">
+                  <span className="text-rose-400 font-bold shrink-0">STOP LOSS (SL):</span>
+                  {engineSl != null && engineSl > 0 ? (
+                    <span className="font-bold text-rose-400 font-mono">${engineSl.toFixed(2)} <span className="text-[10px] text-rose-300/60">ENGINE</span></span>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Enter SL price…"
+                        value={manualSl}
+                        onChange={e => { setManualSl(e.target.value); setIsArmed(false); }}
+                        className="bg-black/60 border border-rose-500/40 text-rose-300 font-mono text-xs rounded-lg px-2 py-1 w-36 focus:outline-none focus:border-rose-400"
+                      />
+                      {manualSl && <span className="text-[10px] text-rose-300/60">MANUAL</span>}
+                    </div>
+                  )}
                 </div>
-                <div className="bg-black/40 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
-                  <span className="text-emerald-400 font-bold">TAKE PROFIT (TP):</span>
-                  <span className="font-bold text-emerald-400 font-mono">{tpPrice != null ? `$${tpPrice.toFixed(2)}` : 'MANDATORY (PENDING)'}</span>
+                <div className="bg-black/40 p-2.5 rounded-xl border border-white/5 flex justify-between items-center gap-2">
+                  <span className="text-emerald-400 font-bold shrink-0">TAKE PROFIT (TP):</span>
+                  {engineTp != null && engineTp > 0 ? (
+                    <span className="font-bold text-emerald-400 font-mono">${engineTp.toFixed(2)} <span className="text-[10px] text-emerald-300/60">ENGINE</span></span>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Enter TP price…"
+                        value={manualTp}
+                        onChange={e => { setManualTp(e.target.value); setIsArmed(false); }}
+                        className="bg-black/60 border border-emerald-500/40 text-emerald-300 font-mono text-xs rounded-lg px-2 py-1 w-36 focus:outline-none focus:border-emerald-400"
+                      />
+                      {manualTp && <span className="text-[10px] text-emerald-300/60">MANUAL</span>}
+                    </div>
+                  )}
                 </div>
                 <div className="bg-cyan-950/20 border border-cyan-500/30 p-2.5 rounded-xl flex justify-between items-center">
                   <span className="text-cyan-300 font-bold">CALCULATED POSITION SIZE:</span>
@@ -944,7 +977,7 @@ export default function ExecutionPage() {
                   </h2>
                   {isMt5Connected && telemetry.allPositions.length > 0 && (
                     <span className="text-[8px] bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
-                      {telemetry.operatingMode === 'DEMO_EXECUTION' ? 'MT5 VERIFIED • DEMO ACTIVE ⚡' : 'MT5 VERIFIED • READ-ONLY LOCKED 🔒'}
+                      MT5 VERIFIED • ACTIVE BRIDGE ⚡
                     </span>
                   )}
                 </div>
@@ -1021,18 +1054,12 @@ export default function ExecutionPage() {
                               </span>
                             </td>
                             <td className="py-3 px-3 text-right">
-                              {isRealMt5 ? (
-                                <span className="text-[9px] px-2 py-1 rounded bg-black/50 border border-white/10 text-gray-400 font-mono cursor-not-allowed" title="Execution disabled in READ-ONLY mode">
-                                  LOCKED 🔒
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => handleClosePosition(ticket)}
-                                  className="bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[10px] px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
-                                >
-                                  CLOSE
-                                </button>
-                              )}
+                              <button
+                                onClick={() => handleClosePosition(ticket)}
+                                className="bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[10px] px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
+                              >
+                                CLOSE
+                              </button>
                             </td>
                           </tr>
                         );

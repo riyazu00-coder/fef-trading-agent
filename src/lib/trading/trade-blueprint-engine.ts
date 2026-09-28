@@ -92,12 +92,13 @@ export function buildBuyBlueprint(
   const atrArr = calculateATR(candles, 14);
   const atr = atrArr.length > 0 ? atrArr[atrArr.length - 1] : null;
 
-  // 1. Find entry zone: prefer unmitigated bullish FVG or bullish OB below current price
+  // 1. Find entry zone: prefer unmitigated bullish FVG or bullish OB below/at current price
   let entrySource: FVG | OrderBlock | null = null;
   let entryType = '';
 
-  const bullFVGs = structure.fvg.filter(f => f.type === 'BULLISH_FVG' && f.high < currentPrice && f.low < currentPrice);
-  const bullOBs = structure.orderBlocks.filter(ob => ob.type === 'BULLISH_OB' && ob.high < currentPrice);
+  const slTolerance = atr ? atr * 0.25 : (currentPrice * 0.001);
+  const bullFVGs = structure.fvg.filter(f => f.type === 'BULLISH_FVG' && currentPrice >= (f.low - slTolerance));
+  const bullOBs = structure.orderBlocks.filter(ob => ob.type === 'BULLISH_OB' && currentPrice >= (ob.low - slTolerance));
 
   if (bullFVGs.length > 0) {
     entrySource = bullFVGs[bullFVGs.length - 1]; // most recent unmitigated FVG
@@ -115,7 +116,7 @@ export function buildBuyBlueprint(
   const entryTf = entrySource.timeframe;
 
   // 2. Invalidation = most recent swing low below entryLow
-  const swingLowsBelow = structure.swingLows.filter(sl => sl.price < entryLow);
+  const swingLowsBelow = structure.swingLows.filter(sl => sl.price <= (entryLow + slTolerance));
   if (swingLowsBelow.length === 0) return null;
   const invalidationLevel = swingLowsBelow[swingLowsBelow.length - 1];
 
@@ -136,7 +137,7 @@ export function buildBuyBlueprint(
   const tp3Level = targetsAbove.length > 2 ? targetsAbove[2] : undefined;
 
   // 5. Validate geometry
-  const entryRef = entryHigh; // worst-case entry for BUY = top of entry zone
+  const entryRef = Math.max(entryLow, Math.min(entryHigh, currentPrice));
   if (slPrice >= entryRef || tp1Level.price <= entryRef) return null;
 
   const rrDistance = tp1Level.price - entryRef;
@@ -181,8 +182,9 @@ export function buildSellBlueprint(
   const atrArr = calculateATR(candles, 14);
   const atr = atrArr.length > 0 ? atrArr[atrArr.length - 1] : null;
 
-  const bearFVGs = structure.fvg.filter(f => f.type === 'BEARISH_FVG' && f.low > currentPrice && f.high > currentPrice);
-  const bearOBs = structure.orderBlocks.filter(ob => ob.type === 'BEARISH_OB' && ob.low > currentPrice);
+  const slTolerance = atr ? atr * 0.25 : (currentPrice * 0.001);
+  const bearFVGs = structure.fvg.filter(f => f.type === 'BEARISH_FVG' && currentPrice <= (f.high + slTolerance));
+  const bearOBs = structure.orderBlocks.filter(ob => ob.type === 'BEARISH_OB' && currentPrice <= (ob.high + slTolerance));
 
   let entrySource: FVG | OrderBlock | null = null;
   let entryType = '';
@@ -202,7 +204,7 @@ export function buildSellBlueprint(
   const entryCandleTs = entrySource.candleTimestamp;
   const entryTf = entrySource.timeframe;
 
-  const swingHighsAbove = structure.swingHighs.filter(sh => sh.price > entryHigh);
+  const swingHighsAbove = structure.swingHighs.filter(sh => sh.price >= (entryHigh - slTolerance));
   if (swingHighsAbove.length === 0) return null;
   const invalidationLevel = swingHighsAbove[swingHighsAbove.length - 1];
 
@@ -220,7 +222,7 @@ export function buildSellBlueprint(
   const tp2Level = targetsBelow.length > 1 ? targetsBelow[1] : undefined;
   const tp3Level = targetsBelow.length > 2 ? targetsBelow[2] : undefined;
 
-  const entryRef = entryLow;
+  const entryRef = Math.min(entryHigh, Math.max(entryLow, currentPrice));
   if (slPrice <= entryRef || tp1Level.price >= entryRef) return null;
 
   const rrDistance = entryRef - tp1Level.price;

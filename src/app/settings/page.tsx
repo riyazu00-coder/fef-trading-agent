@@ -37,8 +37,8 @@ export default function SettingsPage() {
   } | null>(null);
 
   const effectiveIsConnected = mt5TestResult ? mt5TestResult.mt5Connected : isMt5Connected;
-  const effectiveMode = (mt5TestResult?.mode || telemetry.operatingMode) || 'READ_ONLY';
-  const isDemoExecution = effectiveIsConnected && effectiveMode === 'DEMO_EXECUTION';
+  const effectiveMode = 'UNIVERSAL_EXECUTION';
+  const isExecutionReady = effectiveIsConnected;
 
   // UI Audio & Appearance
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -316,11 +316,11 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex items-center space-x-2">
                   <span className={`text-[9px] px-2 py-0.5 rounded font-mono font-bold border ${
-                    isDemoExecution
-                      ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
-                      : 'bg-amber-950/60 text-amber-300 border-amber-500/40'
+                    isExecutionReady
+                      ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.25)]'
+                      : 'bg-white/5 text-gray-400 border-white/10'
                   }`}>
-                    {isDemoExecution ? 'DEMO EXECUTION ⚡' : 'READ-ONLY LOCKED 🔒'}
+                    {isExecutionReady ? 'UNIVERSAL MT5 ACTIVE ⚡' : 'MT5 STANDBY'}
                   </span>
                   <span className="text-[9px] bg-cyan-950 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-mono">
                     PORT {mt5Port}
@@ -405,8 +405,8 @@ export default function SettingsPage() {
                     </div>
                     <div className="bg-black/40 p-2 rounded border border-white/5">
                       <span className="text-gray-400 block text-[8.5px]">OPERATING MODE</span>
-                      <span className={`font-bold ${isDemoExecution ? 'text-cyan-400' : 'text-amber-300'}`}>
-                        {isDemoExecution ? 'DEMO EXECUTION ⚡' : 'READ-ONLY LOCKED 🔒'}
+                      <span className={`font-bold ${isExecutionReady ? 'text-emerald-400' : 'text-gray-400'}`}>
+                        {isExecutionReady ? 'UNIVERSAL EXECUTION ⚡' : 'STANDBY'}
                       </span>
                     </div>
                   </div>

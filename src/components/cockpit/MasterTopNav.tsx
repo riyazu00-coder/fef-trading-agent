@@ -232,23 +232,23 @@ export const MasterTopNav: React.FC = () => {
           />
 
           {/* 2. Canonical MT5 Status Pill */}
-          {telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected ? (
+          {isMt5Connected ? (
             <Link
               href="/execution"
-              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/40 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.15)]"
-              title="MT5 Demo Execution Active (Controlled Micro-Lot Sizing)"
+              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.2)]"
+              title="MT5 Bridge Connected & Ready for Execution"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-bold tracking-wider">DEMO EXECUTION</span>
+              <span className="font-bold tracking-wider">MT5 CONNECTED ({telemetry.account?.broker || 'LIVE'})</span>
             </Link>
           ) : (
             <Link
               href="/settings"
-              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-amber-950/40 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-amber-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(245,158,11,0.15)]"
-              title={isMt5Connected ? 'MT5 Connected in Read-Only Mode' : 'MT5 Bridge Standby'}
+              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/40 text-gray-400 hover:text-gray-200 font-mono text-[9px] transition-all cursor-pointer"
+              title="MT5 Bridge Standby • Connect in Settings"
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${isMt5Connected ? 'bg-amber-400' : 'bg-slate-500'}`} />
-              <span className="font-bold tracking-wider">{isMt5Connected ? 'MT5 READ-ONLY 🔒' : 'MT5 STANDBY'}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+              <span className="font-bold tracking-wider">MT5 STANDBY</span>
             </Link>
           )}
 
@@ -316,18 +316,14 @@ export const MasterTopNav: React.FC = () => {
                   {tab.path === '/execution' && (
                     <span
                       className={`w-1.5 h-1.5 rounded-full ${
-                        telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
+                        isMt5Connected
                           ? 'bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(16,185,129,0.8)]'
-                          : isMt5Connected
-                            ? 'bg-amber-400'
-                            : 'bg-slate-500'
+                          : 'bg-slate-500'
                       }`}
                       title={
-                        telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
-                          ? 'MT5 Demo Execution Active'
-                          : isMt5Connected
-                            ? 'MT5 Read-Only'
-                            : 'MT5 Standby'
+                        isMt5Connected
+                          ? `MT5 Connected (${telemetry.account?.broker || 'Ready'})`
+                          : 'MT5 Standby'
                       }
                     />
                   )}

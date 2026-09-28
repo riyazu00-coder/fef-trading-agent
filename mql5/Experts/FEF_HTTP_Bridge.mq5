@@ -676,8 +676,10 @@ void PushCandles()
       string canon = prioritySymbols[s];
       string brokerSym = ResolveBrokerSymbol(canon);
 
+      PushCandlesForSymbol(canon, brokerSym, PERIOD_M1, "M1");
       PushCandlesForSymbol(canon, brokerSym, PERIOD_M5, "M5");
       PushCandlesForSymbol(canon, brokerSym, PERIOD_M15, "M15");
+      PushCandlesForSymbol(canon, brokerSym, PERIOD_M30, "M30");
       PushCandlesForSymbol(canon, brokerSym, PERIOD_H1, "H1");
       PushCandlesForSymbol(canon, brokerSym, PERIOD_H4, "H4");
       PushCandlesForSymbol(canon, brokerSym, PERIOD_D1, "D1");

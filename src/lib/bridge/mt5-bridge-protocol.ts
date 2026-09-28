@@ -46,10 +46,6 @@ export const ALLOWED_READ_COMMANDS: ReadonlySet<BridgeCommand> = new Set<BridgeC
   'GET_BROKER_SESSIONS'
 ]);
 
-export const ALLOWED_DEMO_EXECUTION_COMMANDS: ReadonlySet<BridgeCommand> = new Set<BridgeCommand>([
-  'PLACE_ORDER'
-]);
-
 export const RESTRICTED_EXECUTION_COMMANDS: ReadonlySet<BridgeCommand> = new Set<BridgeCommand>([
   'PLACE_ORDER',
   'MODIFY_ORDER',
@@ -59,7 +55,7 @@ export const RESTRICTED_EXECUTION_COMMANDS: ReadonlySet<BridgeCommand> = new Set
   'DELETE_ORDER'
 ]);
 
-export type ExecutionOperatingMode = 'READ_ONLY' | 'DEMO_EXECUTION';
+export type ExecutionOperatingMode = 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION' | 'UNIVERSAL_EXECUTION';
 
 export type ExecutionFailureCode =
   | 'MT5_OFFLINE'
@@ -174,7 +170,7 @@ export interface MT5AccountInfo {
   tradeAllowed: boolean;
   soCall: number;
   soStop: number;
-  operatingMode?: 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION';
+  operatingMode?: 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION' | 'UNIVERSAL_EXECUTION';
 }
 
 export type QuoteFreshnessState = 'FRESH' | 'STALE' | 'SESSION_CLOSED' | 'UNAVAILABLE';

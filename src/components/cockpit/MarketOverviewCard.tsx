@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
+import { TradingViewChartWidget } from '@/components/charts/TradingViewChartWidget';
 import {
   buildCanonicalFromBrokerQuote,
   evaluateCrossFeedDivergence
@@ -11,6 +12,7 @@ import {
 export const MarketOverviewCard: React.FC = () => {
   const { activeAsset, timeframe, setTimeframe, assetProfile } = useActiveAsset();
   const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
+  const [chartMode, setChartMode] = useState<'MINI' | 'TRADINGVIEW'>('TRADINGVIEW');
   const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
 
   const isPos = activeAsset.change24h >= 0;
@@ -40,6 +42,28 @@ export const MarketOverviewCard: React.FC = () => {
   const priceDisplay = isForex
     ? `$${activeAsset.price.toFixed(4)}`
     : `$${activeAsset.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+
+  const rawTrend = (assetProfile.trend || '').toUpperCase();
+  const isTrendBearish = rawTrend.includes('BEARISH');
+  const isTrendBullish = rawTrend.includes('BULLISH');
+  const trendColorClass = isTrendBearish
+    ? 'text-rose-400'
+    : isTrendBullish
+    ? 'text-emerald-400'
+    : 'text-amber-400';
+
+  const trendIcon = isTrendBearish
+    ? '↘'
+    : isTrendBullish
+    ? '↗'
+    : '↔';
+
+  const rawRegime = (assetProfile.regime || '').toUpperCase();
+  const regimeColorClass = rawRegime.includes('BEARISH')
+    ? 'text-rose-400'
+    : rawRegime.includes('BULLISH')
+    ? 'text-emerald-400'
+    : 'text-blue-300';
 
   return (
     <div id="market-overview-card" className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-3">
@@ -93,11 +117,6 @@ export const MarketOverviewCard: React.FC = () => {
                 <span className="text-[8.5px] text-gray-400 font-normal">
                   ({brokerCanonical.broker || 'Exness'}{telemetry.terminal?.brokerServer ? ` • ${telemetry.terminal.brokerServer}` : ''})
                 </span>
-                {isRemoteRelay && (
-                  <span className="text-[7.5px] bg-amber-950/60 text-amber-300 border border-amber-500/40 px-1 py-0.2 rounded font-bold">
-                    NOT EXECUTABLE
-                  </span>
-                )}
               </div>
               <span className={`text-[8px] ${isRemoteRelay ? 'text-cyan-400' : 'text-emerald-400'} font-mono`}>
                 Updated {(brokerCanonical.ageMs / 1000).toFixed(1)}s ago
@@ -124,7 +143,7 @@ export const MarketOverviewCard: React.FC = () => {
             {crossFeed && crossFeed.status !== 'UNAVAILABLE' && (
               <div className="flex items-center justify-between text-[8px] border-t border-emerald-500/20 pt-1 text-gray-300">
                 <span className="text-gray-400">
-                  Ref Feed: <strong className="text-gray-200">${(activeAsset.referencePrice || activeAsset.price).toFixed(brokerCanonical.digits)}</strong> ({activeAsset.provider || 'Gold-API'})
+                  Ref Feed: <strong className="text-gray-200">${(activeAsset.referencePrice || activeAsset.price).toFixed(brokerCanonical.digits)}</strong> ({activeAsset.provider || 'TradingView Spot'})
                 </span>
                 <span className={`px-1.5 py-0.2 rounded font-bold ${
                   crossFeed.status === 'NORMAL_BASIS'
@@ -141,8 +160,9 @@ export const MarketOverviewCard: React.FC = () => {
         ) : (
           <div className="pt-1 space-y-1">
             <div className="flex items-center justify-between">
-              <span className="text-[8.5px] bg-white/5 text-amber-300/90 border border-amber-500/30 px-1.5 py-0.5 rounded font-mono font-bold">
-                REFERENCE FEED ({activeAsset.provider || activeAsset.source || 'Gold-API'}) &bull; NOT EXECUTABLE
+              <span className="text-[8.5px] bg-cyan-950/40 text-cyan-300/90 border border-cyan-500/30 px-1.5 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                <span>TRADINGVIEW REALTIME FEED ({activeAsset.provider || activeAsset.source || 'TradingView Spot'})</span>
               </span>
               <div className={`text-[10px] font-bold ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {isPos ? '▲ +' : '▼ '}{activeAsset.change24h}% ({isPos ? '+' : ''}{(activeAsset.price * (activeAsset.change24h / 100)).toFixed(2)})
@@ -159,34 +179,73 @@ export const MarketOverviewCard: React.FC = () => {
         )}
       </div>
 
-      {/* Mini Area Chart (Adapts color & shape based on asset trend) */}
-      <div className="w-full h-14 relative overflow-hidden rounded-xl bg-black/40 border border-white/5 p-1">
-        <svg className="w-full h-full" viewBox="0 0 240 50" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={isPos ? '#10b981' : '#f43f5e'} stopOpacity="0.4" />
-              <stop offset="100%" stopColor={isPos ? '#10b981' : '#f43f5e'} stopOpacity="0.0" />
-            </linearGradient>
-          </defs>
-          <path
-            d={isPos
-              ? "M 0 45 Q 60 40, 120 20 T 180 15 T 240 8 L 240 50 L 0 50 Z"
-              : "M 0 15 Q 40 10, 80 25 T 160 40 T 240 32 L 240 50 L 0 50 Z"
-            }
-            fill="url(#areaGrad)"
-          />
-          <path
-            d={isPos
-              ? "M 0 45 Q 60 40, 120 20 T 180 15 T 240 8"
-              : "M 0 15 Q 40 10, 80 25 T 160 40 T 240 32"
-            }
-            fill="none"
-            stroke={isPos ? '#10b981' : '#f43f5e'}
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
-        </svg>
+      {/* Chart Display Mode Controls */}
+      <div className="flex items-center justify-between pt-0.5">
+        <div className="flex items-center space-x-1">
+          <button
+            onClick={() => setChartMode('TRADINGVIEW')}
+            className={`text-[8px] font-bold px-2 py-0.5 rounded transition-all cursor-pointer ${
+              chartMode === 'TRADINGVIEW'
+                ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-400 shadow-[0_0_8px_rgba(0,240,255,0.3)]'
+                : 'bg-white/5 text-gray-400 hover:text-white border border-white/5'
+            }`}
+          >
+            📊 TRADINGVIEW LIVE
+          </button>
+          <button
+            onClick={() => setChartMode('MINI')}
+            className={`text-[8px] font-bold px-2 py-0.5 rounded transition-all cursor-pointer ${
+              chartMode === 'MINI'
+                ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-400 shadow-[0_0_8px_rgba(0,240,255,0.3)]'
+                : 'bg-white/5 text-gray-400 hover:text-white border border-white/5'
+            }`}
+          >
+            📉 COMPACT WAVE
+          </button>
+        </div>
+        <span className="text-[7.5px] font-mono text-cyan-400/80">
+          {chartMode === 'TRADINGVIEW' ? '24/7 Standalone Cloud Feed' : 'Dynamic Sparkline'}
+        </span>
       </div>
+
+      {/* Chart View (TradingView Live or Mini Sparkline) */}
+      {chartMode === 'TRADINGVIEW' ? (
+        <div className="w-full h-72 rounded-xl overflow-hidden border border-white/10 relative">
+          <TradingViewChartWidget
+            symbol={activeAsset.symbol}
+            timeframe={timeframe}
+            height={288}
+          />
+        </div>
+      ) : (
+        <div className="w-full h-14 relative overflow-hidden rounded-xl bg-black/40 border border-white/5 p-1">
+          <svg className="w-full h-full" viewBox="0 0 240 50" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={isPos ? '#10b981' : '#f43f5e'} stopOpacity="0.4" />
+                <stop offset="100%" stopColor={isPos ? '#10b981' : '#f43f5e'} stopOpacity="0.0" />
+              </linearGradient>
+            </defs>
+            <path
+              d={isPos
+                ? "M 0 45 Q 60 40, 120 20 T 180 15 T 240 8 L 240 50 L 0 50 Z"
+                : "M 0 15 Q 40 10, 80 25 T 160 40 T 240 32 L 240 50 L 0 50 Z"
+              }
+              fill="url(#areaGrad)"
+            />
+            <path
+              d={isPos
+                ? "M 0 45 Q 60 40, 120 20 T 180 15 T 240 8"
+                : "M 0 15 Q 40 10, 80 25 T 160 40 T 240 32"
+              }
+              fill="none"
+              stroke={isPos ? '#10b981' : '#f43f5e'}
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </div>
+      )}
 
       {/* Timeframe Switcher (Includes M30 and W1) */}
       <div className="flex items-center justify-between gap-1 bg-black/40 p-1 rounded-xl border border-white/10 text-[9px]">
@@ -213,10 +272,10 @@ export const MarketOverviewCard: React.FC = () => {
         </div>
         <div className="flex items-center justify-between text-gray-300">
           <span className="flex items-center space-x-1.5">
-            <span className="text-emerald-400 font-bold">↗</span>
+            <span className={`${trendColorClass} font-bold`}>{trendIcon}</span>
             <span>Trend</span>
           </span>
-          <span className="text-emerald-400 font-bold">{assetProfile.trend}</span>
+          <span className={`${trendColorClass} font-bold`}>{assetProfile.trend}</span>
         </div>
         <div className="flex items-center justify-between text-gray-300">
           <span className="flex items-center space-x-1.5">
@@ -256,7 +315,7 @@ export const MarketOverviewCard: React.FC = () => {
             <span className="text-blue-400 font-bold">⚛</span>
             <span>Market Regime</span>
           </span>
-          <span className="text-blue-300 font-bold truncate max-w-[140px] text-right">{assetProfile.regime}</span>
+          <span className={`${regimeColorClass} font-bold truncate max-w-[140px] text-right`}>{assetProfile.regime}</span>
         </div>
       </div>
     </div>
