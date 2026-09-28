@@ -206,7 +206,7 @@ export default function AgentsDirectoryPage() {
                 )}
               </div>
               <p className="text-xs text-[#94A3B8] mt-1 font-sans">
-                Multi-Agent Cognitive Architecture &bull; 15 Voting Council Members + 5 Specialist Observers &bull; Setup Quality: <span className="font-mono text-cyan-300 font-bold">{assetProfile.setupQuality}/100</span>
+                Multi-Agent Cognitive Architecture &bull; {assetProfile.agents.length} Voting Council Members + {fullCouncil.length - assetProfile.agents.length} Specialist Observers ({fullCouncil.length} Total Specialists) &bull; Setup Quality: <span className="font-mono text-cyan-300 font-bold">{assetProfile.setupQuality}/100</span>
                 {!assetProfile.tradeExecutable && (
                   <span suppressHydrationWarning className="text-rose-400 font-mono ml-2 font-bold">
                     [MARKET CLOSED — DELIBERATIONS REFERENCE ONLY • OPENS IN {assetProfile.sessionState?.nextOpenCountdown || 'SCHEDULED'}]
@@ -439,6 +439,44 @@ export default function AgentsDirectoryPage() {
                     <span className="text-gray-400 text-[10px] block">SERVICE UPTIME</span>
                     <span className="text-emerald-400 font-bold">{selectedAgent.telemetry.uptime}</span>
                   </div>
+                </div>
+              </div>
+
+              {/* V1.2 Agent Readiness & Input Observability */}
+              <div className="space-y-1.5">
+                <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center justify-between">
+                  <span>INPUT READINESS & OBSERVABILITY</span>
+                  <span className="text-[10px] text-gray-400 font-mono">
+                    Freshness: <strong className={selectedAgent.freshness === 'REALTIME' ? 'text-emerald-400' : selectedAgent.freshness === 'CURRENT' ? 'text-cyan-400' : 'text-amber-400'}>{selectedAgent.freshness || 'CURRENT'}</strong>
+                  </span>
+                </h4>
+                <div className="bg-black/40 border border-white/5 p-3 rounded-xl space-y-2 text-xs">
+                  <div>
+                    <span className="text-gray-400 text-[10px] block mb-1">AVAILABLE INPUTS</span>
+                    <div className="flex flex-wrap gap-1">
+                      {(selectedAgent.availableInputs && selectedAgent.availableInputs.length > 0) ? (
+                        selectedAgent.availableInputs.map((inp, idx) => (
+                          <span key={idx} className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-mono">
+                            ✓ {inp}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-gray-500 text-[10px] font-mono">None currently locked</span>
+                      )}
+                    </div>
+                  </div>
+                  {selectedAgent.missingInputs && selectedAgent.missingInputs.length > 0 && (
+                    <div>
+                      <span className="text-rose-400 text-[10px] block mb-1">MISSING INPUTS (UNAVAILABLE)</span>
+                      <div className="flex flex-wrap gap-1">
+                        {selectedAgent.missingInputs.map((inp, idx) => (
+                          <span key={idx} className="bg-rose-950/60 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-mono">
+                            ✕ {inp}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

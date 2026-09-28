@@ -16,7 +16,7 @@ export const LiveTickerStrip: React.FC = () => {
 
   // Resolve active market list according to selected category filter
   const activeMarkets: MarketDefinition[] = React.useMemo(() => {
-    if (categoryFilter === 'ALL' || categoryFilter === 'EXNESS FEED') {
+    if (categoryFilter === 'ALL' || categoryFilter === 'BROKER FEED' || categoryFilter === 'EXNESS FEED') {
       return getPriorityMarkets();
     }
     return getMarketsByCategory(categoryFilter);

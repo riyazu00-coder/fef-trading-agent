@@ -10,7 +10,7 @@ export const MARKET_CATEGORIES = [
   'INDICES',
   'COMMODITIES',
   'CRYPTO',
-  'EXNESS FEED',
+  'BROKER FEED',
 ] as const;
 
 export const MarketCategoryFilterBar: React.FC = () => {
@@ -92,7 +92,7 @@ export const MarketCategoryFilterBar: React.FC = () => {
               {cat === 'INDICES' && <span className="text-blue-400 text-[10px]">📊</span>}
               {cat === 'COMMODITIES' && <span className="text-amber-500 text-[10px]">💧</span>}
               {cat === 'CRYPTO' && <span className="text-yellow-400 text-[10px]">₿</span>}
-              {cat === 'EXNESS FEED' && <span className="text-emerald-400 text-[10px]">📡</span>}
+              {cat === 'BROKER FEED' && <span className="text-emerald-400 text-[10px]">📡</span>}
               <span>{cat}</span>
             </button>
           );

@@ -28,6 +28,7 @@ export interface OHLCCandle {
   low: number;
   close: number;
   tickVolume: number;
+  realVolume?: number;
 }
 
 export interface VerifiedTimeframe {

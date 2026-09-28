@@ -75,7 +75,7 @@ export const FastTradeExecutionStation: React.FC<FastTradeExecutionStationProps>
         <div className="text-right text-[9px]">
           <span className="bg-emerald-950/60 text-emerald-300 px-2.5 py-0.5 rounded-lg border border-emerald-400/60 font-bold shadow-[0_0_10px_rgba(16,185,129,0.5)] backdrop-blur-sm flex items-center space-x-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-            <span>EXNESS MT5 BRIDGE CONNECTED</span>
+            <span>BROKER MT5 BRIDGE CONNECTED</span>
           </span>
         </div>
       </div>

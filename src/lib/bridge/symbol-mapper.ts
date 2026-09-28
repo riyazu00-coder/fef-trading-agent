@@ -13,21 +13,24 @@ export interface BrokerSymbolCandidate {
 }
 
 export const CANONICAL_SYMBOL_MAPPINGS: Record<string, string[]> = {
-  XAUUSD: ['XAUUSD', 'XAUUSDm', 'XAUUSD.r', 'XAUUSD.a', 'XAUUSDc', 'GOLD', 'GOLDm', 'XAUUSD_i', 'XAUUSD.pro'],
-  XAGUSD: ['XAGUSD', 'XAGUSDm', 'XAGUSD.r', 'XAGUSD.a', 'XAGUSDc', 'SILVER', 'SILVERm', 'XAGUSD.pro'],
-  EURUSD: ['EURUSD', 'EURUSDm', 'EURUSD.r', 'EURUSD.a', 'EURUSDc', 'EURUSD_i', 'EURUSD.pro'],
-  GBPUSD: ['GBPUSD', 'GBPUSDm', 'GBPUSD.r', 'GBPUSD.a', 'GBPUSDc', 'GBPUSD_i', 'GBPUSD.pro'],
-  USDJPY: ['USDJPY', 'USDJPYm', 'USDJPY.r', 'USDJPY.a', 'USDJPYc', 'USDJPY_i', 'USDJPY.pro'],
-  GBPJPY: ['GBPJPY', 'GBPJPYm', 'GBPJPY.r', 'GBPJPY.a', 'GBPJPYc', 'GBPJPY.pro'],
-  AUDUSD: ['AUDUSD', 'AUDUSDm', 'AUDUSD.r', 'AUDUSD.a', 'AUDUSDc', 'AUDUSD.pro'],
-  NZDUSD: ['NZDUSD', 'NZDUSDm', 'NZDUSD.r', 'NZDUSD.a', 'NZDUSDc', 'NZDUSD.pro'],
-  USOIL: ['USOIL', 'USOILm', 'USOIL.r', 'USOIL.a', 'USOILc', 'WTI', 'WTICRUDE', 'CRUDE', 'USOIL.pro'],
-  US100: ['US100', 'US100m', 'USTEC', 'USTECm', 'USTEC.a', 'NAS100', 'NAS100m', 'NQ', 'US100.pro'],
-  US30: ['US30', 'US30m', 'US30.r', 'US30.a', 'DJ30', 'WS30', 'YM', 'US30.pro'],
-  US500: ['US500', 'US500m', 'US500.r', 'US500.a', 'SPX500', 'SP500', 'ES', 'US500.pro'],
-  BTCUSD: ['BTCUSD', 'BTCUSDm', 'BTCUSDT', 'BTCUSD.r', 'BTCUSD.a', 'BTCUSDc', 'BTCUSD.pro'],
-  ETHUSD: ['ETHUSD', 'ETHUSDm', 'ETHUSDT', 'ETHUSD.r', 'ETHUSD.a', 'ETHUSDc', 'ETHUSD.pro'],
-  SOLUSD: ['SOLUSD', 'SOLUSDm', 'SOLUSDT', 'SOLUSD.r', 'SOLUSD.a', 'SOLUSDc', 'SOLUSD.pro']
+  XAUUSD: ['XAUUSD', 'XAUUSDm', 'XAUUSD.r', 'XAUUSD.a', 'XAUUSDc', 'GOLD', 'GOLDm', 'XAUUSD_i', 'XAUUSD.pro', 'XAUUSD.ecn', 'XAUUSD+', 'XAUUSD.raw', 'GOLD.pro', 'GOLD.ecn', 'XAU/USD'],
+  XAGUSD: ['XAGUSD', 'XAGUSDm', 'XAGUSD.r', 'XAGUSD.a', 'XAGUSDc', 'SILVER', 'SILVERm', 'XAGUSD.pro', 'XAGUSD.ecn', 'XAGUSD+', 'XAGUSD.raw', 'SILVER.pro', 'SILVER.ecn', 'XAG/USD'],
+  EURUSD: ['EURUSD', 'EURUSDm', 'EURUSD.r', 'EURUSD.a', 'EURUSDc', 'EURUSD_i', 'EURUSD.pro', 'EURUSD.ecn', 'EURUSD+', 'EURUSD.raw', 'EUR/USD'],
+  GBPUSD: ['GBPUSD', 'GBPUSDm', 'GBPUSD.r', 'GBPUSD.a', 'GBPUSDc', 'GBPUSD_i', 'GBPUSD.pro', 'GBPUSD.ecn', 'GBPUSD+', 'GBPUSD.raw', 'GBP/USD'],
+  USDJPY: ['USDJPY', 'USDJPYm', 'USDJPY.r', 'USDJPY.a', 'USDJPYc', 'USDJPY_i', 'USDJPY.pro', 'USDJPY.ecn', 'USDJPY+', 'USDJPY.raw', 'USD/JPY'],
+  GBPJPY: ['GBPJPY', 'GBPJPYm', 'GBPJPY.r', 'GBPJPY.a', 'GBPJPYc', 'GBPJPY.pro', 'GBPJPY.ecn', 'GBPJPY+', 'GBPJPY.raw', 'GBP/JPY'],
+  AUDUSD: ['AUDUSD', 'AUDUSDm', 'AUDUSD.r', 'AUDUSD.a', 'AUDUSDc', 'AUDUSD.pro', 'AUDUSD.ecn', 'AUDUSD+', 'AUDUSD.raw', 'AUD/USD'],
+  NZDUSD: ['NZDUSD', 'NZDUSDm', 'NZDUSD.r', 'NZDUSD.a', 'NZDUSDc', 'NZDUSD.pro', 'NZDUSD.ecn', 'NZDUSD+', 'NZDUSD.raw', 'NZD/USD'],
+  USDCAD: ['USDCAD', 'USDCADm', 'USDCAD.r', 'USDCAD.a', 'USDCADc', 'USDCAD.pro', 'USDCAD.ecn', 'USDCAD+', 'USDCAD.raw', 'USD/CAD'],
+  USDCHF: ['USDCHF', 'USDCHFm', 'USDCHF.r', 'USDCHF.a', 'USDCHFc', 'USDCHF.pro', 'USDCHF.ecn', 'USDCHF+', 'USDCHF.raw', 'USD/CHF'],
+  USOIL: ['USOIL', 'USOILm', 'USOIL.r', 'USOIL.a', 'USOILc', 'WTI', 'WTICRUDE', 'CRUDE', 'USOIL.pro', 'USOIL.ecn', 'WTI.pro', 'CL', 'XTIUSD'],
+  UKOIL: ['UKOIL', 'UKOILm', 'UKOIL.r', 'UKOIL.a', 'BRENT', 'BRENTCRUDE', 'UKOIL.pro', 'CO', 'XBRUSD'],
+  US100: ['US100', 'US100m', 'USTEC', 'USTECm', 'USTEC.a', 'NAS100', 'NAS100m', 'NQ', 'US100.pro', 'US100.ecn', 'US100Cash', 'USTEC.pro', 'NAS100.pro'],
+  US30: ['US30', 'US30m', 'US30.r', 'US30.a', 'DJ30', 'WS30', 'YM', 'US30.pro', 'US30.ecn', 'US30Cash', 'DJ30.pro'],
+  US500: ['US500', 'US500m', 'US500.r', 'US500.a', 'SPX500', 'SP500', 'ES', 'US500.pro', 'US500.ecn', 'US500Cash', 'SPX500.pro'],
+  BTCUSD: ['BTCUSD', 'BTCUSDm', 'BTCUSDT', 'BTCUSD.r', 'BTCUSD.a', 'BTCUSDc', 'BTCUSD.pro', 'BTCUSD.ecn', 'BTC/USD', 'BTCUSD+'],
+  ETHUSD: ['ETHUSD', 'ETHUSDm', 'ETHUSDT', 'ETHUSD.r', 'ETHUSD.a', 'ETHUSDc', 'ETHUSD.pro', 'ETHUSD.ecn', 'ETH/USD', 'ETHUSD+'],
+  SOLUSD: ['SOLUSD', 'SOLUSDm', 'SOLUSDT', 'SOLUSD.r', 'SOLUSD.a', 'SOLUSDc', 'SOLUSD.pro', 'SOLUSD.ecn', 'SOL/USD', 'SOLUSD+']
 };
 
 export class BrokerSymbolDirectory {
@@ -179,8 +182,10 @@ export class BrokerSymbolDirectory {
       }
     }
 
-    // Dynamic suffix stripping fallback (e.g., XAUUSDm, XAUUSD.a, XAUUSDc -> XAUUSD)
-    const cleanSym = brokerSymbol.replace(/m|\.a|\.r|c|_i$/i, '');
+    // Dynamic suffix stripping fallback (e.g., XAUUSDm, XAUUSD.a, XAUUSDc, XAUUSD.pro, XAUUSD.ecn, XAUUSD.raw, XAUUSD+)
+    const cleanSym = brokerSymbol
+      .replace(/(\.r|\.a|\.pro|\.ecn|\.raw|m|c|_i|\+|Cash)$/i, '')
+      .replace('/', '');
     if (CANONICAL_SYMBOL_MAPPINGS[cleanSym]) {
       return cleanSym;
     }

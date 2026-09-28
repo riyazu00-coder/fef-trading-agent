@@ -68,6 +68,12 @@ export interface AgentState {
   evidenceRecords?: any[];
   evidenceTrustScore?: number;
   provenanceBadge?: 'LIVE' | 'MT5' | 'INDEPENDENT' | 'REFERENCE' | 'DERIVED' | 'INFERENCE' | 'DATA LIMITED' | 'UNAVAILABLE';
+  // V1.2 Observability & Readiness Contracts
+  requiredInputs?: string[];
+  availableInputs?: string[];
+  missingInputs?: string[];
+  lastRun?: string;
+  freshness?: 'REALTIME' | 'CURRENT' | 'STALE' | 'OFFLINE';
 }
 
 export interface MarketAsset {

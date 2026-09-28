@@ -79,7 +79,7 @@ export const MarketIntelligencePanel: React.FC<MarketIntelligencePanelProps> = (
         <div className="border-t border-white/10 pt-2.5">
           <div className="text-[9px] text-gray-200 uppercase mb-2 flex justify-between drop-shadow">
             <span>Macro Asset Correlation Matrix</span>
-            <span className="text-amber-300">Exness Real Feeds</span>
+            <span className="text-amber-300">Broker Live Feeds</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[10px]">
             {macroAssetKeys.slice(0, 5).map((sym) => {

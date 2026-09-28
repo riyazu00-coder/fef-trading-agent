@@ -419,7 +419,7 @@ export const MasterTopNav: React.FC = () => {
             ) : (
               <span className="inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-amber-950/70 border border-amber-500/40 text-amber-300 text-[10px] font-bold">
                 <span className={`w-1.5 h-1.5 rounded-full ${isMt5Connected ? 'bg-amber-400' : 'bg-slate-500'}`} />
-                <span>{isMt5Connected ? 'EXNESS MT5 (READ ONLY 🔒)' : 'MT5 STANDBY'}</span>
+                <span>{isMt5Connected ? `${telemetry.account?.broker || telemetry.terminal?.brokerName || 'BROKER'} MT5 (READ ONLY 🔒)` : 'MT5 STANDBY'}</span>
               </span>
             )}
 
