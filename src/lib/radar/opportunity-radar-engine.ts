@@ -378,6 +378,23 @@ export function generateGlobalRadarIntelligence(
 
     const { score, setupQuality, tradeExecutable, marketState, state, riskLevel, timeframe, whyReasons } = calculateOpportunityScore(profile, liveAsset);
 
+    // Derive true execution readiness: session must be open AND actionabilityState must be ACTIONABLE
+    // AND R:R must be >= 1.5. Do NOT let a poor-R:R open-market asset appear as EXECUTABLE 100%.
+    const isSessionExec = tradeExecutable; // from calculateOpportunityScore (session only)
+    const profileActionable = profile.actionabilityState === 'ACTIONABLE';
+    const bpRrMatch = profile.rr?.match(/1:([0-9.]+)/);
+    const bpRrVal = bpRrMatch ? parseFloat(bpRrMatch[1]) : 0;
+    const isRrFavorable = !profile.rr || bpRrVal === 0 || bpRrVal >= 1.5;
+    const isBlueprintReady = !profile.blueprint || profile.blueprint.state === 'EXECUTION READY';
+    const trulyExecutable = isSessionExec && profileActionable && isRrFavorable && isBlueprintReady;
+
+    // Executability score: 100 only when truly ready; scaled based on quality otherwise
+    const execScore = trulyExecutable
+      ? 100
+      : isSessionExec && isRrFavorable && (profile.evidenceTrust ?? 0) >= 40
+      ? Math.min(80, Math.round((profile.evidenceTrust ?? 0) * 0.8))
+      : 0;
+
     return {
       rank: 0,
       symbol: sym,
@@ -388,8 +405,8 @@ export function generateGlobalRadarIntelligence(
       state,
       opportunityScore: score,
       setupQuality,
-      tradeExecutable,
-      executabilityScore: tradeExecutable ? 100 : 0,
+      tradeExecutable: trulyExecutable,
+      executabilityScore: execScore,
       marketState,
       sessionCountdown: profile.sessionState?.nextOpenCountdown,
       aiConfidence: profile.confidence,

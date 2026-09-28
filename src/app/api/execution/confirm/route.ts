@@ -93,7 +93,48 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 6. Build execution parameters for MT5 bridge
+    // 6. Pre-dispatch quote freshness & slippage guard
+    // Re-fetch live broker quote immediately before order transmission.
+    // If price has moved beyond acceptable slippage, reject and require human re-confirmation.
+    let liveQuote: any = null;
+    try {
+      const liveQRes = await mt5HttpClient.getQuote(confirmedOrder.brokerSymbol);
+      if (liveQRes.success && liveQRes.data) {
+        liveQuote = liveQRes.data;
+      }
+    } catch {}
+
+    if (liveQuote && liveQuote.bid > 0 && liveQuote.ask > 0 && confirmedOrder.entryPrice > 0) {
+      const currentPrice = confirmedOrder.direction === 'BUY'
+        ? liveQuote.ask
+        : liveQuote.bid;
+      const slippageDistance = Math.abs(currentPrice - confirmedOrder.entryPrice);
+      // Allow 0.05% or at most 30 points slippage (whichever is larger per asset)
+      const maxSlippagePercent = 0.0005; // 0.05%
+      const maxSlippage = Math.max(
+        confirmedOrder.entryPrice * maxSlippagePercent,
+        30 * (liveQuote.point || 0.01)
+      );
+      if (slippageDistance > maxSlippage) {
+        return NextResponse.json(
+          {
+            success: false,
+            errorCode: 'PRICE_MOVED_RECONFIRM_REQUIRED',
+            message: `Execution rejected: Price has moved significantly since confirmation. ` +
+              `Confirmed: ${confirmedOrder.entryPrice}, Current: ${currentPrice.toFixed(liveQuote.digits || 2)}, ` +
+              `Slippage: ${slippageDistance.toFixed(liveQuote.digits || 2)} (max allowed: ${maxSlippage.toFixed(liveQuote.digits || 2)}). ` +
+              `Please review and re-confirm the order.`,
+            confirmedPrice: confirmedOrder.entryPrice,
+            currentPrice,
+            slippage: slippageDistance,
+            maxAllowedSlippage: maxSlippage,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    // 7. Build execution parameters for MT5 bridge
     const dispatchParams = {
       requestId: `fef-exec-${Date.now()}`,
       action: 'PLACE_ORDER',

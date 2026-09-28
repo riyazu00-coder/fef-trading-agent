@@ -25,7 +25,13 @@ export const ExecutionControlCard: React.FC = () => {
 
   const sessionState = assetProfile?.sessionState;
   const isAnalysisOnly = assetProfile?.actionabilityState === 'ANALYSIS ONLY';
-  const isTradeExecutable = assetProfile?.tradeExecutable !== false && (sessionState ? sessionState.tradeExecutable : true) && !isAnalysisOnly;
+  const isUnfavorableRR = assetProfile?.actionabilityState === 'UNFAVORABLE_RR';
+  const isDataLimited = assetProfile?.actionabilityState === 'DATA LIMITED';
+  const isTradeExecutable = assetProfile?.tradeExecutable !== false
+    && (sessionState ? sessionState.tradeExecutable : true)
+    && !isAnalysisOnly
+    && !isUnfavorableRR
+    && !isDataLimited;
 
   const handleDeploy = () => {
     if (!isTradeExecutable) return; // Strict frontend gate
@@ -173,7 +179,11 @@ export const ExecutionControlCard: React.FC = () => {
         <span>{!isTradeExecutable ? '🔒' : '⚡'}</span>
         <span suppressHydrationWarning>
           {!isTradeExecutable
-            ? isAnalysisOnly
+            ? isUnfavorableRR
+              ? 'UNFAVORABLE R:R — EXECUTION GATED'
+              : isDataLimited
+              ? 'INSUFFICIENT DATA — EXECUTION LOCKED'
+              : isAnalysisOnly
               ? 'ANALYSIS ONLY — EXECUTION LOCKED'
               : sessionState?.marketState === 'PRE_OPEN'
               ? `PRE-OPEN WATCH (OPENS IN ${sessionState?.nextOpenCountdown || '15m'})`

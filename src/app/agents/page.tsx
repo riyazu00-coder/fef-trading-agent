@@ -197,7 +197,7 @@ export default function AgentsDirectoryPage() {
                   <span className="text-[9px] bg-emerald-950/60 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     <span>MT5: {telemetry.account.broker} #{telemetry.account.maskedLogin} (Eq: ${telemetry.account.equity.toLocaleString('en-US', { minimumFractionDigits: 0 })})</span>
-                    <span className="text-gray-400 font-normal">&bull; READ-ONLY 🔒</span>
+                    <span className="text-emerald-400 font-normal">• HUMAN CONFIRMATION REQUIRED</span>
                   </span>
                 ) : (
                   <span className="text-[9px] bg-black/40 text-gray-400 border border-white/10 px-2 py-0.5 rounded font-mono">

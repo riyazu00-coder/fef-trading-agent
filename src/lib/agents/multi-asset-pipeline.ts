@@ -44,7 +44,7 @@ import { marketSentimentEngine } from '../sentiment/market-sentiment-engine';
 import { LiveIntelligenceFeeds } from '../intelligence/feed-types';
 
 export type DirectionalBias = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-export type DecisionPosture = 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)' | 'ANALYSIS ONLY' | 'DATA LIMITED';
+export type DecisionPosture = 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'WAIT FOR BUY' | 'WAIT FOR SELL' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)' | 'ANALYSIS ONLY' | 'DATA LIMITED';
 export type RiskPosture = 'CLEAR' | 'CAUTION' | 'RESTRICTED';
 
 export interface AssetIntelligenceProfile {
@@ -1151,7 +1151,8 @@ export function generateAssetIntelligence(
     evidenceTrust: consensusTrust.evidenceTrust,
     verifiedAgentCount: consensusTrust.verifiedAgentCount,
     tradeExecutable,
-    marketState: sessionState.marketState
+    marketState: sessionState.marketState,
+    blueprint: blueprint || null
   });
 
   // 7. Directional Evidence Gating:
@@ -1179,7 +1180,7 @@ export function generateAssetIntelligence(
 
   if (blueprint && blueprint.direction === 'BUY' && eligibleBullishCount > 0 && consensusTrust.evidenceTrust >= 40) {
     if (!isRrFavorable) {
-      effectiveSetupDirection = 'WAIT';
+      effectiveSetupDirection = 'WAIT FOR BUY';
       finalReasonNote = `Directional bias BULLISH, but R:R (${blueprint.rrRatio}) is sub-threshold (< 1:1.5). Execution gated.`;
     } else if (blueprint.state === 'EXECUTION READY') {
       effectiveSetupDirection = 'BUY OPPORTUNITY';
@@ -1190,7 +1191,7 @@ export function generateAssetIntelligence(
     }
   } else if (blueprint && blueprint.direction === 'SELL' && eligibleBearishCount > 0 && consensusTrust.evidenceTrust >= 40) {
     if (!isRrFavorable) {
-      effectiveSetupDirection = 'WAIT';
+      effectiveSetupDirection = 'WAIT FOR SELL';
       finalReasonNote = `Directional bias BEARISH, but R:R (${blueprint.rrRatio}) is sub-threshold (< 1:1.5). Execution gated.`;
     } else if (blueprint.state === 'EXECUTION READY') {
       effectiveSetupDirection = 'SELL OPPORTUNITY';

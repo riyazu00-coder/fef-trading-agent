@@ -56,9 +56,49 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    const effectiveEntry = entryPrice > 0
-      ? entryPrice
-      : (quote ? (direction === 'BUY' ? quote.ask : quote.bid) : 0);
+    // Determine order mode: MARKET vs LIMIT/STOP
+    const orderMode = (body.orderMode || body.type || 'MARKET').toString().trim().toUpperCase();
+    const isMarketOrder = orderMode === 'MARKET' || orderMode === 'BUY' || orderMode === 'SELL';
+
+    let effectiveEntry: number;
+    let setupReferencePrice: number = entryPrice; // AI reference price (for display only)
+    let priceAuthority: string;
+    let brokerBid: number | null = null;
+    let brokerAsk: number | null = null;
+    let quoteTimestamp: number | null = null;
+
+    if (isMarketOrder) {
+      // MARKET orders: MUST use fresh live MT5 broker quote. Fail closed if unavailable.
+      if (!quote || !quote.bid || !quote.ask || quote.bid <= 0 || quote.ask <= 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            errorCode: 'BROKER_QUOTE_UNAVAILABLE',
+            message: `Cannot prepare MARKET order: Fresh MT5 broker quote for ${brokerSymbol} is required but unavailable. Reconnect MT5 bridge before executing a market order.`,
+          },
+          { status: 503 }
+        );
+      }
+      brokerBid = quote.bid;
+      brokerAsk = quote.ask;
+      quoteTimestamp = quote.timestamp || Date.now();
+      effectiveEntry = direction === 'BUY' ? quote.ask : quote.bid;
+      priceAuthority = 'MT5_BROKER';
+    } else {
+      // LIMIT/STOP orders: use the specified entry price
+      if (entryPrice <= 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            errorCode: 'INVALID_ENTRY_PRICE',
+            message: `Cannot prepare ${orderMode} order: A valid entry price must be provided.`,
+          },
+          { status: 400 }
+        );
+      }
+      effectiveEntry = entryPrice;
+      priceAuthority = 'PENDING_ORDER_SPECIFIED';
+    }
 
     if (effectiveEntry <= 0) {
       return NextResponse.json(
@@ -151,6 +191,12 @@ export async function POST(req: NextRequest) {
       success: true,
       artifact,
       warnings: specValidation.warnings,
+      priceAuthority,
+      executablePrice: effectiveEntry,
+      setupReferencePrice,
+      brokerBid,
+      brokerAsk,
+      quoteTimestamp,
     });
   } catch (err: any) {
     return NextResponse.json(

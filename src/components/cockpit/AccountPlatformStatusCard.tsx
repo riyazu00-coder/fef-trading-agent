@@ -9,7 +9,7 @@ export const AccountPlatformStatusCard: React.FC = () => {
 
   // Honest platform status: verified MT5 account facts when connected, paper fallback when standby
   const accountData = isMt5Connected && telemetry.account ? {
-    mode: 'MT5 READ-ONLY',
+    mode: 'MT5 CONNECTED',
     isLive: true,
     broker: `${telemetry.account.broker} (${telemetry.account.tradeMode} #${telemetry.account.maskedLogin})`,
     balance: telemetry.account.balance,
@@ -104,7 +104,7 @@ export const AccountPlatformStatusCard: React.FC = () => {
         <div className="p-2 rounded-xl bg-black/50 border border-cyan-500/20 space-y-1 text-[8.5px]">
           <div className="flex items-center justify-between text-cyan-300 font-bold">
             <span>MT5 POSITIONS ({telemetry.allPositions.length})</span>
-            <span className="text-[7.5px] bg-cyan-950 px-1 py-0.2 rounded border border-cyan-500/30">READ-ONLY 🔒</span>
+            <span className="text-[7.5px] bg-emerald-950 px-1 py-0.2 rounded border border-emerald-500/30 text-emerald-400">LIVE POSITIONS</span>
           </div>
           <div className="max-h-24 overflow-y-auto space-y-1 pr-1 font-mono">
             {telemetry.allPositions.map((pos) => (

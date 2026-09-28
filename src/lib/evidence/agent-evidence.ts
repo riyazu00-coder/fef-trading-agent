@@ -315,19 +315,21 @@ export type ActionabilityState =
   | 'DATA LIMITED'
   | 'WAIT FOR VERIFIED DATA'
   | 'MONITOR'
-  | 'NO TRADE';
+  | 'NO TRADE'
+  | 'UNFAVORABLE_RR';
 
 export function evaluateActionabilityGate(params: {
   evidenceTrust: number;
   verifiedAgentCount: number;
   tradeExecutable: boolean;
   marketState?: string;
+  blueprint?: { rrRatio?: string | null; state?: string | null } | null;
 }): {
   actionabilityState: ActionabilityState;
   isActionable: boolean;
   reason: string;
 } {
-  const { evidenceTrust, verifiedAgentCount, tradeExecutable, marketState } = params;
+  const { evidenceTrust, verifiedAgentCount, tradeExecutable, marketState, blueprint } = params;
 
   // 1. Session Gate takes strict precedence if market is closed
   if (!tradeExecutable || marketState === 'CLOSED' || marketState === 'WEEKEND_BREAK') {
@@ -356,7 +358,21 @@ export function evaluateActionabilityGate(params: {
     };
   }
 
-  // 4. Fully qualified
+  // 4. R:R Gate — a poor R:R must NEVER allow ACTIONABLE state
+  if (blueprint) {
+    const isBlueprintUnfavorable = blueprint.state === 'UNFAVORABLE_RR';
+    const rrMatch = blueprint.rrRatio?.match(/1:([0-9.]+)/);
+    const rrVal = rrMatch ? parseFloat(rrMatch[1]) : 0;
+    if (isBlueprintUnfavorable || (rrVal > 0 && rrVal < 1.5)) {
+      return {
+        actionabilityState: 'UNFAVORABLE_RR',
+        isActionable: false,
+        reason: `Setup R:R (${blueprint.rrRatio || 'N/A'}) is below the minimum 1:1.5 threshold. Directional bias preserved but execution gated until geometry improves.`
+      };
+    }
+  }
+
+  // 5. Fully qualified
   return {
     actionabilityState: 'ACTIONABLE',
     isActionable: true,

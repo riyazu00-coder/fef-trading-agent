@@ -27,12 +27,24 @@ export const CurrentAiDecision: React.FC = () => {
     buttonStyle = 'bg-gray-900/80 text-gray-500 border-white/10 cursor-not-allowed opacity-80';
     buttonTitle = 'Execution locked: market session is closed';
     supportingText = 'Market closed • Revalidates at next open';
+  } else if (actionability === 'UNFAVORABLE_RR') {
+    buttonLabel = 'UNFAVORABLE R:R — GATED';
+    buttonIcon = '🔒';
+    buttonStyle = 'bg-amber-950/40 text-amber-400/70 border-amber-500/20 cursor-not-allowed opacity-85';
+    buttonTitle = `R:R below 1:1.5 threshold. Awaiting better entry geometry.`;
+    supportingText = `Directional bias preserved • Execution gated until R:R ≥ 1:1.5`;
   } else if (actionability === 'ANALYSIS ONLY') {
     buttonLabel = 'ANALYSIS ONLY';
     buttonIcon = '🔒';
     buttonStyle = 'bg-cyan-950/40 text-cyan-400/70 border-cyan-500/20 cursor-not-allowed opacity-85';
     buttonTitle = `Analysis only: Evidence Trust is ${assetProfile.evidenceTrust ?? 0}% (minimum 60% required)`;
     supportingText = `Evidence Trust ${assetProfile.evidenceTrust ?? 0}% • 60% required`;
+  } else if (actionability === 'DATA LIMITED') {
+    buttonLabel = 'INSUFFICIENT DATA';
+    buttonIcon = '🔒';
+    buttonStyle = 'bg-amber-950/40 text-amber-400/70 border-amber-500/20 cursor-not-allowed opacity-85';
+    buttonTitle = 'Insufficient verified agent evidence for execution';
+    supportingText = 'Data limited • Awaiting verified agent consensus';
   } else if (actionability === 'RESTRICTED') {
     buttonLabel = 'RESTRICTED';
     buttonIcon = '🔒';

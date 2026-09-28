@@ -959,11 +959,13 @@ export default function ExecutionPage() {
                 {/* Dispatch Button */}
                 <button
                   onClick={handleExecuteOrder}
-                  disabled={!isArmed || !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' || !protectionValidation.valid}
+                  disabled={!isArmed || !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' || assetProfile.actionabilityState === 'UNFAVORABLE_RR' || assetProfile.actionabilityState === 'DATA LIMITED' || assetProfile.actionabilityState === 'MONITOR' || !protectionValidation.valid}
                   className={`w-full py-3 rounded-xl font-bold text-xs tracking-wider transition-all shadow-lg flex items-center justify-center space-x-2 ${
                     !protectionValidation.valid
                       ? 'bg-rose-950/40 text-rose-400 border border-rose-500/30 cursor-not-allowed shadow-none'
-                      : !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY'
+                      : assetProfile.actionabilityState === 'UNFAVORABLE_RR'
+                      ? 'bg-amber-950/40 text-amber-400/80 border border-amber-500/30 cursor-not-allowed shadow-none'
+                      : !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' || assetProfile.actionabilityState === 'DATA LIMITED'
                       ? 'bg-amber-950/40 text-amber-400/80 border border-amber-500/30 cursor-not-allowed shadow-none'
                       : isArmed
                       ? direction === 'BUY'
@@ -972,14 +974,18 @@ export default function ExecutionPage() {
                       : 'bg-white/5 text-gray-500 border border-white/5 cursor-not-allowed'
                   }`}
                 >
-                  <span>{!protectionValidation.valid || !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' ? '🔒' : '⚡'}</span>
+                  <span>{!protectionValidation.valid || !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' || assetProfile.actionabilityState === 'UNFAVORABLE_RR' || assetProfile.actionabilityState === 'DATA LIMITED' ? '🔒' : '⚡'}</span>
                   <span>
                     {!protectionValidation.valid
                       ? 'PROTECTION INVALID — DISPATCH LOCKED'
                       : !assetProfile.tradeExecutable
                       ? 'MARKET CLOSED — DISPATCH LOCKED'
+                      : assetProfile.actionabilityState === 'UNFAVORABLE_RR'
+                      ? `UNFAVORABLE R:R — EXECUTION GATED`
                       : assetProfile.actionabilityState === 'ANALYSIS ONLY'
                       ? 'ANALYSIS ONLY — DISPATCH LOCKED'
+                      : assetProfile.actionabilityState === 'DATA LIMITED'
+                      ? 'INSUFFICIENT DATA — DISPATCH LOCKED'
                       : isArmed
                       ? `REVIEW & AUTHORIZE ${direction} ${calculatedLotSize} LOTS`
                       : 'ARM EXECUTION GATE TO REVIEW'}
