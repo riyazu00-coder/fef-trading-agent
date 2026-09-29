@@ -30,7 +30,7 @@ import {
   EvidenceClassification
 } from '../evidence/agent-evidence';
 import { analyzeMarketStructure, MarketStructure } from '../market/market-structure-engine';
-import { buildBuyBlueprint, buildSellBlueprint, updateBlueprintLifecycle, BlueprintCandleSource, TradeBlueprint } from '../trading/trade-blueprint-engine';
+import { buildBuyBlueprint, buildSellBlueprint, updateBlueprintLifecycle, BlueprintCandleSource, TradeBlueprint, LevelWithProvenance } from '../trading/trade-blueprint-engine';
 import { OHLCCandle } from '../market/canonical-market-snapshot';
 import { calculateVolumeProfile } from '../market/volume-profile-engine';
 import { evaluateCorrelationRegime } from '../market/dynamic-correlation-engine';
@@ -137,6 +137,77 @@ const activeBlueprintCache = new Map<string, TradeBlueprint>();
 
 export function clearBlueprintCacheForTesting(): void {
   activeBlueprintCache.clear();
+}
+
+/**
+ * Fail-closed validation to ensure MarketStructure belongs to the exact current analysis context.
+ */
+export function isMarketStructureCompatibleWithContext(
+  structure: MarketStructure | null | undefined,
+  expectedSymbol: string,
+  expectedTf: string,
+  expectedSource: BlueprintCandleSource
+): boolean {
+  if (!structure) return false;
+  if ((structure.symbol || '').toUpperCase() !== expectedSymbol.toUpperCase()) return false;
+  if ((structure.timeframe || '').toUpperCase() !== expectedTf.toUpperCase()) return false;
+  if (structure.source !== expectedSource) return false;
+  return true;
+}
+
+/**
+ * Fail-closed validation to ensure a TradeBlueprint strictly matches the current symbol,
+ * timeframe, and candle source provenance across all its structural levels.
+ */
+export function isBlueprintCompatibleWithContext(
+  bp: TradeBlueprint | null | undefined,
+  expectedSymbol: string,
+  expectedTf: string,
+  expectedSource: BlueprintCandleSource,
+  structure?: MarketStructure | null
+): boolean {
+  if (!bp) return false;
+
+  // 1. Symbol integrity (case-insensitive normalization)
+  if ((bp.symbol || '').toUpperCase() !== expectedSymbol.toUpperCase()) {
+    return false;
+  }
+
+  // 2. Market structure integrity (if provided)
+  if (structure && !isMarketStructureCompatibleWithContext(structure, expectedSymbol, expectedTf, expectedSource)) {
+    return false;
+  }
+
+  // 3. Mandatory structural levels existence
+  if (!bp.entryZoneHigh || !bp.entryZoneLow || !bp.invalidation || !bp.sl || !bp.tp1) {
+    return false;
+  }
+
+  // 4. Validate provenance-bearing levels
+  const levels: (LevelWithProvenance | undefined)[] = [
+    bp.entryZoneHigh,
+    bp.entryZoneLow,
+    bp.invalidation,
+    bp.sl,
+    bp.tp1,
+    bp.tp2,
+    bp.tp3,
+  ];
+
+  const normTf = expectedTf.toUpperCase();
+  for (const lvl of levels) {
+    if (!lvl) continue;
+    // Source check: must match current blueprint candle source
+    if (lvl.source !== expectedSource) {
+      return false;
+    }
+    // Timeframe check: must match structure timeframe used to create blueprint
+    if ((lvl.timeframe || '').toUpperCase() !== normTf) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export type CandleBundle = Record<string, OHLCCandle[]>;
@@ -265,7 +336,9 @@ export function generateAssetIntelligence(
   const bpKey = `${normSymbol}:${structureTf}`;
   const cachedBp = activeBlueprintCache.get(bpKey);
 
-  if (marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
+  const isStructureValid = isMarketStructureCompatibleWithContext(marketStructure, normSymbol, structureTf, blueprintCandleSource);
+
+  if (isStructureValid && marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
     let freshBlueprint: TradeBlueprint | null = null;
     if (marketStructure.trend === 'BULLISH') {
       freshBlueprint = buildBuyBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
@@ -274,26 +347,42 @@ export function generateAssetIntelligence(
     }
 
     if (freshBlueprint) {
-      activeBlueprintCache.set(bpKey, freshBlueprint);
-      blueprint = freshBlueprint;
+      if (isBlueprintCompatibleWithContext(freshBlueprint, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
+        activeBlueprintCache.set(bpKey, freshBlueprint);
+        blueprint = freshBlueprint;
+      } else {
+        activeBlueprintCache.delete(bpKey);
+        blueprint = null;
+      }
     } else if (cachedBp) {
-      // Check if existing cached blueprint is still structurally valid or invalidated
-      const isTrendMismatch = (cachedBp.direction === 'BUY' && marketStructure.trend === 'BEARISH') ||
-                              (cachedBp.direction === 'SELL' && marketStructure.trend === 'BULLISH');
-      const isInvalidated = (cachedBp.direction === 'BUY' && p < cachedBp.sl.price) ||
-                            (cachedBp.direction === 'SELL' && p > cachedBp.sl.price);
-      const isTargetReached = (cachedBp.direction === 'BUY' && p >= cachedBp.tp1.price) ||
-                              (cachedBp.direction === 'SELL' && p <= cachedBp.tp1.price);
-      const isExpired = Date.now() > cachedBp.expiry;
-
-      if (isTrendMismatch || isInvalidated || isTargetReached || isExpired) {
+      // Fail-closed cached blueprint integrity validation
+      if (!isBlueprintCompatibleWithContext(cachedBp, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
         activeBlueprintCache.delete(bpKey);
         blueprint = null;
       } else {
-        // Blueprint remains active with updated lifecycle state
-        const updatedBp = updateBlueprintLifecycle(cachedBp, p);
-        activeBlueprintCache.set(bpKey, updatedBp);
-        blueprint = updatedBp;
+        // Check if existing cached blueprint is still structurally valid or invalidated
+        const isTrendMismatch = (cachedBp.direction === 'BUY' && marketStructure.trend === 'BEARISH') ||
+                                (cachedBp.direction === 'SELL' && marketStructure.trend === 'BULLISH');
+        const isInvalidated = (cachedBp.direction === 'BUY' && p < cachedBp.sl.price) ||
+                              (cachedBp.direction === 'SELL' && p > cachedBp.sl.price);
+        const isTargetReached = (cachedBp.direction === 'BUY' && p >= cachedBp.tp1.price) ||
+                                (cachedBp.direction === 'SELL' && p <= cachedBp.tp1.price);
+        const isExpired = Date.now() > cachedBp.expiry;
+
+        if (isTrendMismatch || isInvalidated || isTargetReached || isExpired) {
+          activeBlueprintCache.delete(bpKey);
+          blueprint = null;
+        } else {
+          // Blueprint remains active with updated lifecycle state
+          const updatedBp = updateBlueprintLifecycle(cachedBp, p);
+          if (isBlueprintCompatibleWithContext(updatedBp, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
+            activeBlueprintCache.set(bpKey, updatedBp);
+            blueprint = updatedBp;
+          } else {
+            activeBlueprintCache.delete(bpKey);
+            blueprint = null;
+          }
+        }
       }
     }
   } else {

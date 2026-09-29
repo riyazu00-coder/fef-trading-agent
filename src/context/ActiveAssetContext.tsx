@@ -20,6 +20,17 @@ import { LiveIntelligenceFeeds } from '../lib/intelligence/feed-types';
 
 export type CandleLoadingState = 'LOADING' | 'VERIFIED' | 'STALE' | 'UNAVAILABLE' | 'ERROR';
 
+export interface SymbolCandlePayload {
+  symbol: string;
+  timeframe: string;
+  candles: OHLCCandle[];
+  bundle?: Record<string, OHLCCandle[]>;
+  provenance?: EvidenceClassification;
+  provider?: string;
+  state: CandleLoadingState;
+  fetchedAt: number;
+}
+
 interface ActiveAssetContextType {
   activeSymbol: string;
   setActiveSymbol: (sym: string) => void;
@@ -47,18 +58,13 @@ const ActiveAssetContext = createContext<ActiveAssetContextType | null>(null);
 export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeSymbol, setActiveSymbolState] = useState<string>('XAUUSD');
   const [allAssets, setAllAssets] = useState<Record<string, LiveMarketAsset>>(INITIAL_LIVE_ASSETS);
-  const [timeframe, setTimeframe] = useState<string>('H1');
+  const [timeframe, setTimeframeState] = useState<string>('H1');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [lastUpdated, setLastUpdated] = useState<string>('Just now');
   const [isLive, setIsLive] = useState<boolean>(true);
 
-  // Candle state & metadata
-  const [candles, setCandles] = useState<OHLCCandle[] | undefined>(undefined);
-  const [candleBundle, setCandleBundle] = useState<Record<string, OHLCCandle[]> | undefined>(undefined);
-  const [candleProvenance, setCandleProvenance] = useState<EvidenceClassification | undefined>(undefined);
-  const [candleProvider, setCandleProvider] = useState<string | undefined>(undefined);
-  const [candleState, setCandleState] = useState<CandleLoadingState>('LOADING');
-  const [candleCount, setCandleCount] = useState<number>(0);
+  // Symbol-bound candle state & metadata
+  const [candlePayload, setCandlePayload] = useState<SymbolCandlePayload | null>(null);
   const [liveFeeds, setLiveFeeds] = useState<LiveIntelligenceFeeds | undefined>(undefined);
 
   // Global cache across evaluated assets for multi-asset radar intelligence
@@ -69,11 +75,29 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
     provider?: string;
   }>>({});
 
+  // Active symbol & timeframe refs to prevent out-of-order race conditions and stale closures
+  const activeSymbolRef = useRef<string>('XAUUSD');
+  const activeTimeframeRef = useRef<string>('H1');
+
   // Race-condition prevention refs for timeframe & symbol switching
   const activeFetchIdRef = useRef<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchedSymRef = useRef<string>('');
   const lastFetchedTfRef = useRef<string>('');
+
+  // Strict symbol and timeframe validation: never allow another asset's candles
+  const isCandleMatch = Boolean(
+    candlePayload &&
+    candlePayload.symbol === activeSymbol &&
+    candlePayload.timeframe === timeframe
+  );
+
+  const candles = isCandleMatch ? candlePayload?.candles : undefined;
+  const candleBundle = isCandleMatch ? candlePayload?.bundle : undefined;
+  const candleProvenance = isCandleMatch ? candlePayload?.provenance : undefined;
+  const candleProvider = isCandleMatch ? candlePayload?.provider : undefined;
+  const candleState: CandleLoadingState = isCandleMatch ? (candlePayload?.state || 'VERIFIED') : 'LOADING';
+  const candleCount = isCandleMatch ? (candlePayload?.candles?.length || 0) : 0;
 
   // Restore persisted active symbol on client hydration
   useEffect(() => {
@@ -83,6 +107,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
         if (saved) {
           const canonical = getMarketDefinition(saved);
           if (canonical) {
+            activeSymbolRef.current = canonical.symbol;
             setActiveSymbolState(canonical.symbol);
           }
         }
@@ -101,13 +126,8 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     const isSwitch = sym !== lastFetchedSymRef.current || tf !== lastFetchedTfRef.current;
     if (isSwitch) {
-      setCandleState('LOADING');
-      // Clear previous candles to prevent cross-asset or cross-timeframe stale analysis
-      setCandles(undefined);
-      setCandleBundle(undefined);
-      setCandleProvenance(undefined);
-      setCandleProvider(undefined);
-      setCandleCount(0);
+      // Immediately clear candle payload on symbol/timeframe switch so previous asset candles are never consumed
+      setCandlePayload(null);
       lastFetchedSymRef.current = sym;
       lastFetchedTfRef.current = tf;
     }
@@ -119,19 +139,22 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
 
       if (fetchId !== activeFetchIdRef.current) return;
+      if (sym !== activeSymbolRef.current || tf !== activeTimeframeRef.current) return;
 
       if (!res.ok) {
-        setCandles(undefined);
-        setCandleBundle(undefined);
-        setCandleProvenance(undefined);
-        setCandleProvider(undefined);
-        setCandleCount(0);
-        setCandleState('ERROR');
+        setCandlePayload({
+          symbol: sym,
+          timeframe: tf,
+          candles: [],
+          state: 'ERROR',
+          fetchedAt: Date.now()
+        });
         return;
       }
 
       const data = await res.json();
       if (fetchId !== activeFetchIdRef.current) return;
+      if (sym !== activeSymbolRef.current || tf !== activeTimeframeRef.current) return;
 
       if (data.success && Array.isArray(data.candles) && data.candles.length >= 10) {
         const validation = validateCandleSeries(data.candles, tf);
@@ -142,14 +165,17 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const provName = prov === 'LIVE_MT5'
               ? data.broker || data.provider || 'Authenticated MT5 Broker'
               : data.provider || 'Independent Verified Feed';
-            setCandles(data.candles);
-            if (data.timeframes && typeof data.timeframes === 'object') {
-              setCandleBundle(data.timeframes);
-            }
-            setCandleProvenance(prov);
-            setCandleProvider(provName);
-            setCandleCount(data.candles.length);
-            setCandleState(data.state === 'VERIFIED' ? 'VERIFIED' : (data.state as any) || 'VERIFIED');
+
+            setCandlePayload({
+              symbol: sym,
+              timeframe: tf,
+              candles: data.candles,
+              bundle: (data.timeframes && typeof data.timeframes === 'object') ? data.timeframes : undefined,
+              provenance: prov,
+              provider: provName,
+              state: data.state === 'VERIFIED' ? 'VERIFIED' : (data.state as any) || 'VERIFIED',
+              fetchedAt: Date.now()
+            });
 
             // Store in global multi-asset cache for radar intelligence
             multiAssetCandleCacheRef.current[sym] = {
@@ -166,28 +192,31 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       }
 
-      setCandles(undefined);
-      setCandleBundle(undefined);
-      setCandleProvenance(undefined);
-      setCandleProvider(undefined);
-      setCandleCount(0);
-      setCandleState(data.state === 'UNAVAILABLE' ? 'UNAVAILABLE' : 'ERROR');
+      setCandlePayload({
+        symbol: sym,
+        timeframe: tf,
+        candles: [],
+        state: data.state === 'UNAVAILABLE' ? 'UNAVAILABLE' : 'ERROR',
+        fetchedAt: Date.now()
+      });
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       if (fetchId !== activeFetchIdRef.current) return;
+      if (sym !== activeSymbolRef.current || tf !== activeTimeframeRef.current) return;
       console.warn(`[Candles] Fetch error for ${sym} ${tf}:`, err);
-      setCandles(undefined);
-      setCandleBundle(undefined);
-      setCandleProvenance(undefined);
-      setCandleProvider(undefined);
-      setCandleCount(0);
-      setCandleState('ERROR');
+      setCandlePayload({
+        symbol: sym,
+        timeframe: tf,
+        candles: [],
+        state: 'ERROR',
+        fetchedAt: Date.now()
+      });
     }
   }, []);
 
   // Poll live market endpoint and MT5 bridge telemetry
   const refreshData = useCallback(async () => {
-    fetchCandles(activeSymbol, timeframe);
+    fetchCandles(activeSymbolRef.current, activeTimeframeRef.current);
     try {
       const updated = await fetchLiveMarketPrices();
 
@@ -280,7 +309,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
       console.warn('Real market feed refresh error:', e);
       setIsLive(false);
     }
-  }, []);
+  }, [fetchCandles]);
 
   useEffect(() => {
     refreshData();
@@ -370,7 +399,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // Continuously scan global opportunities across all assets in background with full multi-asset candles
   useEffect(() => {
     try {
-      const activeCandlesPayload = candles && candles.length >= 10
+      const activeCandlesPayload = isCandleMatch && candles && candles.length >= 10
         ? { symbol: activeSymbol, candles, bundle: candleBundle, provenance: candleProvenance, provider: candleProvider }
         : undefined;
       const radar = generateGlobalRadarIntelligence(
@@ -385,7 +414,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
     } catch (e) {
       console.warn('Background opportunity radar evaluation error:', e);
     }
-  }, [allAssets, timeframe, activeSymbol, candles, candleBundle, candleProvenance, candleProvider]);
+  }, [allAssets, timeframe, activeSymbol, isCandleMatch, candles, candleBundle, candleProvenance, candleProvider]);
 
   // Active Asset resolved object
   const activeAsset = useMemo(() => {
@@ -407,29 +436,40 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
     };
   }, [allAssets, activeSymbol]);
 
-  // Full dynamic multi-agent intelligence recomputed for active symbol & timeframe with verified candles and hydrated feeds
+  // Full dynamic multi-agent intelligence recomputed for active symbol & timeframe with verified candles and hydrated feeds.
+  // Never pass candle data unless candlePayload strictly matches activeSymbol and timeframe.
   const assetProfile = useMemo(() => {
+    const verifiedCandles = isCandleMatch ? (candleBundle || candles) : undefined;
+    const verifiedProv = isCandleMatch ? candleProvenance : undefined;
+    const verifiedProvName = isCandleMatch ? candleProvider : undefined;
+
     return generateAssetIntelligence(
       activeSymbol,
       activeAsset,
       timeframe,
-      candleBundle || candles,
-      candleProvenance,
-      candleProvider,
+      verifiedCandles,
+      verifiedProv,
+      verifiedProvName,
       undefined,
       liveFeeds
     );
-  }, [activeSymbol, activeAsset, timeframe, candles, candleBundle, candleProvenance, candleProvider, liveFeeds]);
+  }, [activeSymbol, activeAsset, timeframe, isCandleMatch, candleBundle, candles, candleProvenance, candleProvider, liveFeeds]);
 
   const setActiveSymbol = useCallback((sym: string) => {
     const canonical = getMarketDefinition(sym);
     const resolved = canonical ? canonical.symbol : sym.toUpperCase();
+    activeSymbolRef.current = resolved;
     setActiveSymbolState(resolved);
     if (typeof window !== 'undefined') {
       try {
         window.localStorage.setItem('fef_active_symbol', resolved);
       } catch {}
     }
+  }, []);
+
+  const setTimeframe = useCallback((tf: string) => {
+    activeTimeframeRef.current = tf;
+    setTimeframeState(tf);
   }, []);
 
   const value = useMemo(

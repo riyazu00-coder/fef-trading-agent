@@ -13,12 +13,13 @@
  * 9. WAIT remains possible and truthful with verified candles
  * 10. Strategy remains DATA LIMITED without valid blueprint
  * 11. Opportunity remains DATA LIMITED without valid setup
+ * 12. Blueprint/market-structure context integrity blocks cross-asset, cross-timeframe, and provenance contamination
  */
 
-import { generateAssetIntelligence } from '../src/lib/agents/multi-asset-pipeline';
+import { generateAssetIntelligence, isBlueprintCompatibleWithContext, isMarketStructureCompatibleWithContext } from '../src/lib/agents/multi-asset-pipeline';
 import { validateCandleSeries, RawCandleInput } from '../src/lib/candles/candle-validator';
 import { analyzeMarketStructure } from '../src/lib/market/market-structure-engine';
-import { buildBuyBlueprint, buildSellBlueprint } from '../src/lib/trading/trade-blueprint-engine';
+import { buildBuyBlueprint, buildSellBlueprint, TradeBlueprint } from '../src/lib/trading/trade-blueprint-engine';
 import { OHLCCandle } from '../src/lib/market/canonical-market-snapshot';
 import { INITIAL_LIVE_ASSETS, LiveMarketAsset } from '../src/lib/providers/real-market-api';
 
@@ -185,8 +186,66 @@ async function runSuite() {
   assert(oppFlat?.status === 'ONLINE', 'Opportunity Agent is ONLINE (ACTIVE SCANNING) when setup is null');
   assert(oppFlat?.bias === 'NEUTRAL', 'Opportunity bias is NEUTRAL when scanning');
 
+  // TEST 12: Blueprint context integrity blocks cross-asset / cross-timeframe contamination
+  console.log('\n[TEST 12: BLUEPRINT CONTEXT INTEGRITY]');
+
+  const level = (price: number) => ({
+    price,
+    reason: 'Deterministic regression fixture',
+    source: 'MT5_BROKER_OHLC' as const,
+    timeframe: 'H1',
+    structureType: 'REGRESSION_FIXTURE',
+    candleTimestamp: deterministicOpenTime.getTime(),
+    classification: 'DERIVED_FROM_VERIFIED' as const,
+  });
+
+  const xauBlueprint: TradeBlueprint = {
+    setupId: 'TEST-XAUUSD-CONTEXT-INTEGRITY',
+    createdAt: deterministicOpenTime.getTime(),
+    updatedAt: deterministicOpenTime.getTime(),
+    symbol: 'XAUUSD',
+    direction: 'BUY',
+    entryZoneHigh: level(4362),
+    entryZoneLow: level(4358),
+    invalidation: level(4350),
+    sl: level(4348),
+    tp1: level(4375),
+    rrRatio: '1:1.50',
+    expiry: deterministicOpenTime.getTime() + 4 * 60 * 60 * 1000,
+    state: 'WATCH',
+    blueprintProvenanceVerified: true,
+    provenanceNote: 'Deterministic context-integrity regression fixture',
+  };
+
+  assert(
+    isBlueprintCompatibleWithContext(xauBlueprint, 'XAUUSD', 'H1', 'MT5_BROKER_OHLC'),
+    'Blueprint passes when symbol, timeframe, and candle source all match'
+  );
+  assert(
+    !isBlueprintCompatibleWithContext(xauBlueprint, 'EURUSD', 'H1', 'MT5_BROKER_OHLC'),
+    'XAUUSD blueprint is rejected for EURUSD context'
+  );
+  assert(
+    !isBlueprintCompatibleWithContext(xauBlueprint, 'XAUUSD', 'H4', 'MT5_BROKER_OHLC'),
+    'H1 blueprint is rejected for H4 context'
+  );
+  assert(
+    !isBlueprintCompatibleWithContext(xauBlueprint, 'XAUUSD', 'H1', 'INDEPENDENT_VERIFIED_OHLC'),
+    'MT5 blueprint is rejected when candle-source provenance changes'
+  );
+
+  const xauStructure = analyzeMarketStructure(mockCandlesH1, 'XAUUSD', 'H1', 'MT5_BROKER_OHLC');
+  assert(
+    isMarketStructureCompatibleWithContext(xauStructure, 'XAUUSD', 'H1', 'MT5_BROKER_OHLC'),
+    'Market structure passes only in its originating XAUUSD/H1/MT5 context'
+  );
+  assert(
+    !isMarketStructureCompatibleWithContext(xauStructure, 'EURUSD', 'H1', 'MT5_BROKER_OHLC'),
+    'XAUUSD market structure is rejected for EURUSD context'
+  );
+
   console.log('\n=================================================================');
-  console.log('ALL 11 V1.1.2A CANDLE CONSUMPTION REGRESSION TESTS PASSED CLEANLY');
+  console.log('ALL 12 V1.1.2A CANDLE CONSUMPTION REGRESSION TESTS PASSED CLEANLY');
   console.log('=================================================================');
 }
 
