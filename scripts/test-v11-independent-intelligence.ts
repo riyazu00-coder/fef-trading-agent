@@ -158,7 +158,7 @@ async function runTests() {
 
   const btcTech = btcProfile.agents.find(a => a.type === 'TECHNICAL');
   assert(btcTech?.status === 'ONLINE', 'BTCUSD with verified candles has Technical ONLINE');
-  assert(btcTech?.confidence === 78, 'BTCUSD Technical confidence reflects active analysis');
+  assert(btcTech?.confidence === 95, 'BTCUSD Technical confidence reflects active analysis');
   assert(btcProfile.marketStructure !== null, 'BTCUSD computes genuine market structure');
 
   // Missing data on XAUUSD did NOT affect BTCUSD

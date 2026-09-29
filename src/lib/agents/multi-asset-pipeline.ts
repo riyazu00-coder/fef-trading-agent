@@ -1099,7 +1099,9 @@ export function generateAssetIntelligence(
         lower.includes('unavailable') ||
         lower.includes('data limited') ||
         lower.includes('pending') ||
-        agentStatus === 'DATA LIMITED'
+        agentStatus === 'DATA LIMITED' ||
+        agentStatus === 'OFFLINE' ||
+        agentStatus === 'ERROR'
       ) {
         classification = 'UNAVAILABLE';
         verified = false;
@@ -1193,6 +1195,21 @@ export function generateAssetIntelligence(
     ag.evidenceRecords = evidenceRecords;
     ag.evidenceTrustScore = trustResult.trustScore;
     ag.provenanceBadge = trustResult.badge;
+
+    // P1 Confidence Integrity: Synchronize agent production confidence with evidence trust.
+    // DATA LIMITED / OFFLINE / ERROR agents with no trustworthy evidence fail closed (confidence = 0).
+    // Heuristic, simulated, hardcoded, or unavailable evidence cannot masquerade as verified confidence.
+    if (ag.status === 'DATA LIMITED' || ag.status === 'OFFLINE' || ag.status === 'ERROR' || trustResult.trustScore === 0) {
+      ag.confidence = 0;
+      ag.evidenceTrustScore = 0;
+    } else {
+      ag.confidence = trustResult.trustScore;
+    }
+
+    // Synchronize individual evidence records so they reflect truthful confidence
+    evidenceRecords.forEach((ev) => {
+      ev.confidence = ag.confidence;
+    });
   });
 
   // 6. Compute Consensus Trust & Actionability Gate
@@ -1252,6 +1269,7 @@ export function generateAssetIntelligence(
       : 'NEUTRAL';
     finalAgent.status = consensusTrust.verifiedAgentCount >= 3 ? 'ONLINE' : 'DATA LIMITED';
     finalAgent.confidence = consensusTrust.evidenceTrust >= 40 ? Math.round(consensusTrust.evidenceTrust) : 0;
+    finalAgent.evidenceTrustScore = finalAgent.confidence;
     finalAgent.lastOpinion = `Council consensus: ${effectiveSetupDirection}. Verified agents: ${consensusTrust.verifiedAgentCount}/15. Evidence trust: ${consensusTrust.evidenceTrust}%.`;
   }
 
@@ -1262,15 +1280,21 @@ export function generateAssetIntelligence(
       : 'NEUTRAL';
   const riskPosture: RiskPosture = !tradeExecutable ? 'RESTRICTED' : 'CAUTION';
 
-  // Compute average confidence across 15 voting agents
-  // V1.0.1 Truthfulness rule: If council resolved to WAIT due to insufficient evidence (0 eligible directional votes or evidence trust < 30%),
-  // overall confluence is 0% (rendered as INSUFFICIENT EVIDENCE), never a synthetic non-zero number.
-  const votingAgents = assembledAgents.slice(0, 15);
-  const totalConfidence = votingAgents.reduce((sum, a) => sum + (a.confidence || 0), 0);
-  const rawAvgConfidence = Math.round(totalConfidence / (votingAgents.length || 1));
-  const avgConfidence = (consensusTrust.evidenceTrust < 30 || effectiveSetupDirection === 'WAIT' || (eligibleBullishCount === 0 && eligibleBearishCount === 0))
-    ? 0
-    : rawAvgConfidence;
+  // Canonical Consensus Confidence Authority (P1 Integrity):
+  // User-facing profile confidence is strictly derived from consensus evidence trust,
+  // NOT produced by averaging arbitrary hardcoded agent confidence constants.
+  // Truthfulness gate: Final profile confidence is strictly 0 when:
+  // - effectiveSetupDirection is 'WAIT'
+  // - there is no eligible bullish or bearish directional evidence
+  // - evidence trust is below the minimum truthfulness threshold (< 30%)
+  const isConfidenceTruthful =
+    consensusTrust.evidenceTrust >= 30 &&
+    effectiveSetupDirection !== 'WAIT' &&
+    (eligibleBullishCount > 0 || eligibleBearishCount > 0);
+
+  const profileConfidence = isConfidenceTruthful
+    ? Math.round(consensusTrust.evidenceTrust)
+    : 0;
 
   const debateMessages = [
     {
@@ -1320,7 +1344,7 @@ export function generateAssetIntelligence(
     directionalBias,
     decisionPosture: effectiveSetupDirection,
     riskPosture,
-    confidence: avgConfidence,
+    confidence: profileConfidence,
     entryZone: blueprint ? [blueprint.entryZoneLow.price, blueprint.entryZoneHigh.price] : (null as any),
     stopLoss: blueprint ? blueprint.sl.price : (null as any),
     tp1: blueprint ? blueprint.tp1.price : (null as any),

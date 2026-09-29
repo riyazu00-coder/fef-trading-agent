@@ -294,7 +294,7 @@ export function calculateConsensusTrust(agents: AgentState[]): ConsensusTrustMet
 
   return {
     councilDirection: 'WATCH',
-    councilConfidence: 0,
+    councilConfidence: avgTrust,
     evidenceTrust: avgTrust,
     verifiedAgentCount,
     limitedAgentCount,

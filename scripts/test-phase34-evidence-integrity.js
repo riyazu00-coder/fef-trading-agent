@@ -1,6 +1,6 @@
 /**
  * FEF TRADING SOLUTIONS: PHASE 34 — AGENT EVIDENCE INTEGRITY & TRUST GATE TEST SUITE
- * 
+ *
  * Verifies:
  * 1. Evidence Classification enum enforcement & AgentEvidence record structure.
  * 2. Decision eligibility rules (LIVE_MT5, LIVE_EXTERNAL, DERIVED eligible when fresh; SIMULATED/HARDCODED rejected).
@@ -182,7 +182,7 @@ runTest('15-agent consensus computes distinct Council Confidence and Evidence Tr
   assert(typeof profile.evidenceTrust === 'number', 'Evidence trust exists');
   assert(typeof profile.verifiedAgentCount === 'number', 'Verified agent count exists');
   assert.strictEqual(typeof profile.actionabilityState, 'string', 'Actionability state exists');
-  
+
   // Verify trust and confidence are not identical manufactured numbers
   console.log(`    Metrics for XAUUSD -> Confidence: ${profile.confidence}%, Evidence Trust: ${profile.evidenceTrust}%, Verified Agents: ${profile.verifiedAgentCount}/15, Actionability: ${profile.actionabilityState}`);
 });
@@ -315,6 +315,215 @@ runTest('Session Engine (Phase 30/31) temporal logic remains 100% active', () =>
   assert(xau.sessionState, 'SessionState must be populated');
   assert(typeof xau.sessionState.marketState === 'string', 'Market state required');
   assert(typeof xau.setupQuality === 'number', 'Setup quality required');
+});
+
+
+// ---------------------------------------------------------------------------
+// TEST GROUP 7: P1 Production Confidence Integrity & Evidence-Trust Synchronization
+// ---------------------------------------------------------------------------
+console.log('\n[TEST GROUP 7] P1 Production Confidence Integrity & Evidence-Trust Synchronization');
+
+// 1. User-facing confidence is derived from evidence trust, not arbitrary preset agent confidence
+runTest('1. User-facing confidence is derived from consensus evidence trust, and each agent confidence reflects evidence trust', () => {
+  const xau = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
+  assert.strictEqual(xau.confidence, 0, 'WAIT posture must yield 0% user-facing confidence');
+
+  xau.agents.slice(0, 15).forEach((ag) => {
+    assert.strictEqual(ag.confidence, ag.evidenceTrustScore, `Agent ${ag.type} confidence must match evidenceTrustScore`);
+  });
+});
+
+// 2. Changing a pre-evidence hardcoded agent confidence value cannot independently change final profile confidence once evidence trust is established
+runTest('2. Arbitrary pre-evidence nominal confidence cannot independently change final profile confidence', () => {
+  const testAgents = [
+    { type: 'TECHNICAL', evidenceTrustScore: 90, confidence: 99 },
+    { type: 'RISK_GUARDIAN', evidenceTrustScore: 80, confidence: 12 },
+    { type: 'KILLZONE', evidenceTrustScore: 85, confidence: 50 },
+    ...Array(12).fill(null).map((_, i) => ({ type: `AGENT_${i}`, evidenceTrustScore: 70, confidence: 10 * i }))
+  ];
+  const consensus1 = calculateConsensusTrust(testAgents);
+
+  testAgents.forEach(a => { a.confidence = 0; });
+  const consensus2 = calculateConsensusTrust(testAgents);
+
+  assert.strictEqual(consensus1.evidenceTrust, consensus2.evidenceTrust, 'Evidence trust must be strictly immune to agent nominal confidence');
+  assert.strictEqual(consensus1.councilConfidence, consensus2.councilConfidence, 'Council confidence must be strictly immune to agent nominal confidence');
+});
+
+// 3. DATA LIMITED / unavailable evidence fails closed
+runTest('3. DATA LIMITED and unavailable evidence fails closed (0% confidence, 0% trust)', () => {
+  const profile = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
+  const limitedAgents = profile.agents.filter(a => a.status === 'DATA LIMITED');
+  assert(limitedAgents.length > 0, 'Must have DATA LIMITED agents when feeds unavailable');
+  limitedAgents.forEach(ag => {
+    assert.strictEqual(ag.confidence, 0, `DATA LIMITED agent ${ag.type} must have 0% confidence`);
+    assert.strictEqual(ag.evidenceTrustScore, 0, `DATA LIMITED agent ${ag.type} must have 0% evidence trust`);
+  });
+});
+
+// 4. HEURISTIC-only evidence cannot create verified/actionable confidence
+runTest('4. HEURISTIC-only evidence cannot create verified/actionable confidence', () => {
+  const heuristicEvidence = [
+    {
+      id: 'e-h1', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Unverified SMC heuristic pattern',
+      source: 'Pattern Rule', sourceType: 'HEURISTIC', classification: 'HEURISTIC',
+      observedAt: new Date().toISOString(), freshnessMs: 5000, confidence: 75,
+      assetSpecific: true, verified: false, decisionEligible: false, reason: 'heuristic'
+    }
+  ];
+  const trust = calculateAgentEvidenceTrust(heuristicEvidence);
+  assert.strictEqual(trust.verifiedCount, 0, 'HEURISTIC evidence must have verifiedCount === 0');
+  assert.strictEqual(trust.badge, 'INFERENCE');
+  assert.strictEqual(trust.trustScore, 30);
+
+  const mockCouncil = Array(15).fill(null).map((_, i) => ({
+    type: `AGENT_${i}`,
+    evidenceTrustScore: 30,
+    status: 'ONLINE'
+  }));
+  const consensus = calculateConsensusTrust(mockCouncil);
+  assert.strictEqual(consensus.verifiedAgentCount, 0, 'HEURISTIC cannot produce verified agents (requires >= 70% trust)');
+  assert.strictEqual(consensus.evidenceTrust, 30);
+
+  const gate = evaluateActionabilityGate({
+    evidenceTrust: consensus.evidenceTrust,
+    verifiedAgentCount: consensus.verifiedAgentCount,
+    tradeExecutable: true,
+    marketState: 'OPEN'
+  });
+  assert.strictEqual(gate.isActionable, false);
+  assert.strictEqual(gate.actionabilityState, 'DATA LIMITED');
+});
+
+// 5. LIVE_MT5 evidence receives the expected evidence trust treatment
+runTest('5. LIVE_MT5 evidence receives expected 100% evidence trust treatment', () => {
+  const mt5Evidence = [
+    {
+      id: 'e-mt5', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Live broker bid/ask',
+      source: 'MT5 Broker Telemetry', sourceType: 'BROKER', classification: 'LIVE_MT5',
+      observedAt: new Date().toISOString(), freshnessMs: 5000, confidence: 85,
+      assetSpecific: true, verified: true, decisionEligible: true, reason: 'live broker'
+    }
+  ];
+  const trust = calculateAgentEvidenceTrust(mt5Evidence);
+  assert.strictEqual(trust.trustScore, 100, 'LIVE_MT5 must earn 100% trust');
+  assert.strictEqual(trust.badge, 'MT5');
+  assert.strictEqual(trust.verifiedCount, 1);
+
+  const eligibility = isEvidenceDecisionEligible('LIVE_MT5', 5000);
+  assert.strictEqual(eligibility.eligible, true);
+  assert.strictEqual(eligibility.verified, true);
+});
+
+// 6. INDEPENDENT_VERIFIED evidence receives the expected evidence trust treatment
+runTest('6. INDEPENDENT_VERIFIED evidence receives expected 95% evidence trust treatment', () => {
+  const verifiedEvidence = [
+    {
+      id: 'e-ind', agentKey: 'TECHNICAL', asset: 'BTCUSD', claim: 'Binance public spot OHLC',
+      source: 'Binance Spot', sourceType: 'PUBLIC_FEED', classification: 'INDEPENDENT_VERIFIED',
+      observedAt: new Date().toISOString(), freshnessMs: 5000, confidence: 80,
+      assetSpecific: true, verified: true, decisionEligible: true, reason: 'independent feed'
+    }
+  ];
+  const trust = calculateAgentEvidenceTrust(verifiedEvidence);
+  assert.strictEqual(trust.trustScore, 95, 'INDEPENDENT_VERIFIED must earn 95% trust');
+  assert.strictEqual(trust.badge, 'INDEPENDENT');
+  assert.strictEqual(trust.verifiedCount, 1);
+
+  const eligibility = isEvidenceDecisionEligible('INDEPENDENT_VERIFIED', 5000);
+  assert.strictEqual(eligibility.eligible, true);
+  assert.strictEqual(eligibility.verified, true);
+});
+
+// 7. SIMULATED / HARDCODED / UNAVAILABLE evidence cannot contribute production decision weight
+runTest('7. SIMULATED / HARDCODED / UNAVAILABLE evidence contributes 0% trust and zero decision eligibility', () => {
+  ['SIMULATED', 'HARDCODED', 'UNAVAILABLE', 'UNKNOWN'].forEach(cls => {
+    const ev = [
+      {
+        id: `e-${cls}`, agentKey: 'MACRO', asset: 'XAUUSD', claim: 'Mock data',
+        source: 'Mock', sourceType: 'MOCK', classification: cls,
+        observedAt: new Date().toISOString(), freshnessMs: 1000, confidence: 90,
+        assetSpecific: true, verified: false, decisionEligible: false, reason: 'mock'
+      }
+    ];
+    const trust = calculateAgentEvidenceTrust(ev);
+    assert.strictEqual(trust.trustScore, 0, `${cls} must earn 0% trust`);
+    assert.strictEqual(trust.verifiedCount, 0, `${cls} must have 0 verified count`);
+
+    const eligibility = isEvidenceDecisionEligible(cls, 1000);
+    assert.strictEqual(eligibility.eligible, false, `${cls} must not be decision eligible`);
+    assert.strictEqual(eligibility.verified, false, `${cls} must not be verified`);
+  });
+});
+
+// 8. WAIT remains 0 user-facing confidence under the existing truthfulness rule
+runTest('8. WAIT posture remains 0% user-facing confidence', () => {
+  const xau = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
+  assert.strictEqual(xau.setupDirection, 'WAIT');
+  assert.strictEqual(xau.confidence, 0, 'WAIT setupDirection must strictly enforce 0% confidence');
+});
+
+// 9. Directional bias remains separate from evidence confidence
+runTest('9. Directional bias remains separate from evidence confidence', () => {
+  const xau = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
+  const kz = xau.agents.find(a => a.type === 'KILLZONE');
+  assert(kz, 'Killzone agent must exist');
+  assert.strictEqual(kz.bias, 'NEUTRAL');
+  assert(kz.evidenceTrustScore >= 70, 'Killzone can have high trust while remaining NEUTRAL');
+  assert.strictEqual(kz.confidence, kz.evidenceTrustScore);
+
+  const tech = xau.agents.find(a => a.type === 'TECHNICAL');
+  assert.strictEqual(tech.bias, 'NEUTRAL');
+  assert.strictEqual(tech.confidence, 0);
+  assert.strictEqual(tech.evidenceTrustScore, 0);
+});
+
+// 10. Existing Actionability Gate thresholds and semantics remain unchanged
+runTest('10. Actionability Gate thresholds and semantics strictly preserved', () => {
+  const gateClosed = evaluateActionabilityGate({
+    evidenceTrust: 95,
+    verifiedAgentCount: 12,
+    tradeExecutable: false,
+    marketState: 'CLOSED'
+  });
+  assert.strictEqual(gateClosed.actionabilityState, 'MONITOR');
+  assert.strictEqual(gateClosed.isActionable, false);
+
+  const gateLowTrust = evaluateActionabilityGate({
+    evidenceTrust: 35,
+    verifiedAgentCount: 5,
+    tradeExecutable: true,
+    marketState: 'OPEN'
+  });
+  assert.strictEqual(gateLowTrust.actionabilityState, 'DATA LIMITED');
+  assert.strictEqual(gateLowTrust.isActionable, false);
+
+  const gateLowVerified = evaluateActionabilityGate({
+    evidenceTrust: 80,
+    verifiedAgentCount: 3,
+    tradeExecutable: true,
+    marketState: 'OPEN'
+  });
+  assert.strictEqual(gateLowVerified.actionabilityState, 'DATA LIMITED');
+  assert.strictEqual(gateLowVerified.isActionable, false);
+
+  const gateAnalysis = evaluateActionabilityGate({
+    evidenceTrust: 55,
+    verifiedAgentCount: 5,
+    tradeExecutable: true,
+    marketState: 'OPEN'
+  });
+  assert.strictEqual(gateAnalysis.actionabilityState, 'ANALYSIS ONLY');
+  assert.strictEqual(gateAnalysis.isActionable, false);
+
+  const gateActionable = evaluateActionabilityGate({
+    evidenceTrust: 75,
+    verifiedAgentCount: 6,
+    tradeExecutable: true,
+    marketState: 'OPEN'
+  });
+  assert.strictEqual(gateActionable.actionabilityState, 'ACTIONABLE');
+  assert.strictEqual(gateActionable.isActionable, true);
 });
 
 console.log('\n================================================================');
