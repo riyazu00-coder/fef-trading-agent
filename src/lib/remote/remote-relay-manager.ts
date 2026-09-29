@@ -307,8 +307,23 @@ export class RemoteRelayManager {
       };
     }
 
-    const heartbeatAge = now - device.lastSeen;
-    const isFresh = heartbeatAge < MAX_CONNECTOR_HEARTBEAT_AGE_MS && !telemetry.isStale;
+    const connectorHeartbeatAge = now - device.lastSeen;
+    const terminalHeartbeatAge = Number.isFinite(telemetry.heartbeatAgeMs)
+      ? telemetry.heartbeatAgeMs
+      : Number.POSITIVE_INFINITY;
+
+    const isConnectorFresh =
+      connectorHeartbeatAge >= 0 &&
+      connectorHeartbeatAge < MAX_CONNECTOR_HEARTBEAT_AGE_MS;
+
+    const isTerminalFresh =
+      telemetry.bridgeConnected &&
+      telemetry.terminalConnected &&
+      terminalHeartbeatAge >= 0 &&
+      terminalHeartbeatAge < MAX_CONNECTOR_HEARTBEAT_AGE_MS &&
+      !telemetry.isStale;
+
+    const isFresh = isConnectorFresh && isTerminalFresh;
 
     if (!isFresh) {
       return {
@@ -319,7 +334,7 @@ export class RemoteRelayManager {
         maskedAccount: device.maskedAccount,
         tradeMode: device.tradeMode,
         operatingMode: 'READ_ONLY',
-        heartbeatAgeMs: heartbeatAge,
+        heartbeatAgeMs: Number.isFinite(terminalHeartbeatAge) ? terminalHeartbeatAge : null,
         priceAuthority: 'REFERENCE',
         isExecutable: false,
         activePositionsCount: telemetry.positions.length,
@@ -340,7 +355,7 @@ export class RemoteRelayManager {
       maskedAccount: device.maskedAccount,
       tradeMode: device.tradeMode,
       operatingMode: device.operatingMode,
-      heartbeatAgeMs: heartbeatAge,
+      heartbeatAgeMs: terminalHeartbeatAge,
       priceAuthority: 'MT5_BROKER',
       isExecutable,
       activePositionsCount: telemetry.positions.length,

@@ -536,7 +536,13 @@ function startTelemetryStream() {
     const snapshot = {
       terminalConnected: Boolean(localStatus.terminal?.terminalConnected),
       bridgeConnected: localStatus.localBridge === 'ONLINE',
-      heartbeatAgeMs: localStatus.lastHeartbeat ? Math.max(0, Date.now() - localStatus.lastHeartbeat) : 0,
+      heartbeatAgeMs:
+        localStatus.heartbeatAgeMs !== null &&
+        localStatus.heartbeatAgeMs !== undefined &&
+        Number.isFinite(Number(localStatus.heartbeatAgeMs)) &&
+        Number(localStatus.heartbeatAgeMs) >= 0
+          ? Number(localStatus.heartbeatAgeMs)
+          : 99999,
       broker: localStatus.terminal?.broker || localStatus.account?.broker || 'Exness Technologies Ltd',
       server: localStatus.terminal?.server || localStatus.account?.server || 'Exness-MT5Trial16',
       maskedAccount: localStatus.account?.maskedLogin || '26***84',

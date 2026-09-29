@@ -271,11 +271,30 @@ const server = http.createServer(async (req, res) => {
 
     const now = Date.now();
     const isSocketOpen = activeSockets.has(deviceId);
-    const heartbeatAgeMs = device.lastSeen ? now - device.lastSeen : null;
-    const isFresh = isSocketOpen && heartbeatAgeMs !== null && heartbeatAgeMs < MAX_HEARTBEAT_AGE_MS;
+    const connectorHeartbeatAgeMs = device.lastSeen ? now - device.lastSeen : null;
+    const terminalHeartbeatAgeMs =
+      telemetry && Number.isFinite(telemetry.heartbeatAgeMs)
+        ? telemetry.heartbeatAgeMs
+        : null;
 
+    const isConnectorFresh =
+      isSocketOpen &&
+      connectorHeartbeatAgeMs !== null &&
+      connectorHeartbeatAgeMs >= 0 &&
+      connectorHeartbeatAgeMs < MAX_HEARTBEAT_AGE_MS;
+
+    const isTerminalFresh =
+      Boolean(telemetry) &&
+      telemetry.bridgeConnected === true &&
+      telemetry.terminalConnected === true &&
+      terminalHeartbeatAgeMs !== null &&
+      terminalHeartbeatAgeMs >= 0 &&
+      terminalHeartbeatAgeMs < MAX_HEARTBEAT_AGE_MS &&
+      telemetry.isStale !== true;
+
+    const isFresh = isConnectorFresh && isTerminalFresh;
     const connectionState = isFresh ? 'ONLINE' : (isSocketOpen ? 'STALE' : 'OFFLINE');
-    const priceAuthority = isFresh && telemetry?.terminalConnected ? 'MT5_BROKER' : 'REFERENCE';
+    const priceAuthority = isFresh ? 'MT5_BROKER' : 'REFERENCE';
 
     return sendJson(res, 200, {
       success: true,
@@ -293,7 +312,7 @@ const server = http.createServer(async (req, res) => {
       tradeMode: telemetry?.tradeMode || device.tradeMode,
       operatingMode: telemetry?.operatingMode || device.operatingMode,
       terminalConnected: telemetry ? telemetry.terminalConnected : false,
-      heartbeatAgeMs,
+      heartbeatAgeMs: terminalHeartbeatAgeMs,
       priceAuthority,
       isExecutable: false, // Phase 2B is TELEMETRY ONLY
       activePositionsCount: telemetry ? telemetry.positions.length : 0,
@@ -318,8 +337,28 @@ const server = http.createServer(async (req, res) => {
 
     const now = Date.now();
     const isSocketOpen = activeSockets.has(deviceId);
-    const heartbeatAgeMs = device.lastSeen ? now - device.lastSeen : null;
-    const isFresh = isSocketOpen && heartbeatAgeMs !== null && heartbeatAgeMs < MAX_HEARTBEAT_AGE_MS;
+    const connectorHeartbeatAgeMs = device.lastSeen ? now - device.lastSeen : null;
+    const terminalHeartbeatAgeMs =
+      telemetry && Number.isFinite(telemetry.heartbeatAgeMs)
+        ? telemetry.heartbeatAgeMs
+        : null;
+
+    const isConnectorFresh =
+      isSocketOpen &&
+      connectorHeartbeatAgeMs !== null &&
+      connectorHeartbeatAgeMs >= 0 &&
+      connectorHeartbeatAgeMs < MAX_HEARTBEAT_AGE_MS;
+
+    const isTerminalFresh =
+      Boolean(telemetry) &&
+      telemetry.bridgeConnected === true &&
+      telemetry.terminalConnected === true &&
+      terminalHeartbeatAgeMs !== null &&
+      terminalHeartbeatAgeMs >= 0 &&
+      terminalHeartbeatAgeMs < MAX_HEARTBEAT_AGE_MS &&
+      telemetry.isStale !== true;
+
+    const isFresh = isConnectorFresh && isTerminalFresh;
 
     // Sanitized telemetry response (Zero secrets, zero token hashes)
     return sendJson(res, 200, {
@@ -328,14 +367,14 @@ const server = http.createServer(async (req, res) => {
       publicDeviceId: device.publicDeviceId,
       connected: isFresh,
       connectionState: isFresh ? 'ONLINE' : (isSocketOpen ? 'STALE' : 'OFFLINE'),
-      priceAuthority: isFresh && telemetry?.terminalConnected ? 'MT5_BROKER' : 'REFERENCE',
+      priceAuthority: isFresh ? 'MT5_BROKER' : 'REFERENCE',
       broker: telemetry?.broker || device.broker,
       server: telemetry?.server || device.server,
       maskedAccount: telemetry?.maskedAccount || device.maskedAccount,
       tradeMode: telemetry?.tradeMode || device.tradeMode,
       operatingMode: telemetry?.operatingMode || device.operatingMode,
       terminalConnected: telemetry ? telemetry.terminalConnected : false,
-      heartbeatAgeMs,
+      heartbeatAgeMs: terminalHeartbeatAgeMs,
       quotes: telemetry ? telemetry.quotes : {},
       symbolSpecs: telemetry ? telemetry.symbolSpecs : {},
       positions: telemetry ? telemetry.positions : [],
@@ -676,25 +715,37 @@ wss.on('connection', (ws, req) => {
       if (snapshot.tradeMode) device.tradeMode = snapshot.tradeMode === 'REAL' ? 'REAL' : 'DEMO';
       device.operatingMode = 'READ_ONLY'; // Always enforce READ_ONLY on remote control plane
 
+      const terminalConnected = Boolean(snapshot.terminalConnected);
+      const bridgeConnected = Boolean(snapshot.bridgeConnected);
+      const rawHeartbeatAgeMs = Number(snapshot.heartbeatAgeMs);
+      const heartbeatAgeMs =
+        Number.isFinite(rawHeartbeatAgeMs) && rawHeartbeatAgeMs >= 0
+          ? rawHeartbeatAgeMs
+          : Number.POSITIVE_INFINITY;
+      const terminalFresh =
+        terminalConnected &&
+        bridgeConnected &&
+        heartbeatAgeMs < MAX_HEARTBEAT_AGE_MS;
+
       telemetrySnapshots.set(authenticatedDeviceId, {
         deviceId: authenticatedDeviceId,
         publicDeviceId: device.publicDeviceId,
-        terminalConnected: Boolean(snapshot.terminalConnected),
-        bridgeConnected: Boolean(snapshot.bridgeConnected),
-        heartbeatAgeMs: Number(snapshot.heartbeatAgeMs || 0),
+        terminalConnected,
+        bridgeConnected,
+        heartbeatAgeMs,
         broker: device.broker,
         server: device.server,
         maskedAccount: device.maskedAccount,
         tradeMode: device.tradeMode,
         operatingMode: 'READ_ONLY',
-        priceAuthority: 'MT5_BROKER',
+        priceAuthority: terminalFresh ? 'MT5_BROKER' : 'REFERENCE',
         quotes: (snapshot.quotes && typeof snapshot.quotes === 'object') ? snapshot.quotes : {},
         symbolSpecs: (snapshot.symbolSpecs && typeof snapshot.symbolSpecs === 'object') ? snapshot.symbolSpecs : {},
         positions: Array.isArray(snapshot.positions) ? snapshot.positions.slice(0, 100) : [],
         pendingOrders: Array.isArray(snapshot.pendingOrders) ? snapshot.pendingOrders.slice(0, 100) : [],
         sessions: (snapshot.sessions && typeof snapshot.sessions === 'object') ? snapshot.sessions : {},
         timestamp: Date.now(),
-        isStale: false,
+        isStale: !terminalFresh,
       });
 
       ws.send(JSON.stringify({ type: 'TELEMETRY_ACK', timestamp: Date.now() }));

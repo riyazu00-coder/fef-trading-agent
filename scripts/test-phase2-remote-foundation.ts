@@ -158,6 +158,53 @@ async function runSuite() {
   relay.ingestTelemetry(deviceId, mockTelemetry);
 
   // -----------------------------------------------------------------
+  // TEST 3B: Fresh Connector Must Not Mask Unhealthy MT5 Terminal
+  // -----------------------------------------------------------------
+  console.log('\n[TEST 3B: Fresh Connector Cannot Mask Unhealthy MT5 Terminal]');
+
+  const terminalDisconnectedTelemetry: RemoteTelemetrySnapshot = {
+    ...mockTelemetry,
+    terminalConnected: false,
+    heartbeatAgeMs: 500,
+    isStale: false,
+  };
+  relay.ingestTelemetry(deviceId, terminalDisconnectedTelemetry);
+  const terminalDisconnectedStatus = relay.getProductionStatus(deviceId);
+  assert(terminalDisconnectedStatus.connected === false, 'Fresh connector cannot report CONNECTED when MT5 terminal is disconnected');
+  assert(terminalDisconnectedStatus.priceAuthority === 'REFERENCE', 'Disconnected MT5 terminal falls closed to REFERENCE authority');
+  assert(terminalDisconnectedStatus.isExecutable === false, 'Disconnected MT5 terminal is not executable');
+
+  const bridgeDisconnectedTelemetry: RemoteTelemetrySnapshot = {
+    ...mockTelemetry,
+    bridgeConnected: false,
+    heartbeatAgeMs: 500,
+    isStale: false,
+  };
+  relay.ingestTelemetry(deviceId, bridgeDisconnectedTelemetry);
+  const bridgeDisconnectedStatus = relay.getProductionStatus(deviceId);
+  assert(bridgeDisconnectedStatus.connected === false, 'Fresh connector cannot report CONNECTED when local bridge is disconnected');
+  assert(bridgeDisconnectedStatus.priceAuthority === 'REFERENCE', 'Disconnected local bridge falls closed to REFERENCE authority');
+
+  const terminalHeartbeatStaleTelemetry: RemoteTelemetrySnapshot = {
+    ...mockTelemetry,
+    terminalConnected: true,
+    bridgeConnected: true,
+    heartbeatAgeMs: 12500,
+    isStale: false,
+  };
+  relay.ingestTelemetry(deviceId, terminalHeartbeatStaleTelemetry);
+  const terminalHeartbeatStaleStatus = relay.getProductionStatus(deviceId);
+  assert(terminalHeartbeatStaleStatus.connected === false, 'Fresh connector cannot mask stale MT5 terminal heartbeat');
+  assert(terminalHeartbeatStaleStatus.heartbeatAgeMs === 12500, 'Status exposes actual MT5 terminal heartbeat age');
+  assert(terminalHeartbeatStaleStatus.priceAuthority === 'REFERENCE', 'Stale MT5 heartbeat falls closed to REFERENCE authority');
+
+  relay.ingestTelemetry(deviceId, mockTelemetry);
+  const healthyTerminalStatus = relay.getProductionStatus(deviceId);
+  assert(healthyTerminalStatus.connected === true, 'Healthy connector, bridge, terminal, and heartbeat report CONNECTED');
+  assert(healthyTerminalStatus.heartbeatAgeMs === 500, 'Healthy status exposes MT5 terminal heartbeat age');
+  assert(healthyTerminalStatus.priceAuthority === 'MT5_BROKER', 'Healthy MT5 path restores MT5_BROKER authority');
+
+  // -----------------------------------------------------------------
   // TEST 4: Duplicate Request ID Rejected (Idempotency)
   // -----------------------------------------------------------------
   console.log('\n[TEST 4: Duplicate Request ID Rejected]');
