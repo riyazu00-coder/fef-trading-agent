@@ -173,11 +173,21 @@ export default function ExecutionPage() {
   const currentQuote = telemetry.allQuotes[activeSymbol] || telemetry.allQuotes[brokerSym] || activeTelemetry?.quote;
 
   // Authoritative price resolution for Execution and Position Sizing
+  const heartbeatAgeMs = typeof telemetry.heartbeatAgeMs === 'number'
+    ? telemetry.heartbeatAgeMs
+    : telemetry.terminal?.lastHeartbeat
+      ? (Date.now() - new Date(telemetry.terminal.lastHeartbeat).getTime())
+      : null;
+
   const resolvedExecutionPrice = resolvePriceForPurpose(activeSymbol, 'EXECUTION', {
     side: direction,
     referenceAsset: activeAsset,
     brokerQuote: currentQuote,
     isMt5Connected,
+    terminalConnected: telemetry.terminal?.terminalConnected,
+    bridgeConnected: telemetry.localBridgeOnline,
+    heartbeatAgeMs,
+    isStale: currentQuote?.isStale,
     operatingMode: telemetry.operatingMode,
     brokerName: telemetry.account?.broker || telemetry.terminal?.brokerName,
     brokerServer: telemetry.terminal?.brokerServer
@@ -188,6 +198,10 @@ export default function ExecutionPage() {
     referenceAsset: activeAsset,
     brokerQuote: currentQuote,
     isMt5Connected,
+    terminalConnected: telemetry.terminal?.terminalConnected,
+    bridgeConnected: telemetry.localBridgeOnline,
+    heartbeatAgeMs,
+    isStale: currentQuote?.isStale,
     operatingMode: telemetry.operatingMode,
     brokerName: telemetry.account?.broker || telemetry.terminal?.brokerName,
     brokerServer: telemetry.terminal?.brokerServer
@@ -199,8 +213,15 @@ export default function ExecutionPage() {
     : null;
 
   // Authoritative prices
-  const p = activeAsset.price;
-  const entryPrice = resolvedExecutionPrice.executable ? resolvedExecutionPrice.price : p;
+  const referencePrice = activeAsset.price;
+  const p = referencePrice;
+  const executableEntryPrice = (resolvedExecutionPrice.executable && resolvedExecutionPrice.price > 0)
+    ? resolvedExecutionPrice.price
+    : null;
+  const sizingEstimationPrice = (resolvedSizingPrice.price && resolvedSizingPrice.price > 0)
+    ? resolvedSizingPrice.price
+    : referencePrice;
+
   // SL/TP: use engine cone value when available, otherwise use manual override input
   const engineSl = assetProfile.stopLoss;
   const engineTp = assetProfile.tp1;
@@ -212,7 +233,7 @@ export default function ExecutionPage() {
                                 : null;
   const isUsingManualSl = slPrice != null && engineSl == null;
   const isUsingManualTp = tpPrice != null && engineTp == null;
-  const sizingReferencePrice = resolvedSizingPrice.price || entryPrice;
+  const sizingReferencePrice = sizingEstimationPrice;
   const slDistance = slPrice != null ? Math.abs(sizingReferencePrice - slPrice) : 0;
   const riskAmount = (accountBalance * riskPercent) / 100;
   
@@ -223,7 +244,7 @@ export default function ExecutionPage() {
   const protectionValidation = validateTradeProtection({
     symbol: activeSymbol,
     direction,
-    entry: entryPrice,
+    entry: executableEntryPrice ?? sizingEstimationPrice,
     sl: slPrice ?? 0,
     tp1: tpPrice ?? 0,
     tp2: assetProfile.tp2 ?? undefined,
@@ -242,7 +263,7 @@ export default function ExecutionPage() {
     symbol: activeSymbol,
     direction,
     volume: calculatedLotSize,
-    priceBasis: resolvedExecutionPrice.price || entryPrice,
+    priceBasis: executableEntryPrice ?? sizingEstimationPrice,
     sl: slPrice ?? 0,
     tp1: tpPrice ?? 0,
     tp2: assetProfile.tp2 ?? undefined,
@@ -340,7 +361,7 @@ export default function ExecutionPage() {
           brokerSymbol: brokerSym,
           direction,
           volume: calculatedLotSize,
-          priceBasis: resolvedExecutionPrice.price || entryPrice,
+          priceBasis: executableEntryPrice ?? sizingEstimationPrice,
           sl: slPrice,
           tp1: tpPrice,
           tp2: assetProfile.tp2,
@@ -361,7 +382,7 @@ export default function ExecutionPage() {
             brokerSymbol: brokerSym,
             orderType: direction,
             volume: calculatedLotSize,
-            price: resolvedExecutionPrice.price,
+            price: executableEntryPrice ?? resolvedExecutionPrice.price,
             priceProvenance: resolvedExecutionPrice.provenance,
             priceClass: resolvedExecutionPrice.priceClass,
             sl: slPrice,
@@ -384,7 +405,7 @@ export default function ExecutionPage() {
 
       if (data.success && (data.ticket || data.deal || data.data?.ticket || data.data?.order)) {
         const ticketNum = Number(data.ticket || data.deal || data.data?.ticket || data.data?.order || Math.floor(10000000 + Math.random() * 90000000));
-        const fillPrice = Number(data.price || data.data?.price || data.fillPrice || entryPrice);
+        const fillPrice = Number(data.price || data.data?.price || data.fillPrice || executableEntryPrice || referencePrice);
         const fillVolume = Number(data.volume || data.data?.volume || calculatedLotSize);
 
         // Run Post-Fill Protection Verification Contract (Phase 2C)
@@ -701,7 +722,7 @@ export default function ExecutionPage() {
                   </h2>
                 </div>
                 <span className="text-[10px] text-cyan-400">
-                  {activeSymbol} &bull; ${p.toFixed(2)}
+                  {activeSymbol} &bull; ${referencePrice.toFixed(2)}
                 </span>
               </div>
 
@@ -801,9 +822,13 @@ export default function ExecutionPage() {
                 <div className="bg-black/40 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
                   <span className="text-gray-400">ENTRY PRICE:</span>
                   <div className="text-right">
-                    <span className="font-bold text-white font-mono">${entryPrice.toFixed(2)}</span>
-                    <span className={`block text-[9px] ${resolvedExecutionPrice.executable ? 'text-emerald-400' : 'text-amber-400'}`}>
-                      {resolvedExecutionPrice.executable ? `BROKER ${direction === 'BUY' ? 'ASK' : 'BID'} (${resolvedExecutionPrice.provenance})` : 'REFERENCE FEED • NOT EXECUTABLE'}
+                    <span className="font-bold text-white font-mono">
+                      {executableEntryPrice !== null ? `$${executableEntryPrice.toFixed(2)}` : `$${referencePrice.toFixed(2)}`}
+                    </span>
+                    <span className={`block text-[9px] ${executableEntryPrice !== null ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {executableEntryPrice !== null
+                        ? `BROKER ${direction === 'BUY' ? 'ASK' : 'BID'} (${resolvedExecutionPrice.provenance})`
+                        : 'REFERENCE FEED • NOT EXECUTABLE'}
                     </span>
                   </div>
                 </div>
@@ -1198,7 +1223,9 @@ export default function ExecutionPage() {
               <div className="flex justify-between border-b border-white/5 pb-1">
                 <span className="text-gray-400">5. ENTRY:</span>
                 <span className="font-bold text-white">
-                  ${entryPrice.toFixed(2)} {resolvedExecutionPrice.executable ? `(BROKER ${direction === 'BUY' ? 'ASK' : 'BID'})` : '(REF ONLY)'}
+                  {executableEntryPrice !== null
+                    ? `$${executableEntryPrice.toFixed(2)} (BROKER ${direction === 'BUY' ? 'ASK' : 'BID'})`
+                    : `$${referencePrice.toFixed(2)} (REFERENCE ONLY • NOT EXECUTABLE)`}
                 </span>
               </div>
               {/* 6. CURRENT BID */}

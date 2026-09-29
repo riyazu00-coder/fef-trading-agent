@@ -27,11 +27,11 @@ export const FullSmartPositionCalculator: React.FC = () => {
   const [riskPct, setRiskPct] = useState<number>(0.50);
   const [symbol, setSymbol] = useState<string>(activeSymbol);
   const [direction, setDirection] = useState<'BUY' | 'SELL'>('BUY');
-  const [entryPrice, setEntryPrice] = useState<number>(activeAsset.price || 4349.70);
-  const [stopLoss, setStopLoss] = useState<number>(4339.00);
-  const [tp1, setTp1] = useState<number>(4354.00);
-  const [tp2, setTp2] = useState<number>(4362.00);
-  const [tp3, setTp3] = useState<number>(4375.00);
+  const [entryPrice, setEntryPrice] = useState<number>(activeAsset.price || 0);
+  const [stopLoss, setStopLoss] = useState<number>(assetProfile?.stopLoss || 0);
+  const [tp1, setTp1] = useState<number>(assetProfile?.tp1 || 0);
+  const [tp2, setTp2] = useState<number>(assetProfile?.tp2 || 0);
+  const [tp3, setTp3] = useState<number>(assetProfile?.tp3 || 0);
 
   // Spread & Buffer parameters
   const [useSpreadBuffer, setUseSpreadBuffer] = useState<boolean>(true);

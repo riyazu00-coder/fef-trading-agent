@@ -42,6 +42,14 @@ export type PricePurpose =
   | 'POSITION_SIZING'
   | 'EXECUTION';
 
+export type PriceProviderType =
+  | 'MT5_BROKER'
+  | 'MT5_REMOTE_BROKER'
+  | 'PUBLIC_API'
+  | 'DERIVED'
+  | 'UNAVAILABLE'
+  | 'SYNTHETIC_FALLBACK'; // Retained for backwards compatibility; never emitted for missing data
+
 export interface CanonicalPrice {
   canonicalSymbol: string;
   brokerSymbol: string;
@@ -52,7 +60,7 @@ export interface CanonicalPrice {
 
   provider: string;
   provenance: string;
-  providerType: 'MT5_BROKER' | 'MT5_REMOTE_BROKER' | 'PUBLIC_API' | 'DERIVED' | 'SYNTHETIC_FALLBACK';
+  providerType: PriceProviderType;
 
   priceClass: PriceClass;
 
@@ -84,12 +92,18 @@ export interface PriceResolutionContext {
   brokerServer?: string;
   isProduction?: boolean;
   isRemoteMt5?: boolean;
+  // Terminal health additions (respecting terminal health truth)
+  terminalConnected?: boolean;
+  bridgeConnected?: boolean;
+  heartbeatAgeMs?: number | null;
+  isStale?: boolean;
 }
 
 export interface PriceResolutionResult {
   price: number;
   canonical: CanonicalPrice | null;
   effectivePrice: number;
+  executablePrice: number | null; // Strictly null if not executable; broker ASK/BID only when executable
   purpose: PricePurpose;
   isExecutable: boolean;
   executable: boolean;
@@ -99,7 +113,7 @@ export interface PriceResolutionResult {
   direction?: 'BUY' | 'SELL';
   provenance: string;
   priceClass: PriceClass;
-  providerType: 'MT5_BROKER' | 'MT5_REMOTE_BROKER' | 'PUBLIC_API' | 'DERIVED' | 'SYNTHETIC_FALLBACK';
+  providerType: PriceProviderType;
   freshness: 'FRESH' | 'STALE' | 'SESSION_CLOSED' | 'UNAVAILABLE';
 }
 
@@ -266,6 +280,61 @@ export function buildCanonicalFromReferenceFeed(
 }
 
 /**
+ * Helper to evaluate whether an MT5 broker connection is healthy and verified.
+ * Accounts for local bridge and remote MT5 terminal health truth.
+ */
+function isMt5PathHealthy(context: PriceResolutionContext, brokerCanonical: CanonicalPrice | null): {
+  healthy: boolean;
+  reason?: string;
+} {
+  if (!context.isMt5Connected) {
+    return { healthy: false, reason: 'MT5 broker terminal is not connected.' };
+  }
+
+  if (!brokerCanonical) {
+    return { healthy: false, reason: 'No MT5 broker quote available.' };
+  }
+
+  // If explicit bridge connection status provided
+  if (context.bridgeConnected === false) {
+    return { healthy: false, reason: 'MT5 bridge is disconnected.' };
+  }
+
+  // If explicit terminal connection status provided
+  if (context.terminalConnected === false) {
+    return { healthy: false, reason: 'MT5 terminal is disconnected.' };
+  }
+
+  // If explicit heartbeat age provided
+  if (typeof context.heartbeatAgeMs === 'number' && (context.heartbeatAgeMs > 10000 || context.heartbeatAgeMs < 0)) {
+    return { healthy: false, reason: `MT5 terminal heartbeat is stale (${Math.round(context.heartbeatAgeMs / 1000)}s old).` };
+  }
+
+  // If explicit stale flag provided
+  if (context.isStale === true) {
+    return { healthy: false, reason: 'MT5 telemetry is flagged as stale.' };
+  }
+
+  // Broker quote validation: positive BID & ASK, non-inverted spread
+  if (brokerCanonical.bid === undefined || brokerCanonical.ask === undefined || brokerCanonical.bid <= 0 || brokerCanonical.ask <= 0) {
+    return { healthy: false, reason: 'Broker quote contains invalid or non-positive BID/ASK prices.' };
+  }
+
+  if (brokerCanonical.ask < brokerCanonical.bid) {
+    return { healthy: false, reason: 'Broker quote inverted: ASK is less than BID.' };
+  }
+
+  if (!brokerCanonical.executable || brokerCanonical.freshness !== 'FRESH') {
+    return {
+      healthy: false,
+      reason: `Broker quote is stale or market session closed (${brokerCanonical.freshness}, ${Math.round(brokerCanonical.ageMs / 1000)}s old). Fresh live quote required.`
+    };
+  }
+
+  return { healthy: true };
+}
+
+/**
  * CENTRAL PRICE AUTHORITY RESOLVER
  * 
  * Resolves authoritative price per purpose with fail-closed safety.
@@ -299,6 +368,7 @@ export function resolvePriceForPurpose(
         price: 0,
         canonical: brokerCanonical,
         effectivePrice: 0,
+        executablePrice: null,
         purpose,
         isExecutable: false,
         executable: false,
@@ -318,6 +388,7 @@ export function resolvePriceForPurpose(
         price: 0,
         canonical: null,
         effectivePrice: 0,
+        executablePrice: null,
         purpose,
         isExecutable: false,
         executable: false,
@@ -327,17 +398,40 @@ export function resolvePriceForPurpose(
         direction: dir,
         provenance: 'NONE',
         priceClass: 'UNAVAILABLE',
-        providerType: 'SYNTHETIC_FALLBACK',
+        providerType: 'UNAVAILABLE',
         freshness: 'UNAVAILABLE'
       };
     }
 
+    const mt5Health = isMt5PathHealthy(context, brokerCanonical);
+
     if (!context.isMt5Connected || !brokerCanonical) {
+      if (!referenceCanonical && (!context.referenceAsset || !context.referenceAsset.price)) {
+        return {
+          price: 0,
+          canonical: null,
+          effectivePrice: 0,
+          executablePrice: null,
+          purpose,
+          isExecutable: false,
+          executable: false,
+          status: 'UNAVAILABLE',
+          reason: 'No MT5 broker quote or reference price available for execution.',
+          sourceUsed: 'NONE',
+          direction: dir,
+          provenance: 'NONE',
+          priceClass: 'UNAVAILABLE',
+          providerType: 'UNAVAILABLE',
+          freshness: 'UNAVAILABLE'
+        };
+      }
+
       const refPrice = referenceCanonical ? referenceCanonical.mid : (context.referenceAsset?.price || 0);
       return {
         price: refPrice,
         canonical: referenceCanonical,
         effectivePrice: refPrice,
+        executablePrice: null, // Reference feed must NEVER become executable price
         purpose,
         isExecutable: false,
         executable: false,
@@ -351,11 +445,13 @@ export function resolvePriceForPurpose(
         freshness: referenceCanonical ? referenceCanonical.freshness : 'UNAVAILABLE'
       };
     }
+
     if (context.operatingMode === 'READ_ONLY' || (context.operatingMode && context.operatingMode !== 'DEMO_EXECUTION')) {
       return {
         price: brokerCanonical.mid,
         canonical: brokerCanonical,
         effectivePrice: brokerCanonical.mid,
+        executablePrice: null,
         purpose,
         isExecutable: false,
         executable: false,
@@ -369,16 +465,18 @@ export function resolvePriceForPurpose(
         freshness: brokerCanonical.freshness
       };
     }
-    if (!brokerCanonical.executable || brokerCanonical.freshness !== 'FRESH') {
+
+    if (!mt5Health.healthy) {
       return {
         price: brokerCanonical.mid,
         canonical: brokerCanonical,
         effectivePrice: brokerCanonical.mid,
+        executablePrice: null,
         purpose,
         isExecutable: false,
         executable: false,
         status: 'LOCKED',
-        reason: `Broker quote is stale or market session closed for ${upper} (${brokerCanonical.freshness}, ${Math.round(brokerCanonical.ageMs / 1000)}s old). Fresh live quote required.`,
+        reason: mt5Health.reason || `Broker quote is stale or market session closed for ${upper} (${brokerCanonical.freshness}, ${Math.round(brokerCanonical.ageMs / 1000)}s old). Fresh live quote required.`,
         sourceUsed: brokerCanonical.provider,
         direction: dir,
         provenance: brokerCanonical.provenance,
@@ -395,6 +493,7 @@ export function resolvePriceForPurpose(
       price: execPrice,
       canonical: brokerCanonical,
       effectivePrice: execPrice,
+      executablePrice: execPrice,
       purpose,
       isExecutable: true,
       executable: true,
@@ -410,12 +509,14 @@ export function resolvePriceForPurpose(
 
   // 4. POSITION_SIZING PURPOSE
   if (purpose === 'POSITION_SIZING') {
-    if (brokerCanonical && brokerCanonical.executable && context.isMt5Connected && !isProd) {
+    const mt5Health = isMt5PathHealthy(context, brokerCanonical);
+    if (brokerCanonical && mt5Health.healthy && !isProd && !context.isRemoteMt5) {
       const sizingPrice = dir === 'BUY' ? (brokerCanonical.ask || brokerCanonical.mid) : (brokerCanonical.bid || brokerCanonical.mid);
       return {
         price: sizingPrice,
         canonical: brokerCanonical,
         effectivePrice: sizingPrice,
+        executablePrice: sizingPrice,
         purpose,
         isExecutable: true,
         executable: true,
@@ -435,6 +536,7 @@ export function resolvePriceForPurpose(
         price: referenceCanonical.mid,
         canonical: referenceCanonical,
         effectivePrice: referenceCanonical.mid,
+        executablePrice: null,
         purpose,
         isExecutable: false,
         executable: false,
@@ -453,6 +555,7 @@ export function resolvePriceForPurpose(
       price: 0,
       canonical: null,
       effectivePrice: 0,
+      executablePrice: null,
       purpose,
       isExecutable: false,
       executable: false,
@@ -462,19 +565,21 @@ export function resolvePriceForPurpose(
       direction: dir,
       provenance: 'NONE',
       priceClass: 'UNAVAILABLE',
-      providerType: 'SYNTHETIC_FALLBACK',
+      providerType: 'UNAVAILABLE',
       freshness: 'UNAVAILABLE'
     };
   }
 
   // 5. RISK PURPOSE
   if (purpose === 'RISK') {
-    if (brokerCanonical && brokerCanonical.executable && context.isMt5Connected && !isProd) {
+    const mt5Health = isMt5PathHealthy(context, brokerCanonical);
+    if (brokerCanonical && mt5Health.healthy && !isProd && !context.isRemoteMt5) {
       const riskRefPrice = dir === 'BUY' ? (brokerCanonical.ask || brokerCanonical.mid) : (brokerCanonical.bid || brokerCanonical.mid);
       return {
         price: riskRefPrice,
         canonical: brokerCanonical,
         effectivePrice: riskRefPrice,
+        executablePrice: riskRefPrice,
         purpose,
         isExecutable: true,
         executable: true,
@@ -493,6 +598,7 @@ export function resolvePriceForPurpose(
         price: referenceCanonical.mid,
         canonical: referenceCanonical,
         effectivePrice: referenceCanonical.mid,
+        executablePrice: null,
         purpose,
         isExecutable: false,
         executable: false,
@@ -511,6 +617,7 @@ export function resolvePriceForPurpose(
       price: 0,
       canonical: null,
       effectivePrice: 0,
+      executablePrice: null,
       purpose,
       isExecutable: false,
       executable: false,
@@ -520,7 +627,7 @@ export function resolvePriceForPurpose(
       direction: dir,
       provenance: 'NONE',
       priceClass: 'UNAVAILABLE',
-      providerType: 'SYNTHETIC_FALLBACK',
+      providerType: 'UNAVAILABLE',
       freshness: 'UNAVAILABLE'
     };
   }
@@ -532,6 +639,7 @@ export function resolvePriceForPurpose(
         price: referenceCanonical.mid,
         canonical: referenceCanonical,
         effectivePrice: referenceCanonical.mid,
+        executablePrice: null,
         purpose,
         isExecutable: false,
         executable: false,
@@ -545,11 +653,16 @@ export function resolvePriceForPurpose(
       };
     }
 
-    if (brokerCanonical && (context.isRemoteMt5 ? (brokerCanonical.freshness !== 'UNAVAILABLE') : (brokerCanonical.executable && !isProd))) {
+    const mt5Health = isMt5PathHealthy(context, brokerCanonical);
+    const isRemoteAllowed = context.isRemoteMt5 && brokerCanonical && (brokerCanonical.freshness !== 'UNAVAILABLE');
+    const isLocalAllowed = !context.isRemoteMt5 && brokerCanonical && mt5Health.healthy && !isProd;
+
+    if (isRemoteAllowed || isLocalAllowed) {
       return {
         price: brokerCanonical.mid,
         canonical: brokerCanonical,
         effectivePrice: brokerCanonical.mid,
+        executablePrice: null,
         purpose,
         isExecutable: false,
         executable: false,
@@ -569,6 +682,7 @@ export function resolvePriceForPurpose(
       price: 0,
       canonical: null,
       effectivePrice: 0,
+      executablePrice: null,
       purpose,
       isExecutable: false,
       executable: false,
@@ -578,17 +692,22 @@ export function resolvePriceForPurpose(
       direction: dir,
       provenance: 'NONE',
       priceClass: 'UNAVAILABLE',
-      providerType: 'SYNTHETIC_FALLBACK',
+      providerType: 'UNAVAILABLE',
       freshness: 'UNAVAILABLE'
     };
   }
 
   // 7. DISPLAY_REFERENCE (Default UI Overview)
-  if (brokerCanonical && (context.isRemoteMt5 ? (brokerCanonical.freshness !== 'UNAVAILABLE') : (brokerCanonical.executable && !isProd))) {
+  const mt5HealthDisplay = isMt5PathHealthy(context, brokerCanonical);
+  const isRemoteDisplayAllowed = context.isRemoteMt5 && brokerCanonical && (brokerCanonical.freshness !== 'UNAVAILABLE');
+  const isLocalDisplayAllowed = !context.isRemoteMt5 && brokerCanonical && mt5HealthDisplay.healthy && !isProd;
+
+  if (isRemoteDisplayAllowed || isLocalDisplayAllowed) {
     return {
       price: brokerCanonical.mid,
       canonical: brokerCanonical,
       effectivePrice: brokerCanonical.mid,
+      executablePrice: null,
       purpose: 'DISPLAY_REFERENCE',
       isExecutable: false,
       executable: false,
@@ -609,6 +728,7 @@ export function resolvePriceForPurpose(
       price: referenceCanonical.mid,
       canonical: referenceCanonical,
       effectivePrice: referenceCanonical.mid,
+      executablePrice: null,
       purpose: 'DISPLAY_REFERENCE',
       isExecutable: false,
       executable: false,
@@ -626,6 +746,7 @@ export function resolvePriceForPurpose(
     price: 0,
     canonical: null,
     effectivePrice: 0,
+    executablePrice: null,
     purpose: 'DISPLAY_REFERENCE',
     isExecutable: false,
     executable: false,
@@ -635,7 +756,7 @@ export function resolvePriceForPurpose(
     direction: dir,
     provenance: 'NONE',
     priceClass: 'UNAVAILABLE',
-    providerType: 'SYNTHETIC_FALLBACK',
+    providerType: 'UNAVAILABLE',
     freshness: 'UNAVAILABLE'
   };
 }

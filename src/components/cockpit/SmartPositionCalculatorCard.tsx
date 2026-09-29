@@ -21,11 +21,11 @@ export const SmartPositionCalculatorCard: React.FC = () => {
   const [riskPct, setRiskPct] = useState<number>(0.50);
   const [symbol, setSymbol] = useState<string>(activeSymbol);
   const [direction, setDirection] = useState<'BUY' | 'SELL'>('BUY');
-  const [entryPrice, setEntryPrice] = useState<number>(activeAsset.price || 4349.70);
-  const [stopLoss, setStopLoss] = useState<number>(4339.00);
-  const [tp1, setTp1] = useState<number>(4354.00);
-  const [tp2, setTp2] = useState<number>(4362.00);
-  const [tp3, setTp3] = useState<number>(4375.00);
+  const [entryPrice, setEntryPrice] = useState<number>(activeAsset.price || 0);
+  const [stopLoss, setStopLoss] = useState<number>(assetProfile?.stopLoss || 0);
+  const [tp1, setTp1] = useState<number>(assetProfile?.tp1 || 0);
+  const [tp2, setTp2] = useState<number>(assetProfile?.tp2 || 0);
+  const [tp3, setTp3] = useState<number>(assetProfile?.tp3 || 0);
 
   // Advanced / Details modal state
   const [showDetails, setShowDetails] = useState<boolean>(false);
@@ -103,7 +103,18 @@ export const SmartPositionCalculatorCard: React.FC = () => {
   // Sync with active symbol when changed externally
   useEffect(() => {
     setSymbol(activeSymbol);
-  }, [activeSymbol]);
+    const isSell = assetProfile.setupDirection?.includes('SELL');
+    setDirection(isSell ? 'SELL' : 'BUY');
+    if (assetProfile.entryZone && assetProfile.entryZone.length === 2) {
+      setEntryPrice(assetProfile.entryZone[0]);
+    } else {
+      setEntryPrice(activeAsset.price || 0);
+    }
+    if (assetProfile.stopLoss) setStopLoss(assetProfile.stopLoss);
+    if (assetProfile.tp1) setTp1(assetProfile.tp1);
+    if (assetProfile.tp2) setTp2(assetProfile.tp2);
+    if (assetProfile.tp3) setTp3(assetProfile.tp3);
+  }, [activeSymbol, activeAsset.price, assetProfile]);
 
   // Risk Guardian policy cap
   const riskGuardianCap = useMemo(() => {

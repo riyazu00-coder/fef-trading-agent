@@ -6,7 +6,7 @@ import { resolvePriceForPurpose } from '@/lib/price/price-authority';
 
 export const ExecutionControlCard: React.FC = () => {
   const router = useRouter();
-  const { activeSymbol, assetProfile } = useActiveAsset();
+  const { activeSymbol, assetProfile, activeAsset } = useActiveAsset();
   const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
   const [riskPercent, setRiskPercent] = useState('0.50%');
   const [isExecuting, setIsExecuting] = useState(false);
@@ -14,11 +14,23 @@ export const ExecutionControlCard: React.FC = () => {
 
   const direction: 'BUY' | 'SELL' = assetProfile.setupDirection.includes('SELL') ? 'SELL' : 'BUY';
   const brokerQuote = activeTelemetry?.quote || telemetry.allQuotes[activeSymbol] || telemetry.allQuotes[activeSymbol.toUpperCase()];
+  const heartbeatAgeMs = typeof telemetry.heartbeatAgeMs === 'number'
+    ? telemetry.heartbeatAgeMs
+    : telemetry.terminal?.lastHeartbeat
+      ? (Date.now() - new Date(telemetry.terminal.lastHeartbeat).getTime())
+      : null;
+
   const execResolution = resolvePriceForPurpose(activeSymbol, 'EXECUTION', {
+    side: direction,
+    direction,
+    referenceAsset: activeAsset,
     brokerQuote,
     isMt5Connected,
+    terminalConnected: telemetry.terminal?.terminalConnected,
+    bridgeConnected: telemetry.localBridgeOnline,
+    heartbeatAgeMs,
+    isStale: brokerQuote?.isStale,
     operatingMode: telemetry.operatingMode,
-    direction,
     brokerName: telemetry.account?.broker || telemetry.terminal?.brokerName,
     brokerServer: telemetry.terminal?.brokerServer
   });
@@ -50,7 +62,7 @@ export const ExecutionControlCard: React.FC = () => {
           ticket: Math.floor(90000000 + Math.random() * 9000000),
           symbol: activeSymbol,
           type: direction,
-          openPrice: execResolution.effectivePrice || 4345.0,
+          openPrice: (execResolution.executable && execResolution.price > 0) ? execResolution.price : (activeAsset?.price || 0),
           lots: 0.5,
           sl: assetProfile?.stopLoss || 0,
           tp: assetProfile?.tp1 || 0,
@@ -68,13 +80,13 @@ export const ExecutionControlCard: React.FC = () => {
     }, 800);
   };
 
-  const entryDisplay = execResolution.isExecutable
-    ? `$${execResolution.effectivePrice.toFixed(execResolution.canonical?.digits || 2)}`
-    : assetProfile?.entryZone ? `$${assetProfile.entryZone[0]}` : '$4,349.70';
-  const slDisplay = assetProfile?.stopLoss ? `$${assetProfile.stopLoss}` : '$4,343.70';
-  const tp1Display = assetProfile?.tp1 ? `${assetProfile.tp1}` : '4,356.70';
-  const tp2Display = assetProfile?.tp2 ? `${assetProfile.tp2}` : '4,366.80';
-  const tp3Display = assetProfile?.tp3 ? `${assetProfile.tp3}` : '4,376.70';
+  const entryDisplay = execResolution.executable && execResolution.price > 0
+    ? `$${execResolution.price.toFixed(execResolution.canonical?.digits || 2)}`
+    : assetProfile?.entryZone ? `$${assetProfile.entryZone[0]}` : (activeAsset?.price ? `$${activeAsset.price}` : '--');
+  const slDisplay = assetProfile?.stopLoss ? `$${assetProfile.stopLoss}` : '--';
+  const tp1Display = assetProfile?.tp1 ? `${assetProfile.tp1}` : '--';
+  const tp2Display = assetProfile?.tp2 ? `${assetProfile.tp2}` : '--';
+  const tp3Display = assetProfile?.tp3 ? `${assetProfile.tp3}` : '--';
 
   return (
     <div className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-3">

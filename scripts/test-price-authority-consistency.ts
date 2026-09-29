@@ -288,6 +288,253 @@ assert(neutralDisplay.priceClass === 'REFERENCE', 'Neutral display is labeled RE
 assert(neutralDisplay.executable === false, 'Neutral display is not executable');
 passedTests++;
 
+// -----------------------------------------------------------------
+// Test Case A: Fresh local MT5 (BUY -> ASK, SELL -> BID, executablePrice present, executable true)
+// -----------------------------------------------------------------
+console.log('\nTEST CASE A: Fresh Local MT5 (BUY -> ASK, SELL -> BID, executablePrice present, executable true)');
+const caseABuy = resolvePriceForPurpose('XAUUSD', 'EXECUTION', {
+  side: 'BUY',
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: mockFreshBrokerQuote,
+  isMt5Connected: true,
+  terminalConnected: true,
+  bridgeConnected: true,
+  heartbeatAgeMs: 1200,
+  isStale: false,
+  operatingMode: 'DEMO_EXECUTION',
+  brokerName: 'Exness',
+  brokerServer: 'Exness-MT5'
+});
+assert(caseABuy.executable === true, 'Case A: BUY is executable');
+assert(caseABuy.price === mockFreshBrokerQuote.ask, 'Case A: BUY price is broker ASK');
+assert(caseABuy.executablePrice === mockFreshBrokerQuote.ask, 'Case A: executablePrice is broker ASK');
+
+const caseASell = resolvePriceForPurpose('XAUUSD', 'EXECUTION', {
+  side: 'SELL',
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: mockFreshBrokerQuote,
+  isMt5Connected: true,
+  terminalConnected: true,
+  bridgeConnected: true,
+  heartbeatAgeMs: 1200,
+  isStale: false,
+  operatingMode: 'DEMO_EXECUTION',
+  brokerName: 'Exness',
+  brokerServer: 'Exness-MT5'
+});
+assert(caseASell.executable === true, 'Case A: SELL is executable');
+assert(caseASell.price === mockFreshBrokerQuote.bid, 'Case A: SELL price is broker BID');
+assert(caseASell.executablePrice === mockFreshBrokerQuote.bid, 'Case A: executablePrice is broker BID');
+passedTests++;
+
+// -----------------------------------------------------------------
+// Test Case B: MT5 Disconnected (Execution locked, executablePrice null, reference fallback labeled non-executable)
+// -----------------------------------------------------------------
+console.log('\nTEST CASE B: MT5 Disconnected (Execution locked, executablePrice null, reference fallback labeled non-executable)');
+const caseB = resolvePriceForPurpose('XAUUSD', 'EXECUTION', {
+  side: 'BUY',
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: null,
+  isMt5Connected: false,
+  terminalConnected: false,
+  bridgeConnected: false,
+  operatingMode: 'DEMO_EXECUTION'
+});
+assert(caseB.executable === false, 'Case B: Executable is false');
+assert(caseB.executablePrice === null, 'Case B: executablePrice is strictly null');
+assert(caseB.priceClass === 'REFERENCE', 'Case B: Price class is non-executable REFERENCE');
+assert(caseB.reason?.includes('MT5 broker terminal is not connected') === true, 'Case B: Reason documented');
+passedTests++;
+
+// -----------------------------------------------------------------
+// Test Case C: MT5 Terminal Heartbeat Stale (>10s) (Execution locked, executablePrice null)
+// -----------------------------------------------------------------
+console.log('\nTEST CASE C: MT5 Terminal Heartbeat Stale (>10s) (Execution locked, executablePrice null)');
+const caseC = resolvePriceForPurpose('XAUUSD', 'EXECUTION', {
+  side: 'BUY',
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: mockFreshBrokerQuote,
+  isMt5Connected: true,
+  terminalConnected: true,
+  bridgeConnected: true,
+  heartbeatAgeMs: 12500, // 12.5s > 10s
+  isStale: false,
+  operatingMode: 'DEMO_EXECUTION'
+});
+assert(caseC.executable === false, 'Case C: Execution locked due to stale terminal heartbeat');
+assert(caseC.executablePrice === null, 'Case C: executablePrice is strictly null');
+assert(caseC.reason?.includes('heartbeat is stale') === true, 'Case C: Reason cites stale heartbeat');
+passedTests++;
+
+// -----------------------------------------------------------------
+// Test Case D: Bridge Connected but Terminal Disconnected (Execution locked, executablePrice null)
+// -----------------------------------------------------------------
+console.log('\nTEST CASE D: Bridge Connected but Terminal Disconnected (Execution locked, executablePrice null)');
+const caseD = resolvePriceForPurpose('XAUUSD', 'EXECUTION', {
+  side: 'BUY',
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: mockFreshBrokerQuote,
+  isMt5Connected: true,
+  terminalConnected: false, // Terminal disconnected
+  bridgeConnected: true,
+  heartbeatAgeMs: null,
+  isStale: false,
+  operatingMode: 'DEMO_EXECUTION'
+});
+assert(caseD.executable === false, 'Case D: Execution locked when terminal disconnected');
+assert(caseD.executablePrice === null, 'Case D: executablePrice is strictly null');
+assert(caseD.reason?.includes('terminal is disconnected') === true, 'Case D: Reason cites terminal disconnection');
+passedTests++;
+
+// -----------------------------------------------------------------
+// Test Case E: Reference Feed Only (Execution locked, analysis/display permitted with REFERENCE priceClass)
+// -----------------------------------------------------------------
+console.log('\nTEST CASE E: Reference Feed Only (Execution locked, analysis/display permitted with REFERENCE priceClass)');
+const caseEExec = resolvePriceForPurpose('EURUSD', 'EXECUTION', {
+  side: 'BUY',
+  referenceAsset: { symbol: 'EURUSD', price: 1.0850, change24h: 0.1, provider: 'TwelveData' } as any,
+  brokerQuote: null,
+  isMt5Connected: false,
+  operatingMode: 'DEMO_EXECUTION'
+});
+assert(caseEExec.executable === false, 'Case E: Execution is locked');
+assert(caseEExec.executablePrice === null, 'Case E: executablePrice is strictly null');
+assert(caseEExec.priceClass === 'REFERENCE', 'Case E: Price class is REFERENCE');
+
+const caseEAnalysis = resolvePriceForPurpose('EURUSD', 'AGENT_ANALYSIS', {
+  referenceAsset: { symbol: 'EURUSD', price: 1.0850, change24h: 0.1, provider: 'TwelveData' } as any,
+  brokerQuote: null,
+  isMt5Connected: false
+});
+assert(caseEAnalysis.price === 1.0850, 'Case E: Analysis price is reference price');
+assert(caseEAnalysis.priceClass === 'REFERENCE', 'Case E: Analysis priceClass is REFERENCE');
+assert(caseEAnalysis.executable === false, 'Case E: Analysis price is strictly non-executable');
+passedTests++;
+
+// -----------------------------------------------------------------
+// Test Case F: Stale Quote (Execution locked, executablePrice null)
+// -----------------------------------------------------------------
+console.log('\nTEST CASE F: Stale Quote (Execution locked, executablePrice null)');
+const caseF = resolvePriceForPurpose('XAUUSD', 'EXECUTION', {
+  side: 'BUY',
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: mockStaleBrokerQuote, // quote > 5s old
+  isMt5Connected: true,
+  terminalConnected: true,
+  bridgeConnected: true,
+  heartbeatAgeMs: 1000,
+  isStale: false,
+  operatingMode: 'DEMO_EXECUTION'
+});
+assert(caseF.executable === false, 'Case F: Execution locked due to stale quote');
+assert(caseF.executablePrice === null, 'Case F: executablePrice is null');
+assert(caseF.freshness === 'STALE', 'Case F: Freshness is STALE');
+passedTests++;
+
+// -----------------------------------------------------------------
+// Test Case G: Remote MT5 Telemetry Present (Read-only permitted, execution locked, WS freshness != authority)
+// -----------------------------------------------------------------
+console.log('\nTEST CASE G: Remote MT5 Telemetry Present (Read-only permitted, execution locked, WS freshness != authority)');
+const caseGExec = resolvePriceForPurpose('XAUUSD', 'EXECUTION', {
+  side: 'BUY',
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: { ...mockFreshBrokerQuote, brokerSymbol: 'XAUUSD.r' },
+  isMt5Connected: true,
+  terminalConnected: true,
+  bridgeConnected: true,
+  heartbeatAgeMs: 500,
+  isRemoteMt5: true,
+  operatingMode: 'READ_ONLY'
+});
+assert(caseGExec.executable === false, 'Case G: Remote MT5 in READ_ONLY mode is locked');
+assert(caseGExec.executablePrice === null, 'Case G: executablePrice is strictly null');
+assert(caseGExec.reason?.includes('TELEMETRY ONLY') === true || caseGExec.reason?.includes('Remote execution is disabled') === true, 'Case G: Locked with remote telemetry-only reason');
+
+const caseGDisplay = resolvePriceForPurpose('XAUUSD', 'DISPLAY_REFERENCE', {
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: { ...mockFreshBrokerQuote, brokerSymbol: 'XAUUSD.r' },
+  isMt5Connected: true,
+  terminalConnected: true,
+  bridgeConnected: true,
+  heartbeatAgeMs: 500,
+  isRemoteMt5: true
+});
+assert(caseGDisplay.executable === false, 'Case G: Remote display is non-executable');
+assert(caseGDisplay.providerType === 'MT5_REMOTE_BROKER', 'Case G: Provider is MT5_REMOTE_BROKER');
+assert(caseGDisplay.price === 4335.605, 'Case G: Remote broker MID is displayed');
+passedTests++;
+
+// -----------------------------------------------------------------
+// Test Case H: No SYNTHETIC_FALLBACK Emitted for Missing Prices (Uses UNAVAILABLE)
+// -----------------------------------------------------------------
+console.log('\nTEST CASE H: No SYNTHETIC_FALLBACK Emitted for Missing Prices (Uses UNAVAILABLE)');
+const caseHMissingExec = resolvePriceForPurpose('UNKNOWN', 'EXECUTION', {
+  brokerQuote: null,
+  referenceAsset: null,
+  isMt5Connected: false
+});
+assert(caseHMissingExec.providerType === 'UNAVAILABLE', `Case H: Missing price providerType is UNAVAILABLE (got ${caseHMissingExec.providerType})`);
+assert(caseHMissingExec.status === 'UNAVAILABLE', `Case H: Missing price status is UNAVAILABLE (got ${caseHMissingExec.status})`);
+assert(caseHMissingExec.priceClass === 'UNAVAILABLE', `Case H: Missing price priceClass is UNAVAILABLE (got ${caseHMissingExec.priceClass})`);
+assert(caseHMissingExec.providerType !== 'SYNTHETIC_FALLBACK', 'Case H: Missing price is NEVER labeled SYNTHETIC_FALLBACK');
+
+const caseHMissingDisplay = resolvePriceForPurpose('UNKNOWN', 'DISPLAY_REFERENCE', {
+  brokerQuote: null,
+  referenceAsset: null,
+  isMt5Connected: false
+});
+assert(caseHMissingDisplay.providerType === 'UNAVAILABLE', 'Case H: Missing display providerType is UNAVAILABLE');
+assert(caseHMissingDisplay.priceClass === 'UNAVAILABLE', 'Case H: Missing display priceClass is UNAVAILABLE');
+passedTests++;
+
+// -----------------------------------------------------------------
+// Test Case I: Execution-Page Semantics (Separation between executableEntryPrice and referencePrice / sizingEstimationPrice)
+// -----------------------------------------------------------------
+console.log('\nTEST CASE I: Execution-Page Semantics (Separation between executableEntryPrice and referencePrice / sizingEstimationPrice)');
+const caseIDisconnectedExec = resolvePriceForPurpose('XAUUSD', 'EXECUTION', {
+  side: 'BUY',
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: null,
+  isMt5Connected: false,
+  operatingMode: 'DEMO_EXECUTION'
+});
+const caseIDisconnectedSizing = resolvePriceForPurpose('XAUUSD', 'POSITION_SIZING', {
+  side: 'BUY',
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: null,
+  isMt5Connected: false,
+  operatingMode: 'DEMO_EXECUTION'
+});
+
+const pageRefPrice = mockReferenceAsset.price;
+const pageExecutableEntryPrice = (caseIDisconnectedExec.executable && caseIDisconnectedExec.price > 0)
+  ? caseIDisconnectedExec.price
+  : null;
+const pageSizingEstimationPrice = (caseIDisconnectedSizing.price && caseIDisconnectedSizing.price > 0)
+  ? caseIDisconnectedSizing.price
+  : pageRefPrice;
+
+assert(pageExecutableEntryPrice === null, 'Case I: executableEntryPrice is strictly null when MT5 disconnected');
+assert(pageRefPrice === 4334.60, 'Case I: referencePrice holds spot feed price');
+assert(pageSizingEstimationPrice === 4334.60, 'Case I: sizingEstimationPrice is populated for estimation');
+assert(pageExecutableEntryPrice !== pageRefPrice, 'Case I: reference price does NOT masquerade as executable entry price');
+
+const caseIConnectedExec = resolvePriceForPurpose('XAUUSD', 'EXECUTION', {
+  side: 'BUY',
+  referenceAsset: mockReferenceAsset,
+  brokerQuote: mockFreshBrokerQuote,
+  isMt5Connected: true,
+  terminalConnected: true,
+  bridgeConnected: true,
+  heartbeatAgeMs: 1000,
+  operatingMode: 'DEMO_EXECUTION'
+});
+const connectedExecutableEntryPrice = (caseIConnectedExec.executable && caseIConnectedExec.price > 0)
+  ? caseIConnectedExec.price
+  : null;
+assert(connectedExecutableEntryPrice === 4335.63, 'Case I: connected executableEntryPrice resolves to broker ASK');
+passedTests++;
+
 console.log('\n=================================================================');
 console.log(`ALL ${passedTests} AUDIT & REGRESSION TESTS PASSED CLEANLY.`);
 console.log('=================================================================');
