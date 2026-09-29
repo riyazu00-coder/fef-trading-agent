@@ -9,6 +9,14 @@ import {
   calculateBlueprintRR
 } from '../src/lib/chart-analysis/blueprint-validator';
 import { processChartAnalysis } from '../src/lib/chart-analysis/engine';
+import {
+  buildBuyBlueprint,
+  buildSellBlueprint,
+  updateBlueprintLifecycle,
+  CANONICAL_SL_POLICY
+} from '../src/lib/trading/trade-blueprint-engine';
+import { MarketStructure } from '../src/lib/market/market-structure-engine';
+import { OHLCCandle } from '../src/lib/market/canonical-market-snapshot';
 
 let failures = 0;
 
@@ -171,6 +179,191 @@ async function runTests() {
   assert(bullishAnalysis.setup.tp1 > bullishAnalysis.setup.entryHigh, 'Engine TP1 is above entry for BUY');
   assert(bullishAnalysis.setup.tp2 > bullishAnalysis.setup.tp1, 'Engine TP2 is above TP1 for BUY');
   assert(bullishAnalysis.setup.tp3 > bullishAnalysis.setup.tp2, 'Engine TP3 is above TP2 for BUY');
+
+  console.log('\n====================================================');
+  console.log('TEST 6: P1 Trade Blueprint Engine SL Geometry Integrity & Risk Policy');
+  console.log('====================================================');
+
+  function makeTestCandles(count: number, basePrice: number, spread = 4): OHLCCandle[] {
+    const c: OHLCCandle[] = [];
+    const now = Date.now();
+    for (let i = 0; i < count; i++) {
+      c.push({
+        timestamp: now - (count - i) * 60000,
+        open: basePrice,
+        high: basePrice + spread,
+        low: basePrice - spread,
+        close: basePrice + 1,
+        tickVolume: 100,
+      });
+    }
+    return c;
+  }
+
+  const testCandles = makeTestCandles(30, 2040, 5); // ATR is approx 10
+
+  // 1. BUY normal structural invalidation produces SL < invalidation < entry < TP1
+  const buyStructure: MarketStructure = {
+    timeframe: 'H1',
+    symbol: 'XAUUSD',
+    analyzedAt: Date.now(),
+    candleCount: 30,
+    source: 'MT5_BROKER_OHLC',
+    classification: 'DERIVED_FROM_VERIFIED',
+    trend: 'BULLISH',
+    swingHighs: [
+      { price: 2070, type: 'SWING_HIGH', timeframe: 'H1', candleTimestamp: 1000, candleIndex: 10, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' }
+    ],
+    swingLows: [
+      { price: 2010, type: 'SWING_LOW', timeframe: 'H1', candleTimestamp: 800, candleIndex: 5, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' },
+      { price: 2030, type: 'SWING_LOW', timeframe: 'H1', candleTimestamp: 900, candleIndex: 8, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' }
+    ],
+    bos: [],
+    choch: [],
+    support: [],
+    resistance: [],
+    fvg: [
+      { type: 'BULLISH_FVG', high: 2046, low: 2038, midpoint: 2042, timeframe: 'H1', candleTimestamp: 950, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED', filled: false }
+    ],
+    orderBlocks: [],
+    lastSwingHigh: 2070,
+    lastSwingLow: 2030
+  };
+
+  const buyBp = buildBuyBlueprint(buyStructure, testCandles, 'XAUUSD', 2042);
+  assert(buyBp !== null, 'BUY normal setup produces a non-null blueprint');
+  if (buyBp) {
+    assert(buyBp.sl.price < buyBp.invalidation.price, '1. BUY: SL < structural invalidation');
+    assert(buyBp.invalidation.price < buyBp.entryZoneLow.price, '1. BUY: structural invalidation < entry reference');
+    assert(buyBp.entryZoneHigh.price < buyBp.tp1.price, '1. BUY: entry reference < TP1');
+    assert(buyBp.invalidation.price === 2030, 'Nearest structural swing low (2030) selected over distant swing low (2010)');
+  }
+
+  // 2. SELL normal structural invalidation produces TP1 < entry < invalidation < SL
+  const sellStructure: MarketStructure = {
+    timeframe: 'H1',
+    symbol: 'XAUUSD',
+    analyzedAt: Date.now(),
+    candleCount: 30,
+    source: 'MT5_BROKER_OHLC',
+    classification: 'DERIVED_FROM_VERIFIED',
+    trend: 'BEARISH',
+    swingHighs: [
+      { price: 2095, type: 'SWING_HIGH', timeframe: 'H1', candleTimestamp: 800, candleIndex: 5, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' },
+      { price: 2065, type: 'SWING_HIGH', timeframe: 'H1', candleTimestamp: 900, candleIndex: 8, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' }
+    ],
+    swingLows: [
+      { price: 2020, type: 'SWING_LOW', timeframe: 'H1', candleTimestamp: 1000, candleIndex: 10, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' }
+    ],
+    bos: [],
+    choch: [],
+    support: [],
+    resistance: [],
+    fvg: [
+      { type: 'BEARISH_FVG', high: 2056, low: 2048, midpoint: 2052, timeframe: 'H1', candleTimestamp: 950, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED', filled: false }
+    ],
+    orderBlocks: [],
+    lastSwingHigh: 2065,
+    lastSwingLow: 2020
+  };
+
+  const sellBp = buildSellBlueprint(sellStructure, testCandles, 'XAUUSD', 2052);
+  assert(sellBp !== null, 'SELL normal setup produces a non-null blueprint');
+  if (sellBp) {
+    assert(sellBp.tp1.price < sellBp.entryZoneLow.price, '2. SELL: TP1 < entry reference');
+    assert(sellBp.entryZoneHigh.price < sellBp.invalidation.price, '2. SELL: entry reference < structural invalidation');
+    assert(sellBp.invalidation.price < sellBp.sl.price, '2. SELL: structural invalidation < SL');
+    assert(sellBp.invalidation.price === 2065, 'Nearest structural swing high (2065) selected over distant swing high (2095)');
+  }
+
+  // 3. BUY far structural swing cannot create an absurd distant SL blueprint
+  const farBuyStructure: MarketStructure = {
+    ...buyStructure,
+    swingLows: [
+      { price: 1890, type: 'SWING_LOW', timeframe: 'H1', candleTimestamp: 500, candleIndex: 2, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' }
+    ],
+  };
+  const farBuyBp = buildBuyBlueprint(farBuyStructure, testCandles, 'XAUUSD', 2042);
+  assert(farBuyBp === null, '3. BUY: Far structural swing fails closed (returns null, no absurd distant SL)');
+
+  // 4. SELL far structural swing cannot create an absurd distant SL blueprint
+  const farSellStructure: MarketStructure = {
+    ...sellStructure,
+    swingHighs: [
+      { price: 2150, type: 'SWING_HIGH', timeframe: 'H1', candleTimestamp: 500, candleIndex: 2, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' }
+    ],
+  };
+  const farSellBp = buildSellBlueprint(farSellStructure, testCandles, 'XAUUSD', 2052);
+  assert(farSellBp === null, '4. SELL: Far structural swing fails closed (returns null, no absurd distant SL)');
+
+  // 5. If only structural invalidation creates unacceptable R:R, fails closed
+  const badRrBuyStructure: MarketStructure = {
+    ...buyStructure,
+    swingHighs: [
+      { price: 2047, type: 'SWING_HIGH', timeframe: 'H1', candleTimestamp: 1000, candleIndex: 10, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' }
+    ],
+  };
+  const badRrBp = buildBuyBlueprint(badRrBuyStructure, testCandles, 'XAUUSD', 2042);
+  assert(badRrBp === null, '5. Unacceptable risk/reward geometry fails closed without fabricating a fake stop');
+
+  // 6. Missing/unusable ATR does not create a fake percentage-based verified SL
+  const shortCandles = makeTestCandles(8, 2040, 5); // insufficient for 14-period ATR
+  const noAtrBpBuy = buildBuyBlueprint(buyStructure, shortCandles, 'XAUUSD', 2042);
+  assert(noAtrBpBuy === null, '6. Missing ATR on BUY fails closed (returns null, never fabricates synthetic 0.2% stop)');
+  const noAtrBpSell = buildSellBlueprint(sellStructure, shortCandles, 'XAUUSD', 2052);
+  assert(noAtrBpSell === null, '6. Missing ATR on SELL fails closed (returns null)');
+
+  // 7. SL provenance remains truthful
+  if (buyBp) {
+    assert(buyBp.sl.classification === 'DERIVED_FROM_VERIFIED', '7. SL classification is DERIVED_FROM_VERIFIED');
+    assert(buyBp.sl.structureType === 'SL_DERIVED', '7. SL structureType is SL_DERIVED');
+    assert(buyBp.invalidation.classification === 'DERIVED_FROM_VERIFIED', '7. Invalidation classification is DERIVED_FROM_VERIFIED');
+    assert(buyBp.blueprintProvenanceVerified === true, '7. blueprintProvenanceVerified is true');
+  }
+
+  // 8. Existing TP directional ordering remains valid
+  const multiTargetBuyStructure: MarketStructure = {
+    ...buyStructure,
+    swingHighs: [
+      { price: 2060, type: 'SWING_HIGH', timeframe: 'H1', candleTimestamp: 1000, candleIndex: 10, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' },
+      { price: 2075, type: 'SWING_HIGH', timeframe: 'H1', candleTimestamp: 1010, candleIndex: 11, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' },
+      { price: 2090, type: 'SWING_HIGH', timeframe: 'H1', candleTimestamp: 1020, candleIndex: 12, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' }
+    ]
+  };
+  const multiBuyBp = buildBuyBlueprint(multiTargetBuyStructure, testCandles, 'XAUUSD', 2042);
+  if (multiBuyBp && multiBuyBp.tp2 && multiBuyBp.tp3) {
+    assert(multiBuyBp.tp1.price < multiBuyBp.tp2.price, '8. BUY TP1 < TP2');
+    assert(multiBuyBp.tp2.price < multiBuyBp.tp3.price, '8. BUY TP2 < TP3');
+  }
+
+  const multiTargetSellStructure: MarketStructure = {
+    ...sellStructure,
+    swingLows: [
+      { price: 2030, type: 'SWING_LOW', timeframe: 'H1', candleTimestamp: 1000, candleIndex: 10, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' },
+      { price: 2015, type: 'SWING_LOW', timeframe: 'H1', candleTimestamp: 1010, candleIndex: 11, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' },
+      { price: 2000, type: 'SWING_LOW', timeframe: 'H1', candleTimestamp: 1020, candleIndex: 12, source: 'MT5_BROKER_OHLC', classification: 'DERIVED_FROM_VERIFIED' }
+    ]
+  };
+  const multiSellBp = buildSellBlueprint(multiTargetSellStructure, testCandles, 'XAUUSD', 2052);
+  if (multiSellBp && multiSellBp.tp2 && multiSellBp.tp3) {
+    assert(multiSellBp.tp1.price > multiSellBp.tp2.price, '8. SELL TP1 > TP2');
+    assert(multiSellBp.tp2.price > multiSellBp.tp3.price, '8. SELL TP2 > TP3');
+  }
+
+  // 9. Existing blueprint lifecycle still freezes SL/TP after creation
+  if (buyBp) {
+    const updatedBp = updateBlueprintLifecycle(buyBp, 2044);
+    assert(updatedBp.sl.price === buyBp.sl.price, '9. Lifecycle update freezes SL price');
+    assert(updatedBp.tp1.price === buyBp.tp1.price, '9. Lifecycle update freezes TP1 price');
+    assert(updatedBp.invalidation.price === buyBp.invalidation.price, '9. Lifecycle update freezes invalidation price');
+
+    const invalidatedBp = updateBlueprintLifecycle(buyBp, buyBp.invalidation.price - 1.0);
+    assert(invalidatedBp.state === 'INVALIDATED', '9. Breaking invalidation transitions state to INVALIDATED');
+  }
+
+  // 10. Existing valid blueprints continue to pass when geometry is genuinely acceptable
+  assert(buyBp !== null, '10. Genuine acceptable BUY blueprint passes');
+  assert(sellBp !== null, '10. Genuine acceptable SELL blueprint passes');
 
   console.log('\n====================================================');
   console.log(`TEST SUMMARY: ${failures === 0 ? 'ALL TESTS PASSED' : `${failures} FAILURES`}`);
