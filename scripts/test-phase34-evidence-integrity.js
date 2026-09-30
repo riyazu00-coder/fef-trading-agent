@@ -50,6 +50,7 @@ require.extensions['.ts'] = function (module, filename) {
 
 const {
   isEvidenceDecisionEligible,
+  normalizeEvidenceFreshnessMs,
   calculateAgentEvidenceTrust,
   calculateConsensusTrust,
   evaluateActionabilityGate,
@@ -524,6 +525,468 @@ runTest('10. Actionability Gate thresholds and semantics strictly preserved', ()
   });
   assert.strictEqual(gateActionable.actionabilityState, 'ACTIONABLE');
   assert.strictEqual(gateActionable.isActionable, true);
+});
+
+// ---------------------------------------------------------------------------
+// TEST GROUP 8: P1 Evidence Integrity & Provenance Hardening Invariants
+// ---------------------------------------------------------------------------
+console.log('\n[TEST GROUP 8] P1 Evidence Integrity & Provenance Hardening Invariants');
+
+// 1. Fresh LIVE_MT5 evidence: verified true, eligible true, counted verified
+runTest('1. Fresh LIVE_MT5 evidence is verified, eligible, and increments verifiedCount', () => {
+  const ev = {
+    id: 'e-fresh-mt5', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Live broker tick',
+    source: 'MT5 Broker Telemetry', sourceType: 'BROKER_MT5', classification: 'LIVE_MT5',
+    observedAt: new Date().toISOString(), freshnessMs: 10000, confidence: 90,
+    assetSpecific: true, verified: true, decisionEligible: true, reason: 'Fresh verified market feed'
+  };
+  const eligibility = isEvidenceDecisionEligible('LIVE_MT5', 10000);
+  assert.strictEqual(eligibility.verified, true);
+  assert.strictEqual(eligibility.eligible, true);
+
+  const trust = calculateAgentEvidenceTrust([ev]);
+  assert.strictEqual(trust.verifiedCount, 1);
+  assert.strictEqual(trust.trustScore, 100);
+});
+
+// 2. Stale LIVE_MT5: not verified/eligible after freshness threshold
+runTest('2. Stale LIVE_MT5 (> 60s) is not verified/eligible and does not increment verifiedCount', () => {
+  const eligibility = isEvidenceDecisionEligible('LIVE_MT5', 65000);
+  assert.strictEqual(eligibility.verified, false);
+  assert.strictEqual(eligibility.eligible, false);
+
+  const staleEv = {
+    id: 'e-stale-mt5', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Stale broker tick',
+    source: 'MT5 Broker Telemetry', sourceType: 'BROKER_MT5', classification: 'LIVE_MT5',
+    observedAt: new Date(Date.now() - 65000).toISOString(), freshnessMs: 65000, confidence: 50,
+    assetSpecific: true, verified: false, decisionEligible: false, reason: eligibility.reason
+  };
+  const trust = calculateAgentEvidenceTrust([staleEv]);
+  assert.strictEqual(trust.verifiedCount, 0, 'Stale MT5 must not increment verifiedCount');
+  assert(trust.trustScore < 100, 'Stale MT5 must receive discounted trust');
+});
+
+// 3. INDEPENDENT_VERIFIED fresh: verified and eligible
+runTest('3. INDEPENDENT_VERIFIED fresh is verified and eligible', () => {
+  const eligibility = isEvidenceDecisionEligible('INDEPENDENT_VERIFIED', 15000);
+  assert.strictEqual(eligibility.verified, true);
+  assert.strictEqual(eligibility.eligible, true);
+
+  const ev = {
+    id: 'e-fresh-ind', agentKey: 'TECHNICAL', asset: 'BTCUSD', claim: 'Fresh Binance Spot OHLC',
+    source: 'Binance Public Spot', sourceType: 'INDEPENDENT_EXCHANGE', classification: 'INDEPENDENT_VERIFIED',
+    observedAt: new Date().toISOString(), freshnessMs: 15000, confidence: 95,
+    assetSpecific: true, verified: true, decisionEligible: true, reason: eligibility.reason
+  };
+  const trust = calculateAgentEvidenceTrust([ev]);
+  assert.strictEqual(trust.verifiedCount, 1);
+  assert.strictEqual(trust.trustScore, 95);
+});
+
+// 4. INDEPENDENT_REFERENCE: contextual trust allowed, decisionEligible false, verified false, verifiedCount does NOT increment
+runTest('4. INDEPENDENT_REFERENCE allows contextual trust, verified=false, eligible=false, verifiedCount=0', () => {
+  const eligibility = isEvidenceDecisionEligible('INDEPENDENT_REFERENCE', 5000);
+  assert.strictEqual(eligibility.verified, false);
+  assert.strictEqual(eligibility.eligible, false);
+
+  const refEv = {
+    id: 'e-ref', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'PAXG proxy reference feed',
+    source: 'Binance PAXG Spot Proxy', sourceType: 'REFERENCE_PROXY', classification: 'INDEPENDENT_REFERENCE',
+    observedAt: new Date().toISOString(), freshnessMs: 5000, confidence: 80,
+    assetSpecific: true, verified: false, decisionEligible: false, reason: eligibility.reason
+  };
+  const trust = calculateAgentEvidenceTrust([refEv]);
+  assert.strictEqual(trust.trustScore, 80, 'Contextual trust must be 80%');
+  assert.strictEqual(trust.verifiedCount, 0, 'verifiedCount MUST NOT increment for reference evidence');
+  assert.strictEqual(trust.badge, 'REFERENCE');
+});
+
+// 5. Reference-derived strategy/opportunity/liquidity/order-flow: must not become DERIVED_FROM_VERIFIED, must remain non-executable
+runTest('5. Reference-derived strategy/opportunity/liquidity/order-flow must not become DERIVED_FROM_VERIFIED', () => {
+  const mockCandles = Array(35).fill(null).map((_, i) => ({
+    timestamp: Date.now() - (35 - i) * 3600_000,
+    open: 4360 + i, high: 4362 + i, low: 4359 + i, close: 4361 + i, tickVolume: 100
+  }));
+  const profile = generateAssetIntelligence(
+    'XAUUSD',
+    INITIAL_LIVE_ASSETS['XAUUSD'],
+    'H1',
+    mockCandles,
+    'INDEPENDENT_REFERENCE',
+    'Binance PAXG/USDT (Spot Proxy)'
+  );
+
+  const targets = ['STRATEGY', 'OPPORTUNITY', 'LIQUIDITY_MAP', 'ORDER_FLOW'];
+  targets.forEach((type) => {
+    const ag = profile.agents.find((a) => a.type === type);
+    assert(ag, `Agent ${type} must exist`);
+    assert(Array.isArray(ag.evidenceRecords) && ag.evidenceRecords.length > 0, `Agent ${type} must have evidenceRecords`);
+    ag.evidenceRecords.forEach((ev) => {
+      assert.notStrictEqual(ev.classification, 'DERIVED_FROM_VERIFIED', `${type} must NOT be laundered into DERIVED_FROM_VERIFIED`);
+      assert.strictEqual(ev.classification, 'INDEPENDENT_REFERENCE', `${type} must retain explicit INDEPENDENT_REFERENCE classification`);
+      assert.strictEqual(ev.verified, false, `${type} reference evidence must have verified === false`);
+      assert.strictEqual(ev.decisionEligible, false, `${type} reference evidence must have decisionEligible === false`);
+    });
+  });
+});
+
+// 6. MODEL_INFERENCE / HEURISTIC: cannot count as verified
+runTest('6. MODEL_INFERENCE / HEURISTIC cannot count as verified', () => {
+  ['MODEL_INFERENCE', 'HEURISTIC'].forEach((cls) => {
+    const eligibility = isEvidenceDecisionEligible(cls, 1000);
+    assert.strictEqual(eligibility.verified, false);
+    assert.strictEqual(eligibility.eligible, false);
+
+    const ev = {
+      id: `e-${cls}`, agentKey: 'CORRELATION', asset: 'XAUUSD', claim: 'Correlation inference',
+      source: 'Intermarket Correlation Engine', sourceType: 'MODEL_INFERENCE', classification: cls,
+      observedAt: new Date().toISOString(), freshnessMs: 1000, confidence: 68,
+      assetSpecific: true, verified: false, decisionEligible: false, reason: eligibility.reason
+    };
+    const trust = calculateAgentEvidenceTrust([ev]);
+    assert.strictEqual(trust.verifiedCount, 0);
+  });
+});
+
+// 7. Consensus: high trust alone must NOT create a verifiedAgentCount; an agent with real fresh verified evidence CAN count
+runTest('7. Consensus: High trust alone does NOT create verifiedAgentCount; genuine verified evidence DOES', () => {
+  // Agent with high reference trust (80%) but zero verified evidence
+  const refAgent = {
+    type: 'TECHNICAL',
+    status: 'ONLINE',
+    evidenceTrustScore: 80,
+    confidence: 80,
+    evidenceRecords: [
+      {
+        id: 'ev-ref', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'PAXG proxy',
+        source: 'Binance PAXG', sourceType: 'REFERENCE_PROXY', classification: 'INDEPENDENT_REFERENCE',
+        observedAt: new Date().toISOString(), freshnessMs: 5000, confidence: 80,
+        assetSpecific: true, verified: false, decisionEligible: false, reason: 'Reference proxy context only'
+      }
+    ]
+  };
+
+  const councilWithOnlyRef = [
+    refAgent,
+    ...Array(14).fill(null).map((_, i) => ({
+      type: `AGENT_${i}`, status: 'DATA LIMITED', evidenceTrustScore: 0, confidence: 0, evidenceRecords: []
+    }))
+  ];
+
+  const consensusRef = calculateConsensusTrust(councilWithOnlyRef);
+  assert.strictEqual(consensusRef.verifiedAgentCount, 0, 'Reference-only agent must NOT count as a verified agent');
+
+  // Agent with genuine verified evidence
+  const verifiedAgent = {
+    type: 'TECHNICAL',
+    status: 'ONLINE',
+    evidenceTrustScore: 95,
+    confidence: 95,
+    evidenceRecords: [
+      {
+        id: 'ev-ver', agentKey: 'TECHNICAL', asset: 'BTCUSD', claim: 'Binance Spot OHLC',
+        source: 'Binance Spot', sourceType: 'INDEPENDENT_EXCHANGE', classification: 'INDEPENDENT_VERIFIED',
+        observedAt: new Date().toISOString(), freshnessMs: 5000, confidence: 95,
+        assetSpecific: true, verified: true, decisionEligible: true, reason: 'Fresh verified market feed'
+      }
+    ]
+  };
+
+  const councilWithVerified = [
+    verifiedAgent,
+    ...Array(14).fill(null).map((_, i) => ({
+      type: `AGENT_${i}`, status: 'DATA LIMITED', evidenceTrustScore: 0, confidence: 0, evidenceRecords: []
+    }))
+  ];
+
+  const consensusVer = calculateConsensusTrust(councilWithVerified);
+  assert.strictEqual(consensusVer.verifiedAgentCount, 1, 'Agent with genuine verified evidence must increment verifiedAgentCount');
+});
+
+// 8. Existing PAXG proxy invariant: remains INDEPENDENT_REFERENCE, never executable
+runTest('8. Existing PAXG proxy invariant: remains INDEPENDENT_REFERENCE, never executable', () => {
+  const mockCandles = Array(35).fill(null).map((_, i) => ({
+    timestamp: Date.now() - (35 - i) * 3600_000,
+    open: 4360, high: 4365, low: 4358, close: 4362, tickVolume: 100
+  }));
+  const profile = generateAssetIntelligence(
+    'XAUUSD',
+    INITIAL_LIVE_ASSETS['XAUUSD'],
+    'H1',
+    mockCandles,
+    'INDEPENDENT_REFERENCE',
+    'Binance PAXG/USDT (Spot Proxy)'
+  );
+  const tech = profile.agents.find((a) => a.type === 'TECHNICAL');
+  assert(tech, 'Technical agent must exist');
+  assert.strictEqual(tech.provenanceBadge, 'REFERENCE');
+  const techEv = tech.evidenceRecords?.find((e) => e.classification === 'INDEPENDENT_REFERENCE');
+  assert(Boolean(techEv), 'Technical evidence must have INDEPENDENT_REFERENCE classification');
+  assert.strictEqual(techEv.decisionEligible, false, 'PAXG proxy must never be decision eligible');
+  assert.strictEqual(techEv.verified, false, 'PAXG proxy must never be verified');
+});
+
+// 9. No fabricated universal freshnessMs: 5000 remains in production evidence construction path
+runTest('9. Zero fabricated universal freshnessMs: 5000 in production multi-asset-pipeline.ts', () => {
+  const pipelineSource = fs.readFileSync(path.resolve(__dirname, '../src/lib/agents/multi-asset-pipeline.ts'), 'utf8');
+  assert(!pipelineSource.includes('freshnessMs: 5000'), 'Found fabricated universal freshnessMs: 5000 in multi-asset-pipeline.ts');
+});
+
+// 10. Existing READ_ONLY execution lock remains unchanged
+runTest('10. Existing READ_ONLY execution lock and MT5_ORDER_TRANSPORT_ENABLED remain intact', () => {
+  const execPolicySource = fs.readFileSync(path.resolve(__dirname, '../src/lib/execution/execution-policy.ts'), 'utf8');
+  assert(execPolicySource.includes("CANONICAL_EXECUTION_MODE = 'READ_ONLY'"), 'CANONICAL_EXECUTION_MODE must remain READ_ONLY');
+  assert(execPolicySource.includes("MT5_ORDER_TRANSPORT_ENABLED = false"), 'MT5_ORDER_TRANSPORT_ENABLED must remain false');
+});
+
+// 11. normalizeEvidenceFreshnessMs: missing, invalid, NaN, negative, or non-finite freshnessMs fails closed
+runTest('11. normalizeEvidenceFreshnessMs: invalid, NaN, negative, non-finite, and missing freshness return Number.MAX_SAFE_INTEGER', () => {
+  assert.strictEqual(normalizeEvidenceFreshnessMs(0), 0);
+  assert.strictEqual(normalizeEvidenceFreshnessMs(5000), 5000);
+  assert.strictEqual(normalizeEvidenceFreshnessMs(undefined), Number.MAX_SAFE_INTEGER);
+  assert.strictEqual(normalizeEvidenceFreshnessMs(null), Number.MAX_SAFE_INTEGER);
+  assert.strictEqual(normalizeEvidenceFreshnessMs(NaN), Number.MAX_SAFE_INTEGER);
+  assert.strictEqual(normalizeEvidenceFreshnessMs(-1), Number.MAX_SAFE_INTEGER);
+  assert.strictEqual(normalizeEvidenceFreshnessMs(-5000), Number.MAX_SAFE_INTEGER);
+  assert.strictEqual(normalizeEvidenceFreshnessMs(Infinity), Number.MAX_SAFE_INTEGER);
+  assert.strictEqual(normalizeEvidenceFreshnessMs(-Infinity), Number.MAX_SAFE_INTEGER);
+  assert.strictEqual(normalizeEvidenceFreshnessMs('5000'), Number.MAX_SAFE_INTEGER);
+});
+
+// 12. LIVE_MT5 with missing freshness does NOT increment verifiedCount
+runTest('12. LIVE_MT5 with missing freshness does NOT increment verifiedCount and fails closed', () => {
+  const eligibility = isEvidenceDecisionEligible('LIVE_MT5', undefined);
+  assert.strictEqual(eligibility.verified, false);
+  assert.strictEqual(eligibility.eligible, false);
+  assert(eligibility.reason.includes('fails closed') || eligibility.reason.includes('Missing or invalid'));
+
+  const evMissing = {
+    id: 'e-missing-mt5', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Broker telemetry without timestamp',
+    source: 'MT5 Broker Telemetry', sourceType: 'BROKER_MT5', classification: 'LIVE_MT5',
+    observedAt: 'UNAVAILABLE', freshnessMs: undefined, confidence: 90,
+    assetSpecific: true, verified: true, decisionEligible: true, reason: 'Unverified freshness'
+  };
+  const trust = calculateAgentEvidenceTrust([evMissing]);
+  assert.strictEqual(trust.verifiedCount, 0, 'LIVE_MT5 with missing freshness MUST NOT increment verifiedCount');
+  assert(trust.trustScore <= 50, 'LIVE_MT5 with missing freshness must receive stale discount');
+});
+
+// 13. INDEPENDENT_VERIFIED with NaN freshness does NOT increment verifiedCount
+runTest('13. INDEPENDENT_VERIFIED with NaN freshness does NOT increment verifiedCount and fails closed', () => {
+  const eligibility = isEvidenceDecisionEligible('INDEPENDENT_VERIFIED', NaN);
+  assert.strictEqual(eligibility.verified, false);
+  assert.strictEqual(eligibility.eligible, false);
+
+  const evNaN = {
+    id: 'e-nan-ind', agentKey: 'TECHNICAL', asset: 'BTCUSD', claim: 'Exchange OHLC with NaN freshness',
+    source: 'Binance Public Spot', sourceType: 'INDEPENDENT_EXCHANGE', classification: 'INDEPENDENT_VERIFIED',
+    observedAt: 'UNAVAILABLE', freshnessMs: NaN, confidence: 95,
+    assetSpecific: true, verified: true, decisionEligible: true, reason: 'Unverified freshness'
+  };
+  const trust = calculateAgentEvidenceTrust([evNaN]);
+  assert.strictEqual(trust.verifiedCount, 0, 'INDEPENDENT_VERIFIED with NaN freshness MUST NOT increment verifiedCount');
+});
+
+// 14. DERIVED_FROM_VERIFIED with negative freshness does NOT increment verifiedCount
+runTest('14. DERIVED_FROM_VERIFIED with negative freshness does NOT increment verifiedCount and fails closed', () => {
+  const eligibility = isEvidenceDecisionEligible('DERIVED_FROM_VERIFIED', -500);
+  assert.strictEqual(eligibility.verified, false);
+  assert.strictEqual(eligibility.eligible, false);
+
+  const evNegative = {
+    id: 'e-neg-derived', agentKey: 'STRATEGY', asset: 'XAUUSD', claim: 'Blueprint with clock skew negative freshness',
+    source: 'Trade Blueprint Engine', sourceType: 'MATHEMATICAL', classification: 'DERIVED_FROM_VERIFIED',
+    observedAt: 'UNAVAILABLE', freshnessMs: -500, confidence: 90,
+    assetSpecific: true, verified: true, decisionEligible: true, reason: 'Negative freshness'
+  };
+  const trust = calculateAgentEvidenceTrust([evNegative]);
+  assert.strictEqual(trust.verifiedCount, 0, 'DERIVED_FROM_VERIFIED with negative freshness MUST NOT increment verifiedCount');
+});
+
+// 15. Agent with high evidenceTrustScore but only evidence with unknown freshness does NOT count as a verified consensus agent
+runTest('15. Agent with high evidenceTrustScore but unknown freshness does NOT count as verified consensus agent', () => {
+  const agentWithUnknownFreshness = {
+    type: 'TECHNICAL',
+    status: 'ONLINE',
+    evidenceTrustScore: 90,
+    confidence: 90,
+    evidenceRecords: [
+      {
+        id: 'ev-unknown', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Broker quote unknown freshness',
+        source: 'MT5 Broker Telemetry', sourceType: 'BROKER_MT5', classification: 'LIVE_MT5',
+        observedAt: 'UNAVAILABLE', freshnessMs: undefined, confidence: 90,
+        assetSpecific: true, verified: true, decisionEligible: true, reason: 'Unknown freshness'
+      }
+    ]
+  };
+
+  const council = [
+    agentWithUnknownFreshness,
+    ...Array(14).fill(null).map((_, i) => ({
+      type: `AGENT_${i}`, status: 'DATA LIMITED', evidenceTrustScore: 0, confidence: 0, evidenceRecords: []
+    }))
+  ];
+
+  const consensus = calculateConsensusTrust(council);
+  assert.strictEqual(consensus.verifiedAgentCount, 0, 'Agent with unknown freshness MUST NOT increment verifiedAgentCount');
+  assert.strictEqual(consensus.limitedAgentCount, 1, 'Agent with unknown freshness must be classified as limited');
+});
+
+// 16. KILLZONE / Temporal Session Engine semantics: uses evaluationTime, sourceType is TEMPORAL_SESSION, not labeled market evidence
+runTest('16. KILLZONE / Temporal Session Engine uses evaluationTime, sourceType=TEMPORAL_SESSION, and not labeled market evidence', () => {
+  const profile = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
+  const killzoneAgent = profile.agents.find((a) => a.type === 'KILLZONE');
+  assert(killzoneAgent, 'KILLZONE agent must exist');
+  assert(Array.isArray(killzoneAgent.evidenceRecords) && killzoneAgent.evidenceRecords.length > 0, 'KILLZONE must have evidence');
+
+  killzoneAgent.evidenceRecords.forEach((ev) => {
+    assert.strictEqual(ev.sourceType, 'TEMPORAL_SESSION', 'KILLZONE sourceType must be explicitly TEMPORAL_SESSION');
+    assert.notStrictEqual(ev.classification, 'LIVE_MT5', 'KILLZONE must NOT be labeled LIVE_MT5');
+    assert.notStrictEqual(ev.classification, 'LIVE_EXTERNAL', 'KILLZONE must NOT be labeled LIVE_EXTERNAL');
+    assert.notStrictEqual(ev.classification, 'INDEPENDENT_VERIFIED', 'KILLZONE must NOT be labeled INDEPENDENT_VERIFIED');
+    assert.notStrictEqual(ev.classification, 'INDEPENDENT_REFERENCE', 'KILLZONE must NOT be labeled INDEPENDENT_REFERENCE');
+    assert.strictEqual(ev.classification, 'DERIVED', 'KILLZONE must be classified as DERIVED deterministic session time');
+  });
+});
+
+// 17. (A) Fresh LIVE_MT5: verified=true, decisionEligible=false must NOT create a verified consensus agent
+runTest('17. Fresh LIVE_MT5 with verified=true, decisionEligible=false must NOT create a verified consensus agent', () => {
+  const agent = {
+    type: 'TECHNICAL',
+    status: 'ONLINE',
+    evidenceTrustScore: 90,
+    confidence: 90,
+    evidenceRecords: [
+      {
+        id: 'ev-mt5-ineligible', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Live broker tick without structural gate',
+        source: 'MT5 Broker Telemetry', sourceType: 'BROKER_MT5', classification: 'LIVE_MT5',
+        observedAt: new Date().toISOString(), freshnessMs: 5000, confidence: 90,
+        assetSpecific: true, verified: true, decisionEligible: false, reason: 'Structural gate not satisfied'
+      }
+    ]
+  };
+
+  const council = [
+    agent,
+    ...Array(14).fill(null).map((_, i) => ({
+      type: `AGENT_${i}`, status: 'DATA LIMITED', evidenceTrustScore: 0, confidence: 0, evidenceRecords: []
+    }))
+  ];
+
+  const consensus = calculateConsensusTrust(council);
+  assert.strictEqual(consensus.verifiedAgentCount, 0, 'Agent with decisionEligible=false must NOT increment verifiedAgentCount');
+});
+
+// 18. (B) Fresh LIVE_MT5: verified=true, decisionEligible=true, canonical eligible=true/verified=true SHOULD create a verified consensus agent
+runTest('18. Fresh LIVE_MT5 with verified=true, decisionEligible=true, canonical verified=true SHOULD create a verified consensus agent', () => {
+  const agent = {
+    type: 'TECHNICAL',
+    status: 'ONLINE',
+    evidenceTrustScore: 100,
+    confidence: 100,
+    evidenceRecords: [
+      {
+        id: 'ev-mt5-eligible', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Fresh verified broker tick',
+        source: 'MT5 Broker Telemetry', sourceType: 'BROKER_MT5', classification: 'LIVE_MT5',
+        observedAt: new Date().toISOString(), freshnessMs: 5000, confidence: 100,
+        assetSpecific: true, verified: true, decisionEligible: true, reason: 'Fresh verified market feed'
+      }
+    ]
+  };
+
+  const council = [
+    agent,
+    ...Array(14).fill(null).map((_, i) => ({
+      type: `AGENT_${i}`, status: 'DATA LIMITED', evidenceTrustScore: 0, confidence: 0, evidenceRecords: []
+    }))
+  ];
+
+  const consensus = calculateConsensusTrust(council);
+  assert.strictEqual(consensus.verifiedAgentCount, 1, 'Agent with verified=true and decisionEligible=true SHOULD increment verifiedAgentCount');
+});
+
+// 19. (C) Evidence with verified=false, decisionEligible=true must NOT count
+runTest('19. Evidence with verified=false, decisionEligible=true must NOT count as a verified consensus agent', () => {
+  const agent = {
+    type: 'TECHNICAL',
+    status: 'ONLINE',
+    evidenceTrustScore: 80,
+    confidence: 80,
+    evidenceRecords: [
+      {
+        id: 'ev-unverified', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Unverified telemetry claiming eligibility',
+        source: 'MT5 Broker Telemetry', sourceType: 'BROKER_MT5', classification: 'LIVE_MT5',
+        observedAt: new Date().toISOString(), freshnessMs: 5000, confidence: 80,
+        assetSpecific: true, verified: false, decisionEligible: true, reason: 'Unverified'
+      }
+    ]
+  };
+
+  const council = [
+    agent,
+    ...Array(14).fill(null).map((_, i) => ({
+      type: `AGENT_${i}`, status: 'DATA LIMITED', evidenceTrustScore: 0, confidence: 0, evidenceRecords: []
+    }))
+  ];
+
+  const consensus = calculateConsensusTrust(council);
+  assert.strictEqual(consensus.verifiedAgentCount, 0, 'verified=false must NEVER count as verified consensus agent');
+});
+
+// 20. (D) INDEPENDENT_REFERENCE: even if malformed record claims verified=true and decisionEligible=true, canonical policy prevents counting
+runTest('20. INDEPENDENT_REFERENCE cannot count as verified consensus agent even if claiming verified=true and decisionEligible=true', () => {
+  const agent = {
+    type: 'TECHNICAL',
+    status: 'ONLINE',
+    evidenceTrustScore: 80,
+    confidence: 80,
+    evidenceRecords: [
+      {
+        id: 'ev-ref-malformed', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Malformed reference record',
+        source: 'Binance PAXG', sourceType: 'REFERENCE_PROXY', classification: 'INDEPENDENT_REFERENCE',
+        observedAt: new Date().toISOString(), freshnessMs: 5000, confidence: 80,
+        assetSpecific: true, verified: true, decisionEligible: true, reason: 'Claims verified'
+      }
+    ]
+  };
+
+  const council = [
+    agent,
+    ...Array(14).fill(null).map((_, i) => ({
+      type: `AGENT_${i}`, status: 'DATA LIMITED', evidenceTrustScore: 0, confidence: 0, evidenceRecords: []
+    }))
+  ];
+
+  const consensus = calculateConsensusTrust(council);
+  assert.strictEqual(consensus.verifiedAgentCount, 0, 'Canonical policy MUST block INDEPENDENT_REFERENCE from counting as verified');
+});
+
+// 21. (E) Unknown/stale freshness remains unable to count even if verified=true and decisionEligible=true
+runTest('21. Unknown/stale freshness cannot count as verified consensus agent even if verified=true and decisionEligible=true', () => {
+  const staleAgent = {
+    type: 'TECHNICAL',
+    status: 'ONLINE',
+    evidenceTrustScore: 80,
+    confidence: 80,
+    evidenceRecords: [
+      {
+        id: 'ev-stale', agentKey: 'TECHNICAL', asset: 'XAUUSD', claim: 'Stale broker tick claiming eligibility',
+        source: 'MT5 Broker Telemetry', sourceType: 'BROKER_MT5', classification: 'LIVE_MT5',
+        observedAt: new Date(Date.now() - 120_000).toISOString(), freshnessMs: 120_000, confidence: 80,
+        assetSpecific: true, verified: true, decisionEligible: true, reason: 'Stale'
+      }
+    ]
+  };
+
+  const council = [
+    staleAgent,
+    ...Array(14).fill(null).map((_, i) => ({
+      type: `AGENT_${i}`, status: 'DATA LIMITED', evidenceTrustScore: 0, confidence: 0, evidenceRecords: []
+    }))
+  ];
+
+  const consensus = calculateConsensusTrust(council);
+  assert.strictEqual(consensus.verifiedAgentCount, 0, 'Stale evidence MUST NOT count as verified consensus agent');
 });
 
 console.log('\n================================================================');

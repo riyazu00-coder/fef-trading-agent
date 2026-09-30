@@ -25,10 +25,13 @@ import {
   calculateAgentEvidenceTrust,
   calculateConsensusTrust,
   evaluateActionabilityGate,
+  isEvidenceDecisionEligible,
+  FRESHNESS_POLICIES,
   AgentEvidence,
   ActionabilityState,
   EvidenceClassification
 } from '../evidence/agent-evidence';
+import { TIMEFRAME_INTERVAL_MS } from '../candles/candle-validator';
 import { analyzeMarketStructure, MarketStructure } from '../market/market-structure-engine';
 import {
   buildBuyBlueprint,
@@ -1091,16 +1094,33 @@ export function generateAssetIntelligence(
   });
 
   // 5. Attach Canonical Machine-Readable Evidence & Trust Scores
+  const evalTimeMs = evaluationTime ? evaluationTime.getTime() : Date.now();
+  const latestCandle = analysisCandles.length > 0 ? analysisCandles[analysisCandles.length - 1] : undefined;
+  const tfInterval = TIMEFRAME_INTERVAL_MS[structureTf] || 3600_000;
+  const candleCloseTs = latestCandle && typeof latestCandle.timestamp === 'number'
+    ? latestCandle.timestamp + tfInterval
+    : undefined;
+  const candleTimestampMs = quoteTimestampMs || (candleCloseTs && candleCloseTs <= evalTimeMs ? candleCloseTs : latestCandle?.timestamp);
+
+  const latestMicroCandle = (Array.isArray(microCandles) && microCandles.length > 0)
+    ? microCandles[microCandles.length - 1]
+    : undefined;
+  const microInterval = TIMEFRAME_INTERVAL_MS['M5'] || 300_000;
+  const microCloseTs = latestMicroCandle && typeof latestMicroCandle.timestamp === 'number'
+    ? latestMicroCandle.timestamp + microInterval
+    : undefined;
+  const microCandleTimestampMs = quoteTimestampMs || (microCloseTs && microCloseTs <= evalTimeMs ? microCloseTs : latestMicroCandle?.timestamp) || candleTimestampMs;
+
   assembledAgents.forEach((ag) => {
     const rawItems = ag.evidence && ag.evidence.length > 0 ? ag.evidence : [ag.lastOpinion];
     const evidenceRecords: AgentEvidence[] = rawItems.map((item, idx) => {
-      let classification: any = 'HEURISTIC';
-      let verified = false;
-      let decisionEligible = false;
+      let classification: EvidenceClassification = 'HEURISTIC';
+      let sourceName = 'Heuristic or Unavailable';
+      let sourceType = 'HEURISTIC';
+      let sourceTimestampMs: number | undefined = undefined;
+      let structuralGate = false;
       const lower = item.toLowerCase();
       const agentStatus = ag.status;
-
-      let sourceName = 'Heuristic or Unavailable';
 
       if (
         lower.includes('not connected') ||
@@ -1112,70 +1132,184 @@ export function generateAssetIntelligence(
         agentStatus === 'ERROR'
       ) {
         classification = 'UNAVAILABLE';
-        verified = false;
-        decisionEligible = false;
         sourceName = 'Unconnected Feed';
+        sourceType = 'UNAVAILABLE';
+        sourceTimestampMs = undefined;
+        structuralGate = false;
       } else if (ag.type === 'RISK_GUARDIAN' && (blueprint || hasCandles)) {
         classification = 'DERIVED';
-        verified = true;
-        decisionEligible = Boolean(blueprint);
         sourceName = 'Risk Rules Matrix';
+        sourceType = 'RISK_ENGINE';
+        sourceTimestampMs = blueprint
+          ? (blueprint.updatedAt || blueprint.createdAt)
+          : (quoteTimestampMs || candleTimestampMs);
+        structuralGate = Boolean(blueprint);
       } else if (ag.type === 'KILLZONE') {
         classification = 'DERIVED';
-        verified = true;
-        decisionEligible = true;
         sourceName = 'Temporal Session Engine';
+        sourceType = 'TEMPORAL_SESSION';
+        sourceTimestampMs = evalTimeMs;
+        structuralGate = true;
       } else if (ag.type === 'TECHNICAL' && hasCandles) {
         classification = effectiveCandleProvenance;
-        verified = true;
-        decisionEligible = effectiveCandleProvenance !== 'INDEPENDENT_REFERENCE';
         sourceName = effectiveCandleProvenance === 'LIVE_MT5'
           ? 'MT5 Broker Telemetry'
           : effectiveCandleProvider;
+        sourceType = effectiveCandleProvenance === 'LIVE_MT5'
+          ? 'BROKER_MT5'
+          : (effectiveCandleProvenance === 'INDEPENDENT_REFERENCE' ? 'REFERENCE_PROXY' : 'INDEPENDENT_EXCHANGE');
+        sourceTimestampMs = candleTimestampMs;
+        structuralGate = effectiveCandleProvenance !== 'INDEPENDENT_REFERENCE';
       } else if ((ag.type === 'STRATEGY' || ag.type === 'OPPORTUNITY' || ag.type === 'LIQUIDITY_MAP' || ag.type === 'ORDER_FLOW') && hasCandles) {
-        if (effectiveCandleProvenance === 'LIVE_MT5') {
+        if (effectiveCandleProvenance === 'INDEPENDENT_REFERENCE') {
+          // B. Reference-derived candle evidence retains explicit reference/proxy semantics
+          // MUST NOT become DERIVED_FROM_VERIFIED; non-executable
+          classification = 'INDEPENDENT_REFERENCE';
+          sourceType = 'REFERENCE_PROXY';
+          structuralGate = false;
+        } else if (effectiveCandleProvenance === 'LIVE_MT5') {
           classification = 'DERIVED';
-          decisionEligible = Boolean(blueprint);
+          sourceType = ag.type === 'ORDER_FLOW' ? 'ORDER_FLOW_ENGINE' : 'MATHEMATICAL';
+          structuralGate = ag.type === 'ORDER_FLOW' ? true : Boolean(blueprint);
         } else if (effectiveCandleProvenance === 'INDEPENDENT_VERIFIED') {
           classification = 'DERIVED_FROM_VERIFIED';
-          decisionEligible = Boolean(blueprint);
-        } else if (effectiveCandleProvenance === 'INDEPENDENT_REFERENCE') {
-          classification = 'DERIVED_FROM_VERIFIED';
-          decisionEligible = false;
+          sourceType = ag.type === 'ORDER_FLOW' ? 'ORDER_FLOW_ENGINE' : 'MATHEMATICAL';
+          structuralGate = ag.type === 'ORDER_FLOW' ? true : Boolean(blueprint);
         } else {
           classification = 'DERIVED';
-          decisionEligible = Boolean(blueprint);
+          sourceType = ag.type === 'ORDER_FLOW' ? 'ORDER_FLOW_ENGINE' : 'MATHEMATICAL';
+          structuralGate = ag.type === 'ORDER_FLOW' ? true : Boolean(blueprint);
         }
-        verified = true;
-        sourceName = ag.type === 'ORDER_FLOW'
-          ? `Micro-Momentum Engine (${effectiveCandleProvider})`
-          : `Deterministic SMC (${effectiveCandleProvider})`;
-      } else if (ag.type === 'MACRO' || ag.type === 'NEWS' || ag.type === 'GEOPOLITICAL' || ag.type === 'SENTIMENT' || ag.type === 'INSTITUTIONAL' || ag.type === 'CORRELATION') {
-        classification = 'DERIVED_FROM_VERIFIED';
-        verified = true;
-        // Specialist macro/news evidence informs context but does NOT unilaterally trigger trade execution without structural blueprint
-        decisionEligible = false;
-        sourceName = ag.type === 'MACRO'
-          ? 'Global Macroeconomic Engine'
-          : ag.type === 'NEWS'
-          ? 'Global Newswire Stream'
-          : ag.type === 'GEOPOLITICAL'
-          ? 'Geopolitical Risk Engine'
-          : ag.type === 'SENTIMENT'
-          ? 'Market Sentiment Synthesis'
-          : ag.type === 'CORRELATION'
-          ? 'Intermarket Correlation Engine'
-          : 'Institutional Flow Engine';
+
+        if (ag.type === 'ORDER_FLOW') {
+          sourceName = orderFlowRecord
+            ? (orderFlowRecord.flowType === 'EXCHANGE_ORDER_BOOK' ? 'Exchange Order Flow' : 'Broker Flow Proxy')
+            : `Micro-Momentum Engine (${effectiveCandleProvider})`;
+          sourceTimestampMs = orderFlowRecord?.timestamp && !isNaN(new Date(orderFlowRecord.timestamp).getTime())
+            ? new Date(orderFlowRecord.timestamp).getTime()
+            : microCandleTimestampMs;
+        } else {
+          sourceName = `Deterministic SMC (${effectiveCandleProvider})`;
+          sourceTimestampMs = blueprint
+            ? (blueprint.updatedAt || blueprint.createdAt || candleTimestampMs)
+            : candleTimestampMs;
+        }
+      } else if (ag.type === 'INSTITUTIONAL' && hasCandles && volumeProfile) {
+        if (effectiveCandleProvenance === 'INDEPENDENT_REFERENCE') {
+          classification = 'INDEPENDENT_REFERENCE';
+          sourceType = 'REFERENCE_PROXY';
+        } else if (effectiveCandleProvenance === 'LIVE_MT5') {
+          classification = 'DERIVED';
+          sourceType = 'VOLUME_PROFILE_ENGINE';
+        } else if (effectiveCandleProvenance === 'INDEPENDENT_VERIFIED') {
+          classification = 'DERIVED_FROM_VERIFIED';
+          sourceType = 'VOLUME_PROFILE_ENGINE';
+        } else {
+          classification = 'DERIVED';
+          sourceType = 'VOLUME_PROFILE_ENGINE';
+        }
+        sourceName = volumeProfile.isExchangeVolume ? 'Exchange Volume Profile' : 'Broker Tick Volume Profile';
+        sourceTimestampMs = candleTimestampMs;
+        structuralGate = false;
+      } else if (ag.type === 'CORRELATION' && hasCandles) {
+        classification = 'MODEL_INFERENCE';
+        sourceName = 'Intermarket Correlation Engine';
+        sourceType = 'MODEL_INFERENCE';
+        sourceTimestampMs = candleTimestampMs;
+        structuralGate = false;
+      } else if (ag.type === 'VISION' && hasCandles && marketStructure) {
+        classification = effectiveCandleProvenance === 'INDEPENDENT_REFERENCE'
+          ? 'INDEPENDENT_REFERENCE'
+          : 'MODEL_INFERENCE';
+        sourceName = 'Computer Vision Technical Detection';
+        sourceType = 'MODEL_INFERENCE';
+        sourceTimestampMs = candleTimestampMs;
+        structuralGate = false;
+      } else if (ag.type === 'MACRO' && cachedMacro.length > 0) {
+        const relevantMacro = cachedMacro.filter((m) =>
+          !m.affectedAssets || m.affectedAssets.length === 0 || m.affectedAssets.includes(normSymbol)
+        );
+        if (relevantMacro.length > 0) {
+          const lead = relevantMacro[0];
+          classification = lead.classification || 'DELAYED_EXTERNAL';
+          sourceName = lead.source || 'Global Macroeconomic Engine';
+          sourceType = 'ECONOMIC_CALENDAR';
+          const rawMacroTs = lead.timestamp || lead.releaseDate;
+          sourceTimestampMs = rawMacroTs && !isNaN(new Date(rawMacroTs).getTime())
+            ? new Date(rawMacroTs).getTime()
+            : undefined;
+          structuralGate = false;
+        } else {
+          classification = 'UNAVAILABLE';
+          sourceName = 'Unconnected Feed';
+          sourceType = 'UNAVAILABLE';
+          sourceTimestampMs = undefined;
+          structuralGate = false;
+        }
+      } else if (ag.type === 'NEWS' && cachedNews.length > 0) {
+        const top = cachedNews[0];
+        classification = top.classification || 'DELAYED_EXTERNAL';
+        sourceName = top.source || 'Global Newswire Stream';
+        sourceType = 'FINANCIAL_NEWS';
+        sourceTimestampMs = top.epochMs || (top.publishedAt && !isNaN(new Date(top.publishedAt).getTime())
+          ? new Date(top.publishedAt).getTime()
+          : undefined);
+        structuralGate = false;
+      } else if (ag.type === 'GEOPOLITICAL' && cachedAlerts.length > 0) {
+        const top = cachedAlerts[0];
+        classification = top.classification || 'DELAYED_EXTERNAL';
+        sourceName = 'Geopolitical Risk Engine';
+        sourceType = 'GEOPOLITICAL_STREAM';
+        sourceTimestampMs = top.timestamp && !isNaN(new Date(top.timestamp).getTime())
+          ? new Date(top.timestamp).getTime()
+          : undefined;
+        structuralGate = false;
+      } else if (ag.type === 'SENTIMENT' && cachedSentiment && cachedSentiment.status === 'AVAILABLE') {
+        classification = cachedSentiment.classification || 'INDEPENDENT_VERIFIED';
+        sourceName = cachedSentiment.provenance || 'Binance Futures Public LSR';
+        sourceType = 'SENTIMENT_FEED';
+        sourceTimestampMs = cachedSentiment.timestamp && !isNaN(new Date(cachedSentiment.timestamp).getTime())
+          ? new Date(cachedSentiment.timestamp).getTime()
+          : undefined;
+        structuralGate = false;
       } else if (lower.includes('mt5 broker') || lower.includes('live_mt5') || lower.includes('broker candle')) {
         classification = 'LIVE_MT5';
-        verified = true;
-        decisionEligible = true;
         sourceName = 'MT5 Broker Telemetry';
+        sourceType = 'BROKER_MT5';
+        sourceTimestampMs = quoteTimestampMs || candleTimestampMs;
+        structuralGate = true;
       } else {
         classification = 'HEURISTIC';
-        verified = false;
-        decisionEligible = false;
+        sourceName = 'Heuristic or Unavailable';
+        sourceType = 'HEURISTIC';
+        sourceTimestampMs = undefined;
+        structuralGate = false;
       }
+
+      // Compute actual observation timestamp and freshness without fabrication
+      let observedAt: string;
+      let freshnessMs: number;
+
+      if (typeof sourceTimestampMs === 'number' && !isNaN(sourceTimestampMs) && sourceTimestampMs > 0) {
+        observedAt = new Date(sourceTimestampMs).toISOString();
+        freshnessMs = Math.max(0, evalTimeMs - sourceTimestampMs);
+      } else {
+        // Trustworthy observation timestamp is genuinely unavailable:
+        // Do NOT fabricate 5-second freshness; keep evidence non-decision-eligible if freshness cannot be verified.
+        observedAt = 'UNAVAILABLE';
+        const policy = FRESHNESS_POLICIES[classification as EvidenceClassification] ?? 0;
+        freshnessMs = policy > 0 ? policy + 60_000 : 86_400_000;
+      }
+
+      // Canonical Decision Eligibility
+      const canonicalEligibility = isEvidenceDecisionEligible(classification, freshnessMs);
+      const verified = canonicalEligibility.verified;
+      const decisionEligible = canonicalEligibility.eligible && structuralGate;
+      const reason = (!decisionEligible && canonicalEligibility.eligible && !structuralGate)
+        ? (ag.type === 'STRATEGY' || ag.type === 'OPPORTUNITY' || ag.type === 'LIQUIDITY_MAP'
+            ? 'Structural blueprint required for decision eligibility'
+            : 'Specialist analytical context only — not eligible for unilateral execution weight')
+        : canonicalEligibility.reason;
 
       return {
         id: `ev-${normSymbol}-${ag.type}-${idx + 1}`,
@@ -1183,19 +1317,15 @@ export function generateAssetIntelligence(
         asset: normSymbol,
         claim: item,
         source: sourceName,
-        sourceType: verified ? 'MATHEMATICAL' : 'HEURISTIC',
+        sourceType,
         classification,
-        observedAt: new Date().toISOString(),
-        freshnessMs: 5000,
+        observedAt,
+        freshnessMs,
         confidence: ag.confidence,
         assetSpecific: true,
         verified,
         decisionEligible,
-        reason: verified
-          ? (classification === 'INDEPENDENT_REFERENCE'
-              ? 'Verified reference proxy data (strictly non-executable on broker)'
-              : 'Live broker telemetry, verified independent OHLC, or deterministic calculation')
-          : 'Heuristic / DATA LIMITED — not eligible for ACTIONABLE gate'
+        reason
       };
     });
 

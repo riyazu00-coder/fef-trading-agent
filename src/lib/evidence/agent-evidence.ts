@@ -78,6 +78,18 @@ export const FRESHNESS_POLICIES: Record<EvidenceClassification, number> = {
 };
 
 /**
+ * Normalizes evidence freshness to a safe, non-negative, finite number.
+ * Missing, invalid, NaN, negative, or non-finite values fail closed by
+ * returning Number.MAX_SAFE_INTEGER (treated as maximally stale/ineligible).
+ */
+export function normalizeEvidenceFreshnessMs(freshnessMs: unknown): number {
+  if (typeof freshnessMs === 'number' && Number.isFinite(freshnessMs) && freshnessMs >= 0) {
+    return freshnessMs;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+/**
  * Evaluates whether a piece of evidence is eligible to participate in a production trading decision.
  * 
  * Rules:
@@ -90,18 +102,22 @@ export const FRESHNESS_POLICIES: Record<EvidenceClassification, number> = {
  */
 export function isEvidenceDecisionEligible(
   classification: EvidenceClassification,
-  freshnessMs: number
+  freshnessMs?: number | unknown
 ): { eligible: boolean; verified: boolean; reason: string } {
+  const safeFreshness = normalizeEvidenceFreshnessMs(freshnessMs);
+
   switch (classification) {
     case 'LIVE_MT5':
     case 'LIVE_EXTERNAL':
     case 'INDEPENDENT_VERIFIED': {
       const maxAge = FRESHNESS_POLICIES[classification];
-      if (freshnessMs > maxAge) {
+      if (safeFreshness > maxAge) {
         return {
           eligible: false,
           verified: false,
-          reason: `Stale live feed: ${Math.round(freshnessMs / 1000)}s exceeds limit of ${maxAge / 1000}s`
+          reason: safeFreshness === Number.MAX_SAFE_INTEGER
+            ? `Missing or invalid freshness for ${classification}: fails closed`
+            : `Stale live feed: ${Math.round(safeFreshness / 1000)}s exceeds limit of ${maxAge / 1000}s`
         };
       }
       return { eligible: true, verified: true, reason: 'Fresh verified market feed' };
@@ -110,11 +126,13 @@ export function isEvidenceDecisionEligible(
     case 'DERIVED':
     case 'DERIVED_FROM_VERIFIED': {
       const maxAge = FRESHNESS_POLICIES[classification];
-      if (freshnessMs > maxAge) {
+      if (safeFreshness > maxAge) {
         return {
           eligible: false,
           verified: false,
-          reason: `Stale derived computation: ${Math.round(freshnessMs / 1000)}s`
+          reason: safeFreshness === Number.MAX_SAFE_INTEGER
+            ? `Missing or invalid freshness for ${classification}: fails closed`
+            : `Stale derived computation: ${Math.round(safeFreshness / 1000)}s`
         };
       }
       return { eligible: true, verified: true, reason: 'Mathematically derived from verified price/OHLC' };
@@ -130,13 +148,15 @@ export function isEvidenceDecisionEligible(
     case 'DELAYED_EXTERNAL':
     case 'CACHED': {
       const maxAge = FRESHNESS_POLICIES[classification];
-      if (freshnessMs <= maxAge) {
+      if (safeFreshness <= maxAge) {
         return { eligible: true, verified: true, reason: `Acceptable ${classification.toLowerCase()} window` };
       }
       return {
         eligible: false,
         verified: false,
-        reason: `${classification} expired (${Math.round(freshnessMs / 1000)}s > ${maxAge / 1000}s)`
+        reason: safeFreshness === Number.MAX_SAFE_INTEGER
+          ? `Missing or invalid freshness for ${classification}: fails closed`
+          : `${classification} expired (${Math.round(safeFreshness / 1000)}s > ${maxAge / 1000}s)`
       };
     }
 
@@ -182,34 +202,59 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
   evidences.forEach((ev) => {
     totalWeight += 1;
 
+    const freshness = normalizeEvidenceFreshnessMs(ev.freshnessMs);
+    const eligibility = isEvidenceDecisionEligible(ev.classification, freshness);
+    const isCanonicallyVerified = eligibility.verified && ev.verified !== false;
+
     switch (ev.classification as string) {
       case 'LIVE_MT5':
-        earnedScore += 1.0;
-        verifiedCount += 1;
+        if (isCanonicallyVerified) {
+          earnedScore += 1.0;
+          verifiedCount += 1;
+        } else {
+          // Stale broker telemetry: partial contextual trust, not full verified trust
+          earnedScore += 0.50;
+        }
         break;
       case 'INDEPENDENT_VERIFIED':
       case 'INDEPENDENT_VERIFIED_OHLC':
       case 'LIVE_EXTERNAL':
-        earnedScore += 0.95;
-        verifiedCount += 1;
+        if (isCanonicallyVerified) {
+          earnedScore += 0.95;
+          verifiedCount += 1;
+        } else {
+          earnedScore += 0.45;
+        }
         break;
       case 'DERIVED_FROM_VERIFIED':
       case 'DERIVED':
-        earnedScore += 0.90;
-        verifiedCount += 1;
+        if (isCanonicallyVerified) {
+          earnedScore += 0.90;
+          verifiedCount += 1;
+        } else {
+          earnedScore += 0.40;
+        }
         break;
       case 'INDEPENDENT_REFERENCE':
       case 'INDEPENDENT_REFERENCE_OHLC':
-        earnedScore += 0.80;
-        verifiedCount += 1;
+        // Retains analytical/contextual trust, strictly non-executable: MUST NOT increment verifiedCount
+        earnedScore += (freshness <= FRESHNESS_POLICIES.INDEPENDENT_REFERENCE) ? 0.80 : 0.40;
         break;
       case 'DELAYED_EXTERNAL':
-        earnedScore += 0.65;
-        if (ev.decisionEligible) verifiedCount += 1;
+        if (isCanonicallyVerified && ev.decisionEligible) {
+          earnedScore += 0.65;
+          verifiedCount += 1;
+        } else {
+          earnedScore += 0.35;
+        }
         break;
       case 'CACHED':
-        earnedScore += 0.60;
-        if (ev.decisionEligible) verifiedCount += 1;
+        if (isCanonicallyVerified && ev.decisionEligible) {
+          earnedScore += 0.60;
+          verifiedCount += 1;
+        } else {
+          earnedScore += 0.30;
+        }
         break;
       case 'MODEL_INFERENCE':
         earnedScore += 0.35;
@@ -281,7 +326,22 @@ export function calculateConsensusTrust(agents: AgentState[]): ConsensusTrustMet
     const score = ag.evidenceTrustScore ?? 0;
     totalTrust += score;
 
-    if (score >= 70) {
+    // An agent counts as verified ONLY when its actual evidenceRecords contain genuinely
+    // verified evidence under canonical eligibility/freshness rules AND its structural gate
+    // has marked it decision-eligible.
+    let isVerified = false;
+    if (ag.status !== 'DATA LIMITED' && ag.status !== 'OFFLINE' && ag.status !== 'ERROR') {
+      if (Array.isArray(ag.evidenceRecords) && ag.evidenceRecords.length > 0) {
+        isVerified = ag.evidenceRecords.some((ev) => {
+          if (!ev.verified || !ev.decisionEligible) return false;
+          const freshness = normalizeEvidenceFreshnessMs(ev.freshnessMs);
+          const eligibility = isEvidenceDecisionEligible(ev.classification, freshness);
+          return eligibility.verified && eligibility.eligible;
+        });
+      }
+    }
+
+    if (isVerified) {
       verifiedAgentCount += 1;
     } else if (score >= 25) {
       limitedAgentCount += 1;
