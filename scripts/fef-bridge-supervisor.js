@@ -33,6 +33,87 @@ if (!fs.existsSync(RUNTIME_DIR)) {
   try { fs.mkdirSync(RUNTIME_DIR, { recursive: true }); } catch {}
 }
 
+const ALLOWED_ENV_KEYS = new Set([
+  'FEF_BRIDGE_TOKEN',
+  'FEF_REMOTE_RELAY_URL',
+  'FEF_REMOTE_DEVICE_ID',
+  'FEF_REMOTE_KEY_ID',
+  'FEF_REMOTE_DEVICE_SECRET'
+]);
+
+// Safe OS/Node runtime variables that are strictly non-credential
+const SAFE_SYSTEM_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'NODE_EXTRA_CA_CERTS'];
+
+function loadAllowlistedEnv(envFilePath) {
+  const targetPath = envFilePath || path.resolve(ROOT_DIR, '.env.local');
+  if (!fs.existsSync(targetPath)) return {};
+  try {
+    const loaded = {};
+    const content = fs.readFileSync(targetPath, 'utf8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (ALLOWED_ENV_KEYS.has(key)) {
+        if (!process.env[key] || process.env[key].trim() === '') {
+          process.env[key] = val;
+        }
+        loaded[key] = true;
+      }
+    }
+    return loaded;
+  } catch {
+    return {};
+  }
+}
+
+// Load allowlisted environment variables for headless background runs
+loadAllowlistedEnv();
+
+function buildBridgeChildEnv(sourceEnv = process.env, port = BRIDGE_PORT) {
+  const env = {
+    PORT: String(port)
+  };
+  if (sourceEnv.FEF_BRIDGE_TOKEN && sourceEnv.FEF_BRIDGE_TOKEN.trim() !== '') {
+    env.FEF_BRIDGE_TOKEN = sourceEnv.FEF_BRIDGE_TOKEN.trim();
+  }
+  for (const key of SAFE_SYSTEM_ENV_KEYS) {
+    if (sourceEnv[key]) {
+      env[key] = sourceEnv[key];
+    }
+  }
+  return env;
+}
+
+function buildConnectorChildEnv(sourceEnv = process.env, bridgeUrl = LOCAL_BRIDGE_URL) {
+  const env = {
+    FEF_LOCAL_BRIDGE_URL: bridgeUrl
+  };
+  const connectorKeys = [
+    'FEF_BRIDGE_TOKEN',
+    'FEF_REMOTE_RELAY_URL',
+    'FEF_REMOTE_DEVICE_ID',
+    'FEF_REMOTE_KEY_ID',
+    'FEF_REMOTE_DEVICE_SECRET'
+  ];
+  for (const key of connectorKeys) {
+    if (sourceEnv[key] && sourceEnv[key].trim() !== '') {
+      env[key] = sourceEnv[key].trim();
+    }
+  }
+  for (const key of SAFE_SYSTEM_ENV_KEYS) {
+    if (sourceEnv[key]) {
+      env[key] = sourceEnv[key];
+    }
+  }
+  return env;
+}
+
 function log(level, message, meta) {
   const ts = new Date().toISOString();
   const metaStr = meta ? " " + JSON.stringify(meta) : "";
@@ -146,9 +227,10 @@ class ConnectivitySupervisor {
   startBridgeService() {
     if (this.isShuttingDown) return;
     log("INFO", "Starting MT5 HTTP Bridge Service...");
+    const bridgeEnv = buildBridgeChildEnv(process.env, BRIDGE_PORT);
     const child = spawn(process.execPath, [BRIDGE_SCRIPT], {
       cwd: ROOT_DIR,
-      env: { ...process.env, PORT: String(BRIDGE_PORT) },
+      env: bridgeEnv,
       stdio: ["ignore", "pipe", "pipe"]
     });
     this.bridgeProcess = child;
@@ -183,9 +265,10 @@ class ConnectivitySupervisor {
   startConnectorAgent() {
     if (this.isShuttingDown) return;
     log("INFO", "Starting FEF Local Connector Agent...");
+    const connectorEnv = buildConnectorChildEnv(process.env, LOCAL_BRIDGE_URL);
     const child = spawn(process.execPath, [CONNECTOR_SCRIPT], {
       cwd: ROOT_DIR,
-      env: { ...process.env, LOCAL_BRIDGE_URL: LOCAL_BRIDGE_URL },
+      env: connectorEnv,
       stdio: ["ignore", "pipe", "pipe"]
     });
     this.connectorProcess = child;
@@ -380,4 +463,15 @@ if (require.main === module) {
   });
 }
 
-module.exports = { ConnectivitySupervisor, RUNTIME_DIR, PID_FILE, STATE_FILE, LOG_FILE };
+module.exports = {
+  ConnectivitySupervisor,
+  RUNTIME_DIR,
+  PID_FILE,
+  STATE_FILE,
+  LOG_FILE,
+  loadAllowlistedEnv,
+  ALLOWED_ENV_KEYS,
+  SAFE_SYSTEM_ENV_KEYS,
+  buildBridgeChildEnv,
+  buildConnectorChildEnv
+};

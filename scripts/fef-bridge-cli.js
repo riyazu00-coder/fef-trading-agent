@@ -3,16 +3,17 @@
  * FEF TRADING SOLUTIONS — BRIDGE SUPERVISOR CLI CONTROLLER
  * 
  * Commands:
- * - start  : Launches daemon supervisor in background (duplicate protected)
- * - status : Queries current structured health state from supervisor & bridge
- * - stop   : Cleanly terminates supervisor and supervised bridge daemons
- * - restart: Gracefully restarts the full connectivity runtime
+ * - start  : Launches daemon supervisor in background (duplicate protected, launchd-aware)
+ * - status : Queries current structured health state from supervisor, bridge, and launchd
+ * - stop   : Cleanly terminates standalone supervisor, or guards against invalid raw SIGTERM if launchd-managed
+ * - restart: Gracefully restarts the full connectivity runtime (launchd-aware)
  */
 
 const { spawn } = require("child_process");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 
 const ROOT_DIR = path.resolve(__dirname, "..");
 const RUNTIME_DIR = path.resolve(ROOT_DIR, ".bridge-runtime");
@@ -20,6 +21,7 @@ const PID_FILE = path.resolve(RUNTIME_DIR, "supervisor.pid");
 const STATE_FILE = path.resolve(RUNTIME_DIR, "supervisor-state.json");
 const LOG_FILE = path.resolve(RUNTIME_DIR, "supervisor.log");
 const SUPERVISOR_SCRIPT = path.resolve(ROOT_DIR, "scripts/fef-bridge-supervisor.js");
+const SERVICE_LABEL = "com.fef.mt5-connectivity";
 
 function isPidRunning(pid) {
   try {
@@ -30,6 +32,48 @@ function isPidRunning(pid) {
     if (e.code === "EPERM") return true;
     return false;
   }
+}
+
+function getLaunchdInfo() {
+  if (process.platform !== "darwin") {
+    return { managed: false, loaded: false, pid: null, plistInstalled: false };
+  }
+
+  const plistPath = path.resolve(os.homedir(), "Library/LaunchAgents", `${SERVICE_LABEL}.plist`);
+  const plistInstalled = fs.existsSync(plistPath);
+
+  try {
+    const { execSync } = require("child_process");
+    const uid = typeof process.getuid === "function" ? process.getuid() : 501;
+    const output = execSync(`launchctl print gui/${uid}/${SERVICE_LABEL} 2>/dev/null`).toString();
+    const pidMatch = output.match(/pid\s*=\s*(\d+)/i);
+    const pid = pidMatch ? parseInt(pidMatch[1], 10) : null;
+    return {
+      managed: true,
+      plistInstalled,
+      loaded: true,
+      pid
+    };
+  } catch {
+    try {
+      const { execSync } = require("child_process");
+      const listOutput = execSync("launchctl list 2>/dev/null").toString();
+      for (const line of listOutput.split("\n")) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 3 && parts[2] === SERVICE_LABEL) {
+          const pid = parts[0] === "-" ? null : parseInt(parts[0], 10);
+          return { managed: true, plistInstalled, loaded: true, pid };
+        }
+      }
+    } catch {}
+  }
+
+  return {
+    managed: plistInstalled,
+    plistInstalled,
+    loaded: false,
+    pid: null
+  };
 }
 
 async function fetchStatusJson() {
@@ -54,11 +98,13 @@ async function handleStatus() {
 
   const running = pid && isPidRunning(pid);
   const liveState = await fetchStatusJson();
+  const launchd = getLaunchdInfo();
 
   console.log("=================================================================");
   console.log("FEF TRADING SOLUTIONS — MT5 CONNECTIVITY STATUS");
   console.log("=================================================================");
   console.log("SUPERVISOR   :", running ? "ONLINE (PID " + pid + ")" : "OFFLINE");
+  console.log("LAUNCHD MGMT :", launchd.loaded ? "ACTIVE (Loaded in launchd, PID: " + (launchd.pid || "running") + ")" : (launchd.plistInstalled ? "INSTALLED (Not loaded)" : "NOT CONFIGURED"));
 
   if (liveState) {
     console.log("LOCAL BRIDGE :", liveState.localBridge);
@@ -89,6 +135,14 @@ async function handleStatus() {
 }
 
 async function handleStart() {
+  const launchd = getLaunchdInfo();
+  if (launchd.loaded) {
+    console.log("✓ FEF Connectivity Supervisor is managed by macOS launchd (" + SERVICE_LABEL + (launchd.pid ? ", PID " + launchd.pid : "") + ").");
+    console.log("Background supervisor is already running under launchd. Skipping duplicate standalone launch.");
+    await handleStatus();
+    return;
+  }
+
   if (fs.existsSync(PID_FILE)) {
     try {
       const pid = parseInt(fs.readFileSync(PID_FILE, "utf8").trim(), 10);
@@ -125,6 +179,17 @@ async function handleStart() {
 }
 
 async function handleStop() {
+  const launchd = getLaunchdInfo();
+  if (launchd.loaded) {
+    console.log("⚠️  Notice: FEF Connectivity Supervisor is managed by macOS LaunchAgent (" + SERVICE_LABEL + ") with KeepAlive=true.");
+    console.log("Sending a raw SIGTERM will cause launchd to immediately restart the supervisor process.");
+    console.log("To permanently stop and unload the background service, run:");
+    console.log("  npm run bridge:service:uninstall\n");
+    console.log("To restart the background service, run:");
+    console.log("  npm run bridge:service:restart\n");
+    return { launchdManaged: true, refused: true };
+  }
+
   console.log("Stopping FEF Connectivity Supervisor...");
   let stoppedAny = false;
 
@@ -158,6 +223,31 @@ async function handleStop() {
   } catch {}
 
   console.log(stoppedAny ? "✓ FEF Bridge runtime stopped cleanly." : "No active runtime found to stop.");
+  return { stoppedAny, launchdManaged: false };
+}
+
+async function handleRestart() {
+  const launchd = getLaunchdInfo();
+  if (launchd.loaded) {
+    console.log("Restarting launchd-managed FEF Connectivity Supervisor...");
+    try {
+      const macosService = require("./fef-macos-service");
+      macosService.restart();
+      console.log("✓ Service restart signal issued to launchd.");
+    } catch (e) {
+      const { execSync } = require("child_process");
+      const uid = typeof process.getuid === "function" ? process.getuid() : 501;
+      execSync(`launchctl kickstart -k gui/${uid}/${SERVICE_LABEL} 2>/dev/null || true`);
+      console.log("✓ Service kickstart sent via launchctl.");
+    }
+    await new Promise(r => setTimeout(r, 1000));
+    await handleStatus();
+    return;
+  }
+
+  await handleStop();
+  await new Promise(r => setTimeout(r, 1500));
+  await handleStart();
 }
 
 async function main() {
@@ -174,16 +264,26 @@ async function main() {
       await handleStatus();
       break;
     case "restart":
-      await handleStop();
-      await new Promise(r => setTimeout(r, 1500));
-      await handleStart();
+      await handleRestart();
       break;
     default:
       console.log("Usage: node scripts/fef-bridge-cli.js [start|stop|status|restart]");
   }
 }
 
-main().catch(err => {
-  console.error("CLI Error:", err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(err => {
+    console.error("CLI Error:", err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  isPidRunning,
+  getLaunchdInfo,
+  fetchStatusJson,
+  handleStatus,
+  handleStart,
+  handleStop,
+  handleRestart
+};
