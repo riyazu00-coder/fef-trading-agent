@@ -1304,6 +1304,8 @@ export function generateAssetIntelligence(
     ? Math.round(consensusTrust.evidenceTrust)
     : 0;
 
+  const macroDebateAgent = assembledAgents.find((a) => a.type === 'MACRO');
+
   const debateMessages = [
     {
       time: '18:14:50',
@@ -1318,8 +1320,10 @@ export function generateAssetIntelligence(
     {
       time: '18:14:53',
       agent: 'MACRO AGENT',
-      text: `No live macro economic feed connected for ${normSymbol}. Macro stance DATA LIMITED.`,
-      status: 'DATA LIMITED' as const
+      text: macroDebateAgent?.lastOpinion || `No live macro indicators matched for ${normSymbol}. Telemetry awaiting update.`,
+      status: (macroDebateAgent?.status === 'ONLINE'
+        ? macroDebateAgent.bias
+        : 'DATA LIMITED') as any
     },
     {
       time: '18:14:57',
