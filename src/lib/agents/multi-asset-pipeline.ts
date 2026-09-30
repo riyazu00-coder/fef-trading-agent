@@ -30,7 +30,15 @@ import {
   EvidenceClassification
 } from '../evidence/agent-evidence';
 import { analyzeMarketStructure, MarketStructure } from '../market/market-structure-engine';
-import { buildBuyBlueprint, buildSellBlueprint, updateBlueprintLifecycle, BlueprintCandleSource, TradeBlueprint, LevelWithProvenance } from '../trading/trade-blueprint-engine';
+import {
+  buildBuyBlueprint,
+  buildSellBlueprint,
+  updateBlueprintLifecycle,
+  evaluateBlueprintMarketCompatibility,
+  BlueprintCandleSource,
+  TradeBlueprint,
+  LevelWithProvenance
+} from '../trading/trade-blueprint-engine';
 import { OHLCCandle } from '../market/canonical-market-snapshot';
 import { calculateVolumeProfile } from '../market/volume-profile-engine';
 import { evaluateCorrelationRegime } from '../market/dynamic-correlation-engine';
@@ -137,6 +145,10 @@ const activeBlueprintCache = new Map<string, TradeBlueprint>();
 
 export function clearBlueprintCacheForTesting(): void {
   activeBlueprintCache.clear();
+}
+
+export function getActiveBlueprintCacheForTesting(): ReadonlyMap<string, TradeBlueprint> {
+  return activeBlueprintCache;
 }
 
 /**
@@ -355,27 +367,22 @@ export function generateAssetIntelligence(
         blueprint = null;
       }
     } else if (cachedBp) {
-      // Fail-closed cached blueprint integrity validation
+      // Fail-closed cached blueprint integrity and market compatibility validation
       if (!isBlueprintCompatibleWithContext(cachedBp, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
         activeBlueprintCache.delete(bpKey);
         blueprint = null;
       } else {
-        // Check if existing cached blueprint is still structurally valid or invalidated
-        const isTrendMismatch = (cachedBp.direction === 'BUY' && marketStructure.trend === 'BEARISH') ||
-                                (cachedBp.direction === 'SELL' && marketStructure.trend === 'BULLISH');
-        const isInvalidated = (cachedBp.direction === 'BUY' && p < cachedBp.sl.price) ||
-                              (cachedBp.direction === 'SELL' && p > cachedBp.sl.price);
-        const isTargetReached = (cachedBp.direction === 'BUY' && p >= cachedBp.tp1.price) ||
-                                (cachedBp.direction === 'SELL' && p <= cachedBp.tp1.price);
-        const isExpired = Date.now() > cachedBp.expiry;
-
-        if (isTrendMismatch || isInvalidated || isTargetReached || isExpired) {
+        const compat = evaluateBlueprintMarketCompatibility(cachedBp, p, marketStructure, analysisCandles);
+        if (!compat.isCompatible) {
           activeBlueprintCache.delete(bpKey);
           blueprint = null;
         } else {
           // Blueprint remains active with updated lifecycle state
-          const updatedBp = updateBlueprintLifecycle(cachedBp, p);
-          if (isBlueprintCompatibleWithContext(updatedBp, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
+          const updatedBp = updateBlueprintLifecycle(cachedBp, p, analysisCandles, marketStructure);
+          if (updatedBp.state === 'INVALIDATED' || updatedBp.state === 'EXPIRED') {
+            activeBlueprintCache.delete(bpKey);
+            blueprint = null;
+          } else if (isBlueprintCompatibleWithContext(updatedBp, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
             activeBlueprintCache.set(bpKey, updatedBp);
             blueprint = updatedBp;
           } else {
@@ -387,6 +394,7 @@ export function generateAssetIntelligence(
     }
   } else {
     activeBlueprintCache.delete(bpKey);
+    blueprint = null;
   }
 
   // 3b. Specialist Market Diagnostics: Volume Profile & Order Flow
@@ -509,7 +517,7 @@ export function generateAssetIntelligence(
       }
 
       case 'STRATEGY': {
-        if (blueprint) {
+        if (blueprint && blueprint.state !== 'INVALIDATED' && blueprint.state !== 'EXPIRED') {
           return {
             ...base,
             bias: blueprint.direction === 'BUY' ? 'BULLISH' : 'BEARISH',
@@ -1239,9 +1247,9 @@ export function generateAssetIntelligence(
 
   let effectiveSetupDirection: AssetIntelligenceProfile['setupDirection'] = 'WAIT';
 
-  if (blueprint && blueprint.direction === 'BUY' && eligibleBullishCount > 0 && consensusTrust.evidenceTrust >= 40) {
+  if (blueprint && blueprint.state !== 'INVALIDATED' && blueprint.state !== 'EXPIRED' && blueprint.direction === 'BUY' && eligibleBullishCount > 0 && consensusTrust.evidenceTrust >= 40) {
     effectiveSetupDirection = 'WATCH FOR BUY';
-  } else if (blueprint && blueprint.direction === 'SELL' && eligibleBearishCount > 0 && consensusTrust.evidenceTrust >= 40) {
+  } else if (blueprint && blueprint.state !== 'INVALIDATED' && blueprint.state !== 'EXPIRED' && blueprint.direction === 'SELL' && eligibleBearishCount > 0 && consensusTrust.evidenceTrust >= 40) {
     effectiveSetupDirection = 'WATCH FOR SELL';
   } else {
     // Insufficient evidence or no directional setup -> WAIT

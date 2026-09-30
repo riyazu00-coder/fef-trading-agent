@@ -13,8 +13,18 @@ import {
   buildBuyBlueprint,
   buildSellBlueprint,
   updateBlueprintLifecycle,
-  CANONICAL_SL_POLICY
+  evaluateBlueprintMarketCompatibility,
+  MAXIMUM_BLUEPRINT_LIFETIME_MS,
+  CANONICAL_SL_POLICY,
+  TradeBlueprint
 } from '../src/lib/trading/trade-blueprint-engine';
+import {
+  isBlueprintCompatibleWithContext,
+  isMarketStructureCompatibleWithContext,
+  clearBlueprintCacheForTesting,
+  getActiveBlueprintCacheForTesting,
+  generateAssetIntelligence
+} from '../src/lib/agents/multi-asset-pipeline';
 import { MarketStructure } from '../src/lib/market/market-structure-engine';
 import { OHLCCandle } from '../src/lib/market/canonical-market-snapshot';
 
@@ -364,6 +374,230 @@ async function runTests() {
   // 10. Existing valid blueprints continue to pass when geometry is genuinely acceptable
   assert(buyBp !== null, '10. Genuine acceptable BUY blueprint passes');
   assert(sellBp !== null, '10. Genuine acceptable SELL blueprint passes');
+
+  console.log('\n====================================================');
+  console.log('TEST 7: P1 Blueprint Cache & Market-Aware Lifecycle Integrity Suite');
+  console.log('====================================================');
+
+  // 1. Same symbol + timeframe + source + unchanged structure
+  const compat1 = evaluateBlueprintMarketCompatibility(buyBp, 2042, buyStructure, testCandles);
+  assert(compat1.isCompatible === true, '1. Same context & structure remains compatible');
+
+  // 2. Symbol mismatch
+  const diffSymbolStruct = { ...buyStructure, symbol: 'EURUSD' };
+  const compat2 = evaluateBlueprintMarketCompatibility(buyBp, 2042, diffSymbolStruct, testCandles);
+  assert(compat2.isCompatible === false, '2. Symbol mismatch is rejected');
+  assert(isBlueprintCompatibleWithContext(buyBp, 'EURUSD', 'H1', 'MT5_BROKER_OHLC') === false, '2b. Context validator rejects symbol mismatch');
+
+  // 3. Timeframe mismatch
+  const diffTfStruct = { ...buyStructure, timeframe: 'H4' };
+  const compat3 = evaluateBlueprintMarketCompatibility(buyBp, 2042, diffTfStruct, testCandles);
+  assert(compat3.isCompatible === false, '3. Timeframe mismatch is rejected');
+  assert(isBlueprintCompatibleWithContext(buyBp, 'XAUUSD', 'H4', 'MT5_BROKER_OHLC') === false, '3b. Context validator rejects timeframe mismatch');
+
+  // 4. Source provenance mismatch
+  const diffSourceStruct = { ...buyStructure, source: 'INDEPENDENT_VERIFIED_OHLC' as const };
+  const compat4 = evaluateBlueprintMarketCompatibility(buyBp, 2042, diffSourceStruct, testCandles);
+  assert(compat4.isCompatible === false, '4. Source mismatch is rejected');
+  assert(isBlueprintCompatibleWithContext(buyBp, 'XAUUSD', 'H1', 'INDEPENDENT_VERIFIED_OHLC') === false, '4b. Context validator rejects source mismatch');
+
+  // 5. BUY structural invalidation break
+  const priceBelowInv = buyBp.invalidation.price - 1.0;
+  const compat5 = evaluateBlueprintMarketCompatibility(buyBp, priceBelowInv, buyStructure, testCandles);
+  assert(compat5.isCompatible === false && compat5.shouldInvalidate === true, '5. BUY invalidation breach detected immediately');
+  const updatedInvBuy = updateBlueprintLifecycle(buyBp, priceBelowInv, testCandles, buyStructure);
+  assert(updatedInvBuy.state === 'INVALIDATED', '5b. updateBlueprintLifecycle transitions BUY to INVALIDATED immediately');
+
+  // 6. SELL structural invalidation break
+  const priceAboveInv = sellBp.invalidation.price + 1.0;
+  const compat6 = evaluateBlueprintMarketCompatibility(sellBp, priceAboveInv, sellStructure, testCandles);
+  assert(compat6.isCompatible === false && compat6.shouldInvalidate === true, '6. SELL invalidation breach detected immediately');
+  const updatedInvSell = updateBlueprintLifecycle(sellBp, priceAboveInv, testCandles, sellStructure);
+  assert(updatedInvSell.state === 'INVALIDATED', '6b. updateBlueprintLifecycle transitions SELL to INVALIDATED immediately');
+
+  // 7. New verified candles + materially incompatible structure (trend reversal)
+  const bearReversalStruct: MarketStructure = { ...buyStructure, trend: 'BEARISH' };
+  const compat7 = evaluateBlueprintMarketCompatibility(buyBp, 2042, bearReversalStruct, testCandles);
+  assert(compat7.isCompatible === false && compat7.shouldInvalidate === true, '7. Trend reversal against BUY is incompatible');
+
+  const bullReversalStruct: MarketStructure = { ...sellStructure, trend: 'BULLISH' };
+  const compat7b = evaluateBlueprintMarketCompatibility(sellBp, 2052, bullReversalStruct, testCandles);
+  assert(compat7b.isCompatible === false && compat7b.shouldInvalidate === true, '7b. Trend reversal against SELL is incompatible');
+
+  // 8. New verified candles + compatible structure
+  const compat8 = evaluateBlueprintMarketCompatibility(buyBp, 2044, buyStructure, testCandles);
+  assert(compat8.isCompatible === true, '8. New tick with compatible structure remains valid');
+  const updatedValid = updateBlueprintLifecycle(buyBp, 2044, testCandles, buyStructure);
+  assert(updatedValid.state === 'TRIGGER_READY', '8b. Price in entry zone transitions to TRIGGER_READY');
+  assert(updatedValid.sl.price === buyBp.sl.price, '8c. SL remains strictly frozen');
+  assert(updatedValid.tp1.price === buyBp.tp1.price, '8d. TP1 remains strictly frozen');
+  assert(updatedValid.invalidation.price === buyBp.invalidation.price, '8e. Invalidation price remains strictly frozen');
+
+  // 9. Missing/insufficient structure required for revalidation
+  const emptyStruct = { ...buyStructure, trend: 'INSUFFICIENT_DATA' as const, candleCount: 0 };
+  const compat9 = evaluateBlueprintMarketCompatibility(buyBp, 2042, emptyStruct, testCandles);
+  assert(compat9.isCompatible === false, '9. Insufficient structure fails closed');
+  const nullCompat = evaluateBlueprintMarketCompatibility(buyBp, 2042, null, testCandles);
+  assert(nullCompat.isCompatible === false, '9b. Null structure fails closed');
+
+  // 10. Safety ceiling expiry
+  const expiredBp: TradeBlueprint = { ...buyBp, expiry: Date.now() - 1000 };
+  const compat10 = evaluateBlueprintMarketCompatibility(expiredBp, 2042, buyStructure, testCandles);
+  assert(compat10.isCompatible === false, '10. Exceeded safety ceiling expires blueprint');
+  const updatedExpired = updateBlueprintLifecycle(expiredBp, 2042, testCandles, buyStructure);
+  assert(updatedExpired.state === 'EXPIRED', '10b. updateBlueprintLifecycle transitions to EXPIRED');
+
+  // 11. Frozen geometry: lifecycle evaluation never moves levels
+  const testTicks = [2042, 2044, 2040, 2045, 2039];
+  let currentFrozen = buyBp;
+  for (const t of testTicks) {
+    currentFrozen = updateBlueprintLifecycle(currentFrozen, t, testCandles, buyStructure);
+    assert(
+      currentFrozen.sl.price === buyBp.sl.price &&
+      currentFrozen.tp1.price === buyBp.tp1.price &&
+      currentFrozen.invalidation.price === buyBp.invalidation.price,
+      `11. Frozen geometry holds at price ${t}`
+    );
+  }
+
+  // 12. Cross-asset regression: XAUUSD in cache cannot contaminate EURUSD
+  clearBlueprintCacheForTesting();
+  const baseTime = Date.now() - 20 * 3600000;
+  const bullCandles: OHLCCandle[] = [
+    { o: 2000, h: 2005, l: 1998, c: 2004 },
+    { o: 2004, h: 2010, l: 2002, c: 2008 },
+    { o: 2008, h: 2015, l: 2006, c: 2012 },
+    { o: 2012, h: 2014, l: 2007, c: 2010 },
+    { o: 2010, h: 2022, l: 2009, c: 2020 },
+    { o: 2020, h: 2021, l: 2014, c: 2016 },
+    { o: 2016, h: 2028, l: 2015, c: 2026 },
+    { o: 2026, h: 2035, l: 2024, c: 2032 },
+    { o: 2032, h: 2033, l: 2025, c: 2027 },
+    { o: 2027, h: 2034, l: 2026, c: 2033 },
+    { o: 2033, h: 2055, l: 2032, c: 2052 },
+    { o: 2052, h: 2062, l: 2045, c: 2060 },
+    { o: 2060, h: 2072, l: 2058, c: 2070 },
+    { o: 2070, h: 2071, l: 2042, c: 2044 },
+    { o: 2044, h: 2048, l: 2041, c: 2043 },
+  ].map((s, idx) => ({
+    timestamp: baseTime + idx * 3600000,
+    open: s.o, high: s.h, low: s.l, close: s.c, tickVolume: 1000 + idx * 50
+  }));
+
+  const liveXAU = {
+    symbol: 'XAUUSD', name: 'Gold Spot', price: 2043, bid: 2042.8, ask: 2043.2, spread: 0.4,
+    change24h: 1.0, high24h: 2072, low24h: 1998, volume: '$1B', sparkline: '0,10 100,10',
+    source: 'MT5 Broker Telemetry', lastUpdated: new Date().toISOString(), category: 'METALS'
+  };
+  const profXAU = generateAssetIntelligence('XAUUSD', liveXAU as any, 'H1', bullCandles, 'LIVE_MT5');
+  assert(profXAU.blueprint !== null, '12. XAUUSD generates valid blueprint');
+
+  const cache = getActiveBlueprintCacheForTesting();
+  assert(cache.has('XAUUSD:H1'), '12b. XAUUSD:H1 exists in cache');
+  assert(!cache.has('EURUSD:H1'), '12c. EURUSD:H1 does not exist in cache');
+
+  const liveEUR = {
+    symbol: 'EURUSD', name: 'Euro / USD', price: 1.0850, bid: 1.0849, ask: 1.0851, spread: 0.0002,
+    change24h: 0.1, high24h: 1.0900, low24h: 1.0800, volume: '$1B', sparkline: '0,10 100,10',
+    source: 'MT5 Broker Telemetry', lastUpdated: new Date().toISOString(), category: 'FOREX'
+  };
+  const profEUR = generateAssetIntelligence('EURUSD', liveEUR as any, 'H1', [], 'LIVE_MT5');
+  assert(profEUR.blueprint === null, '12d. EURUSD without candles has null blueprint (no cross-asset contamination)');
+  assert(profEUR.setupDirection === 'WAIT', '12e. EURUSD posture is WAIT');
+
+  // 13. Cross-timeframe regression: H1 cannot contaminate H4
+  const profXAU_H4 = generateAssetIntelligence('XAUUSD', liveXAU as any, 'H4', [], 'LIVE_MT5');
+  assert(profXAU_H4.blueprint === null, '13. XAUUSD:H4 without candles has null blueprint (no cross-timeframe contamination)');
+
+  // 14. Cache replacement: when a new valid blueprint is created, old one replaced
+  const newerBullCandles = [
+    ...bullCandles,
+    { timestamp: baseTime + 15 * 3600000, open: 2043, high: 2046, low: 2042, close: 2045, tickVolume: 1200 },
+    { timestamp: baseTime + 16 * 3600000, open: 2045, high: 2075, low: 2044, close: 2070, tickVolume: 1500 },
+    { timestamp: baseTime + 17 * 3600000, open: 2070, high: 2085, low: 2065, close: 2080, tickVolume: 1400 },
+    { timestamp: baseTime + 18 * 3600000, open: 2080, high: 2082, low: 2060, close: 2062, tickVolume: 1100 },
+  ];
+  const profNewXAU = generateAssetIntelligence('XAUUSD', { ...liveXAU, price: 2062 } as any, 'H1', newerBullCandles, 'LIVE_MT5');
+  assert(profNewXAU.blueprint !== null, '14. New setup generated');
+  const cacheAfter = getActiveBlueprintCacheForTesting();
+  const cachedAfterBp = cacheAfter.get('XAUUSD:H1');
+  assert(cachedAfterBp !== undefined && cachedAfterBp.setupId === profNewXAU.blueprint?.setupId,
+    '14b. Cache was deterministically replaced with the new blueprint');
+
+  // 15. READ_ONLY/execution safety behavior remains unchanged
+  assert(MAXIMUM_BLUEPRINT_LIFETIME_MS === 4 * 60 * 60 * 1000, '15. Maximum safety ceiling constant preserved');
+  assert(CANONICAL_SL_POLICY.maxRiskAtrMultiplier === 4.5, '15b. P1 SL policy preserved (4.5x ATR max risk)');
+  assert(CANONICAL_SL_POLICY.atrBufferMultiplier === 0.5, '15c. P1 SL policy preserved (0.5x ATR buffer)');
+  assert(CANONICAL_SL_POLICY.minRewardRiskRatio === 0.40, '15d. P1 SL policy preserved (0.40 min R:R)');
+
+  // 16. Missing/unknown candle provenance cannot create a blueprint falsely labeled as verified (Req A)
+  const noSourceStruct = { ...buyStructure, source: undefined as any };
+  const noSourceBp = buildBuyBlueprint(noSourceStruct, testCandles, 'XAUUSD', 2042);
+  assert(noSourceBp === null, '16a. Missing structure source fails closed (returns null, never fabricates verified source)');
+
+  const unknownSourceBp = buildBuyBlueprint(buyStructure, testCandles, 'XAUUSD', 2042, 'FABRICATED_SOURCE' as any);
+  assert(unknownSourceBp === null, '16b. Fabricated/unknown candleSource fails closed (returns null)');
+
+  const mismatchSourceBp = buildBuyBlueprint(buyStructure, testCandles, 'XAUUSD', 2042, 'INDEPENDENT_REFERENCE_OHLC');
+  assert(mismatchSourceBp === null, '16c. Provenance conflict between caller and structure fails closed (returns null)');
+
+  const refStruct: MarketStructure = { ...buyStructure, source: 'INDEPENDENT_REFERENCE_OHLC' };
+  const refBp = buildBuyBlueprint(refStruct, testCandles, 'XAUUSD', 2042, 'INDEPENDENT_REFERENCE_OHLC');
+  assert(refBp !== null, '16d. Reference source blueprint created successfully');
+  if (refBp) {
+    assert(refBp.blueprintProvenanceVerified === false, '16e. Reference source is truthful and NOT labeled as verified');
+  }
+
+  // 17. Originating/predating candle does NOT retrospectively invalidate blueprint (Req B)
+  // buyBp has baselineMarketTs = max(testCandles.timestamp).
+  // A candle timestamped earlier than or equal to baseline evidence does not retrospectively invalidate it,
+  // even if its low dipped below invalidation level.
+  const baselineTs = buyBp ? (buyBp.latestAnalyzedCandleTimestamp || 0) : 0;
+  assert(baselineTs > 0, '17a. buyBp has valid positive latestAnalyzedCandleTimestamp');
+  if (buyBp) {
+    const historicalDipCandle: OHLCCandle = {
+      timestamp: baselineTs - 60000, // strictly predates baseline evidence
+      open: 2035, high: 2036, low: buyBp.invalidation.price - 2.0, close: 2034, tickVolume: 100
+    };
+    const compatHistorical = evaluateBlueprintMarketCompatibility(buyBp, 2042, buyStructure, [historicalDipCandle]);
+    assert(compatHistorical.isCompatible === true, '17b. Candle predating blueprint baseline evidence does NOT retrospectively invalidate it');
+  }
+
+  // 18. Genuinely subsequent candle that breaches invalidation DOES invalidate it (Req C)
+  if (buyBp) {
+    const subsequentBreachCandle: OHLCCandle = {
+      timestamp: baselineTs + 60000, // strictly subsequent to baseline evidence
+      open: 2042, high: 2043, low: buyBp.invalidation.price - 0.5, close: 2040, tickVolume: 100
+    };
+    const compatSubsequent = evaluateBlueprintMarketCompatibility(buyBp, 2042, buyStructure, [subsequentBreachCandle]);
+    assert(compatSubsequent.isCompatible === false && compatSubsequent.shouldInvalidate === true,
+      '18. Genuinely subsequent candle that breaches invalidation DOES invalidate it');
+  }
+
+  // 19. H1/H4/D1 blueprint validity is not rejected by an arbitrary universal 15-minute freshness rule (Req D)
+  if (buyBp) {
+    const fortyFiveMinAgo = Date.now() - 45 * 60 * 1000;
+    const h1Blueprint: TradeBlueprint = {
+      ...buyBp,
+      createdAt: fortyFiveMinAgo,
+      updatedAt: fortyFiveMinAgo,
+      expiry: fortyFiveMinAgo + MAXIMUM_BLUEPRINT_LIFETIME_MS, // Well within 4h ceiling
+      state: 'WATCH'
+    };
+    const compatH1 = evaluateBlueprintMarketCompatibility(h1Blueprint, 2042, buyStructure, testCandles);
+    assert(compatH1.isCompatible === true, '19a. H1 setup 45 minutes old is NOT rejected by 15-minute rule');
+
+    const twoHoursAgo = Date.now() - 2 * 3600 * 1000;
+    const h4Blueprint: TradeBlueprint = {
+      ...buyBp,
+      createdAt: twoHoursAgo,
+      updatedAt: twoHoursAgo,
+      expiry: twoHoursAgo + MAXIMUM_BLUEPRINT_LIFETIME_MS,
+      state: 'WATCH'
+    };
+    const compatH4 = evaluateBlueprintMarketCompatibility(h4Blueprint, 2042, buyStructure, testCandles);
+    assert(compatH4.isCompatible === true, '19b. H4 setup 2 hours old is NOT rejected by 15-minute rule');
+  }
 
   console.log('\n====================================================');
   console.log(`TEST SUMMARY: ${failures === 0 ? 'ALL TESTS PASSED' : `${failures} FAILURES`}`);
