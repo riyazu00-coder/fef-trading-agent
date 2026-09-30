@@ -10,6 +10,7 @@ import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { AgentState } from '@/lib/agents/agent-types';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
+import { CouncilDebateStream } from '@/components/cockpit/CouncilDebateStream';
 
 interface ExtendedAgent extends AgentState {
   id: string;
@@ -154,12 +155,27 @@ export default function AgentsDirectoryPage() {
     }
   ];
 
-  const handlePulseSwarm = () => {
+  const handlePulseSwarm = async () => {
     setIsPulsing(true);
-    refreshData();
-    setTimeout(() => {
+    try {
+      await refreshData();
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          const debateCard = document.getElementById('council-debate-card');
+          if (debateCard) {
+            debateCard.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start'
+            });
+          }
+          resolve();
+        });
+      });
+    } catch (err) {
+      console.error('Failed to pulse council deliberation:', err);
+    } finally {
       setIsPulsing(false);
-    }, 800);
+    }
   };
 
   const filteredAgents = fullCouncil.filter((ag) => {
@@ -218,6 +234,7 @@ export default function AgentsDirectoryPage() {
             {/* Swarm Trigger Action */}
             <div className="flex items-center space-x-2">
               <button
+                type="button"
                 onClick={handlePulseSwarm}
                 disabled={isPulsing}
                 className="bg-gradient-to-r from-cyan-500/20 to-purple-500/20 hover:from-cyan-500/30 hover:to-purple-500/30 border border-cyan-500/50 text-cyan-300 px-4 py-2 rounded-xl text-xs font-bold tracking-wider flex items-center space-x-2 transition-all shadow-[0_0_15px_rgba(6,182,212,0.2)] disabled:opacity-50"
@@ -258,6 +275,9 @@ export default function AgentsDirectoryPage() {
             </div>
           </div>
         </div>
+
+        {/* Live Inter-Agent Council Debate Stream */}
+        <CouncilDebateStream />
 
         {/* Agent Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 font-mono">
