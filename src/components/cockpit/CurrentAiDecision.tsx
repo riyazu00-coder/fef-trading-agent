@@ -15,10 +15,10 @@ export const CurrentAiDecision: React.FC = () => {
   const isActionable = actionability === 'ACTIONABLE' && !isMarketClosed;
 
   // Determine button presentation state based on canonical actionability
-  let buttonLabel = status === 'APPROVED' ? 'APPROVED & READY' : 'Approve & Execute';
+  let buttonLabel = status === 'APPROVED' ? 'SETUP REVIEWED (READ-ONLY)' : 'Review Trade Setup';
   let buttonIcon = '✓';
   let buttonStyle = 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)] cursor-pointer border-emerald-400/30';
-  let buttonTitle: string | undefined = undefined;
+  let buttonTitle: string | undefined = 'Trade setup review. Order transport is locked in READ_ONLY mode.';
   let supportingText: string | null = null;
 
   if (isMarketClosed) {

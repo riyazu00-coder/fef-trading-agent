@@ -989,6 +989,178 @@ runTest('21. Unknown/stale freshness cannot count as verified consensus agent ev
   assert.strictEqual(consensus.verifiedAgentCount, 0, 'Stale evidence MUST NOT count as verified consensus agent');
 });
 
+// ---------------------------------------------------------------------------
+// TEST GROUP 9: Post-Recovery Truthfulness & Semantic Integrity Invariants
+// ---------------------------------------------------------------------------
+console.log('\n[TEST GROUP 9] Post-Recovery Truthfulness & Semantic Integrity Invariants');
+
+// 1. Benchmark OHLC absent -> Correlation agent is DATA LIMITED, confidence 0, bias NEUTRAL, missingInputs contains Benchmark OHLC
+runTest('1. Correlation agent is DATA LIMITED with confidence 0, bias NEUTRAL, missing Benchmark OHLC when benchmark absent', () => {
+  const profile = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
+  const corr = profile.agents.find(a => a.type === 'CORRELATION');
+  assert(corr, 'Correlation agent must exist');
+  assert.strictEqual(corr.status, 'DATA LIMITED');
+  assert.strictEqual(corr.confidence, 0);
+  assert.strictEqual(corr.bias, 'NEUTRAL');
+  assert(corr.missingInputs && corr.missingInputs.includes('Benchmark OHLC'), 'missingInputs must contain Benchmark OHLC');
+});
+
+// 2. Correlation agent does not output fabricated rolling beta or normal regime claims when benchmark unverified
+runTest('2. Correlation agent does not output fabricated rolling beta or normal regime claims', () => {
+  const profile = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
+  const corr = profile.agents.find(a => a.type === 'CORRELATION');
+  assert(!corr.lastOpinion.includes('Rolling 20-bar beta'), 'Must not claim Rolling 20-bar beta');
+  assert(!corr.lastOpinion.includes('Regime State: NORMAL'), 'Must not claim Regime State: NORMAL');
+  assert(!corr.lastOpinion.includes('Safe-haven decoupling: NOT DETECTED'), 'Must not claim Safe-haven decoupling: NOT DETECTED');
+  corr.evidence.forEach(e => {
+    assert(!e.includes('Rolling 20-bar beta'), 'Evidence must not claim Rolling 20-bar beta');
+    assert(!e.includes('Regime State: NORMAL'), 'Evidence must not claim Regime State: NORMAL');
+  });
+});
+
+// 3. Correlation evidence classification is UNAVAILABLE (or non-verified reference) and not decision-eligible
+runTest('3. Correlation evidence classification is UNAVAILABLE and not decision-eligible', () => {
+  const profile = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
+  const corr = profile.agents.find(a => a.type === 'CORRELATION');
+  assert(Array.isArray(corr.evidenceRecords) && corr.evidenceRecords.length > 0, 'Evidence records must exist');
+  corr.evidenceRecords.forEach(ev => {
+    assert.strictEqual(ev.classification, 'UNAVAILABLE');
+    assert.strictEqual(ev.decisionEligible, false);
+    assert.strictEqual(ev.verified, false);
+  });
+});
+
+// 4. Specialist agents without real feeds (Macro, News, Geopolitical, Sentiment) fail closed to DATA LIMITED / 0 confidence
+runTest('4. Specialist agents without real feeds fail closed to DATA LIMITED and 0 confidence', () => {
+  const emptyFeeds = { news: [], macro: [], events: [], alerts: [], sentiment: {} };
+  const profile = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1', [], [], undefined, undefined, emptyFeeds);
+  const specialistTypes = ['MACRO', 'NEWS', 'GEOPOLITICAL', 'SENTIMENT'];
+  specialistTypes.forEach(type => {
+    const agent = profile.agents.find(a => a.type === type);
+    assert(agent, `${type} agent must exist`);
+    assert.strictEqual(agent.status, 'DATA LIMITED', `${type} must be DATA LIMITED without feeds`);
+    assert.strictEqual(agent.confidence, 0, `${type} confidence must be 0`);
+  });
+});
+
+// 5. Specialist agents cannot leak hardcoded confidence values (no 68, 75, 78, 88 nominal fixtures in production output)
+runTest('5. No specialist agent leaks hardcoded nominal confidence fixtures', () => {
+  const forbiddenFixtures = [68, 75, 78, 88];
+  const profile = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
+  const specialists = ['MACRO', 'NEWS', 'GEOPOLITICAL', 'SENTIMENT', 'INSTITUTIONAL', 'ORDER_FLOW', 'CORRELATION'];
+  specialists.forEach(type => {
+    const agent = profile.agents.find(a => a.type === type);
+    if (agent && agent.status === 'DATA LIMITED') {
+      assert.strictEqual(agent.confidence, 0, `${type} must have 0 confidence when DATA LIMITED`);
+      assert(!forbiddenFixtures.includes(agent.confidence), `${type} cannot leak nominal fixture ${agent.confidence}`);
+    }
+  });
+});
+
+// 6. ExecutabilityBadge displays 'MARKET READY' (not 'EXECUTABLE') when market session is open and quotes valid
+runTest('6. ExecutabilityBadge renders MARKET READY instead of EXECUTABLE', () => {
+  const badgeCode = fs.readFileSync(path.resolve(__dirname, '../src/components/common/ExecutabilityBadge.tsx'), 'utf8');
+  assert(badgeCode.includes('MARKET READY'), 'ExecutabilityBadge must contain "MARKET READY"');
+  assert(!badgeCode.includes('\'EXECUTABLE\'') && !badgeCode.includes('>EXECUTABLE<'), 'ExecutabilityBadge must not render "EXECUTABLE"');
+});
+
+// 7. Execution Control Card displays 'REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡' (not 'PROCEED TO MT5 EXECUTION (...) ⚡')
+runTest('7. ExecutionControlCard renders REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡', () => {
+  const cardCode = fs.readFileSync(path.resolve(__dirname, '../src/components/cockpit/ExecutionControlCard.tsx'), 'utf8');
+  assert(cardCode.includes('REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡'), 'ExecutionControlCard must contain "REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡"');
+  assert(!cardCode.includes('PROCEED TO MT5 EXECUTION'), 'ExecutionControlCard must not render "PROCEED TO MT5 EXECUTION"');
+});
+
+// 8. CurrentAiDecision displays 'Review Trade Setup' (not 'Approve & Execute') and logs/status reflect 'SETUP REVIEWED (READ-ONLY)'
+runTest('8. CurrentAiDecision renders Review Trade Setup and SETUP REVIEWED (READ-ONLY)', () => {
+  const decisionCode = fs.readFileSync(path.resolve(__dirname, '../src/components/cockpit/CurrentAiDecision.tsx'), 'utf8');
+  assert(decisionCode.includes('Review Trade Setup'), 'CurrentAiDecision must contain "Review Trade Setup"');
+  assert(decisionCode.includes('SETUP REVIEWED (READ-ONLY)'), 'CurrentAiDecision must contain "SETUP REVIEWED (READ-ONLY)"');
+  assert(!decisionCode.includes('Approve & Execute'), 'CurrentAiDecision must not contain "Approve & Execute"');
+});
+
+// 9. Execution page header renders 'BROKER TELEMETRY CONNECTED (READ-ONLY)' and displays 'GLOBAL READ-ONLY • ORDER TRANSPORT LOCKED'
+runTest('9. Execution page renders BROKER TELEMETRY CONNECTED (READ-ONLY) and global lock badge', () => {
+  const execPage = fs.readFileSync(path.resolve(__dirname, '../src/app/execution/page.tsx'), 'utf8');
+  assert(execPage.includes('BROKER TELEMETRY CONNECTED (READ-ONLY)'), 'Execution page must render "BROKER TELEMETRY CONNECTED (READ-ONLY)"');
+  assert(execPage.includes('GLOBAL READ-ONLY • ORDER TRANSPORT LOCKED'), 'Execution page must render "GLOBAL READ-ONLY • ORDER TRANSPORT LOCKED"');
+  assert(!execPage.includes('UNIVERSAL EXECUTION (ANY BROKER)'), 'Execution page must not render "UNIVERSAL EXECUTION (ANY BROKER)"');
+});
+
+// 10. Execution pre-trade modal displays 'SUBMIT PRE-TRADE REVIEW (DEMO)' and shows explicit read-only disclaimer
+runTest('10. Execution pre-trade modal displays SUBMIT PRE-TRADE REVIEW (DEMO) and read-only disclaimer', () => {
+  const execPage = fs.readFileSync(path.resolve(__dirname, '../src/app/execution/page.tsx'), 'utf8');
+  assert(execPage.includes('SUBMIT PRE-TRADE REVIEW (DEMO)'), 'Modal button must be "SUBMIT PRE-TRADE REVIEW (DEMO)"');
+  assert(execPage.includes('READ_ONLY execution mode is canonically locked'), 'Modal must include explicit read-only disclaimer');
+});
+
+// 11. Order flow agent uses truthful 'EXCHANGE_VOLUME_DELTA' / 'BROKER_FLOW_PROXY' labels, not fake L2 book
+runTest('11. Order flow engine uses EXCHANGE_VOLUME_DELTA or BROKER_FLOW_PROXY', () => {
+  const { computeOrderFlowMetrics } = require('../src/lib/market/order-flow-engine.ts');
+  const dummyCandles = [
+    { timestamp: 1000, open: 2000, high: 2005, low: 1995, close: 2002, volume: 100 },
+    { timestamp: 2000, open: 2002, high: 2008, low: 2001, close: 2007, volume: 150 },
+    { timestamp: 3000, open: 2007, high: 2010, low: 2005, close: 2009, volume: 200 },
+  ];
+  const metricsEx = computeOrderFlowMetrics(dummyCandles, 'BTCUSD', 'M5', true);
+  assert.strictEqual(metricsEx.flowType, 'EXCHANGE_VOLUME_DELTA', 'Exchange flowType must be EXCHANGE_VOLUME_DELTA');
+  const metricsBroker = computeOrderFlowMetrics(dummyCandles, 'XAUUSD', 'M5', false);
+  assert.strictEqual(metricsBroker.flowType, 'BROKER_FLOW_PROXY', 'Broker flowType must be BROKER_FLOW_PROXY');
+  assert.notStrictEqual(metricsEx.flowType, 'EXCHANGE_ORDER_BOOK');
+  assert.notStrictEqual(metricsBroker.flowType, 'EXCHANGE_ORDER_BOOK');
+});
+
+// 12. Institutional agent labels volume profile as structural distribution / POC / Value Area, not dark pools or institutional insider flow
+runTest('12. Institutional agent labels volume profile truthfully as structural distribution', () => {
+  const dummyCandles = [
+    { timestamp: 1000, open: 2000, high: 2005, low: 1995, close: 2002, volume: 100 },
+    { timestamp: 2000, open: 2002, high: 2008, low: 2001, close: 2007, volume: 150 },
+    { timestamp: 3000, open: 2007, high: 2010, low: 2005, close: 2009, volume: 200 },
+    { timestamp: 4000, open: 2009, high: 2012, low: 2008, close: 2011, volume: 250 },
+  ];
+  const profile = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1', dummyCandles);
+  const inst = profile.agents.find(a => a.type === 'INSTITUTIONAL');
+  assert(inst, 'Institutional agent must exist');
+  assert(!inst.lastOpinion.toLowerCase().includes('dark pool'), 'Must not claim dark pool');
+  assert(!inst.lastOpinion.toLowerCase().includes('insider'), 'Must not claim insider');
+  assert(inst.lastOpinion.includes('Volume profile structural distribution'), 'Must state Volume profile structural distribution');
+});
+
+// 13. Decision posture remains WAIT / WATCH FOR BUY / WATCH FOR SELL strictly gated by verified evidence; no fake execution trigger
+runTest('13. Decision posture strictly gated; no fake execution triggers', () => {
+  const profile = generateAssetIntelligence('XAUUSD', INITIAL_LIVE_ASSETS['XAUUSD'], 'H1');
+  const allowedPostures = ['WAIT', 'WATCH FOR BUY', 'WATCH FOR SELL', 'MONITOR NEXT OPEN', 'PRE-OPEN WATCH', 'WAIT (MARKET CLOSED)', 'ANALYSIS ONLY', 'DATA LIMITED'];
+  assert(allowedPostures.includes(profile.setupDirection), `setupDirection "${profile.setupDirection}" must be in allowed postures`);
+  assert.notStrictEqual(profile.setupDirection, 'EXECUTE_NOW');
+  assert.notStrictEqual(profile.setupDirection, 'AUTO_TRADING');
+});
+
+// 14. Actionability gate correctly returns DATA LIMITED or ANALYSIS ONLY when verified agent threshold is not met
+runTest('14. Actionability gate returns DATA LIMITED or ANALYSIS ONLY when verified count < 6', () => {
+  const gateLimited = evaluateActionabilityGate({
+    evidenceTrust: 80,
+    verifiedAgentCount: 2,
+    tradeExecutable: true,
+    marketState: 'OPEN'
+  });
+  assert.strictEqual(gateLimited.actionabilityState, 'DATA LIMITED');
+  assert.strictEqual(gateLimited.isActionable, false);
+
+  const gateAnalysis = evaluateActionabilityGate({
+    evidenceTrust: 55,
+    verifiedAgentCount: 4,
+    tradeExecutable: true,
+    marketState: 'OPEN'
+  });
+  assert.strictEqual(gateAnalysis.actionabilityState, 'ANALYSIS ONLY');
+  assert.strictEqual(gateAnalysis.isActionable, false);
+});
+
+// 15. Full test suite passes cleanly with 0 failures
+runTest('15. Complete test suite passes with 0 failures invariant', () => {
+  assert.strictEqual(totalFail, 0, 'No test failures permitted in test suite');
+});
+
 console.log('\n================================================================');
 console.log(`PHASE 34 TEST RESULTS: ${totalPass} PASSED, ${totalFail} FAILED`);
 console.log('================================================================\n');

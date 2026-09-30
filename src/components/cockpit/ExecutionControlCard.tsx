@@ -195,8 +195,8 @@ export const ExecutionControlCard: React.FC = () => {
             : isExecuting
             ? 'ROUTING TO MT5 GATEWAY...'
             : isMt5Connected
-            ? `PROCEED TO MT5 EXECUTION (${telemetry.account?.broker || 'BROKER'}) ⚡`
-            : '1-CLICK SIMULATE ORDER (PAPER GATE)'}
+            ? `REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡`
+            : 'SIMULATE ORDER (PAPER GATE)'}
         </span>
       </button>
     </div>

@@ -114,14 +114,14 @@ export const CANONICAL_COUNCIL_KEYS: { type: AgentType; name: string; role: stri
   { type: 'NEWS', name: 'News Agent', role: 'Live Wire & Headline Disruption' },
   { type: 'GEOPOLITICAL', name: 'Geopolitical Agent', role: 'Sovereign Conflict & Energy Flows' },
   { type: 'SENTIMENT', name: 'Sentiment Agent', role: 'Retail Crowding & Contrarian Skew' },
-  { type: 'INSTITUTIONAL', name: 'Institutional Agent', role: 'Dark Pools & Fix Imbalances' },
+  { type: 'INSTITUTIONAL', name: 'Institutional Agent', role: 'Volume Profile & Structural Imbalances' },
   { type: 'RISK_GUARDIAN', name: 'Risk Guardian', role: 'Mathematical Exposure Bounds' },
   { type: 'VISION', name: 'Vision / Chart Agent', role: 'Computer Vision Technical Detection' },
   { type: 'OPPORTUNITY', name: 'Opportunity Agent', role: 'Risk / Reward Optimization' },
   { type: 'STRATEGY', name: 'Strategy Agent', role: 'Execution Protocols & Rules' },
   { type: 'ORDER_FLOW', name: 'Scalper / Flow Sniper', role: 'M1/M5 Micro-Structure & Momentum' },
   { type: 'KILLZONE', name: 'Session / Killzone Agent', role: 'ICT Algorithmic Timing & IPDA' },
-  { type: 'LIQUIDITY_MAP', name: 'Liquidity Agent', role: 'Resting BSL/SSL Pools & Heatmaps' },
+  { type: 'LIQUIDITY_MAP', name: 'Liquidity Agent', role: 'Structural BSL/SSL Pools & Zones' },
   { type: 'FINAL_DECISION', name: 'Final Decision Agent', role: 'Swarm Consensus Engine' },
 ];
 
@@ -493,11 +493,11 @@ export function generateAssetIntelligence(
           return {
             ...base,
             bias,
-            confidence: hasZones ? 72 : 62,
+            confidence: 0,
             status: 'ONLINE',
             lastOpinion: hasZones
-              ? `Resting liquidity mapped. ${marketStructure.fvg.length} active FVGs, ${marketStructure.orderBlocks.length} Order Blocks.`
-              : `Liquidity surveillance active. Monitoring key liquidity pools around recent swings [${marketStructure.lastSwingLow ?? 'N/A'} - ${marketStructure.lastSwingHigh ?? 'N/A'}].`,
+              ? `Structural liquidity zones mapped. ${marketStructure.fvg.length} active FVGs, ${marketStructure.orderBlocks.length} Order Blocks.`
+              : `Liquidity surveillance active. Monitoring structural liquidity zones around recent swings [${marketStructure.lastSwingLow ?? 'N/A'} - ${marketStructure.lastSwingHigh ?? 'N/A'}].`,
             evidence: [
               `FVG count: ${marketStructure.fvg.length}`,
               `Order Blocks: ${marketStructure.orderBlocks.length}`,
@@ -695,17 +695,15 @@ export function generateAssetIntelligence(
         if (relevantMacro.length > 0) {
           // Determine macro bias from yield / currency / commodity delta
           let macroBias: BiasType = 'NEUTRAL';
-          let macroConf = 75;
           const lead = relevantMacro[0];
           if (lead.bias === 'BULLISH' || lead.bias === 'BEARISH') {
             macroBias = lead.bias;
-            macroConf = 78;
           }
 
           return {
             ...base,
             bias: macroBias,
-            confidence: macroConf,
+            confidence: 0,
             status: 'ONLINE',
             lastOpinion: `Macro telemetry synchronized. ${relevantMacro.map((m) => `${m.name}: ${m.currentValue} (${m.percentageDelta && m.percentageDelta >= 0 ? '+' : ''}${m.percentageDelta ?? 0}%)`).join(' • ')}.`,
             evidence: relevantMacro.map((m) =>
@@ -739,44 +737,27 @@ export function generateAssetIntelligence(
       }
 
       case 'CORRELATION': {
-        if (!hasCandles) {
-          return {
-            ...base,
-            bias: 'NEUTRAL',
-            confidence: 0,
-            status: 'DATA LIMITED',
-            lastOpinion: 'Intermarket correlation unavailable. Requires multi-asset OHLC feed.',
-            evidence: ['Multi-asset feed: PENDING'],
-            keyRisk: 'N/A',
-            invalidation: 'N/A',
-            requiredInputs: ['Base Asset OHLC', 'Benchmark OHLC'],
-            availableInputs: [],
-            missingInputs: ['Base Asset OHLC'],
-            lastRun: new Date().toISOString(),
-            freshness: 'OFFLINE',
-          };
-        }
-        const corrTarget = normSymbol === 'XAUUSD' ? 'DXY' : (normSymbol === 'USOIL' ? 'XAUUSD' : 'US500');
-        const expectedBenchmark = normSymbol === 'XAUUSD' ? -0.72 : +0.65;
+        const corrTarget = normSymbol === 'XAUUSD' ? 'DXY' : (normSymbol === 'USOIL' ? 'DXY' : 'US500');
+        const expectedBenchmark = normSymbol === 'XAUUSD' ? -0.72 : (normSymbol === 'USOIL' ? -0.45 : +0.65);
         return {
           ...base,
           bias: 'NEUTRAL',
-          confidence: 68,
-          status: 'ONLINE',
-          lastOpinion: `Intermarket correlation matrix active. Rolling 20-bar beta for ${normSymbol} tracking within normal divergence bounds vs ${corrTarget}.`,
+          confidence: 0,
+          status: 'DATA LIMITED',
+          lastOpinion: `Intermarket correlation data limited: Synchronized benchmark OHLC (${corrTarget}) not connected. Historical correlation baseline (${expectedBenchmark}) is contextual reference only.`,
           evidence: [
-            `Benchmark Asset: ${corrTarget}`,
-            `Expected Historical Correlation: ${expectedBenchmark}`,
-            'Regime State: NORMAL',
-            'Safe-haven decoupling: NOT DETECTED'
+            `Benchmark Asset: ${corrTarget} (OHLC UNAVAILABLE)`,
+            `Historical Reference Baseline: ${expectedBenchmark} (Contextual Reference Only)`,
+            'Live Beta: UNMEASURED (Awaiting synchronized benchmark feed)',
+            'Regime State: UNVERIFIED'
           ],
           keyRisk: 'Abrupt cross-asset contagion',
           invalidation: 'Regime breakdown',
           requiredInputs: ['Base Asset OHLC', 'Benchmark OHLC'],
-          availableInputs: ['Base Asset OHLC', 'Benchmark OHLC'],
-          missingInputs: [],
+          availableInputs: hasCandles ? ['Base Asset OHLC'] : [],
+          missingInputs: ['Benchmark OHLC'],
           lastRun: new Date().toISOString(),
-          freshness: 'CURRENT',
+          freshness: 'OFFLINE',
         };
       }
 
@@ -790,7 +771,7 @@ export function generateAssetIntelligence(
           return {
             ...base,
             bias: newsBias,
-            confidence: top.impactTier === 'CRITICAL' ? 88 : (top.impactTier === 'HIGH' ? 78 : 65),
+            confidence: 0,
             status: 'ONLINE',
             lastOpinion: `Live newswire active: "${top.headline.slice(0, 90)}..." (${top.source}).`,
             evidence: cachedNews.slice(0, 3).map((n) =>
@@ -834,7 +815,7 @@ export function generateAssetIntelligence(
           return {
             ...base,
             bias: geoBias,
-            confidence: top.threatLevel === 'CRITICAL' ? 85 : (top.threatLevel === 'HIGH' ? 76 : 65),
+            confidence: 0,
             status: 'ONLINE',
             lastOpinion: `[${top.threatLevel}] ${top.headline} (${top.region}). ${top.marketImpactAssessment.slice(0, 100)}...`,
             evidence: cachedAlerts.map((a) =>
@@ -878,7 +859,7 @@ export function generateAssetIntelligence(
           return {
             ...base,
             bias: sentBias,
-            confidence: 74,
+            confidence: 0,
             status: 'ONLINE',
             lastOpinion: `Binance Futures LSR: ${cachedSentiment.bullishPercent}% Long vs ${cachedSentiment.bearishPercent}% Short. ${cachedSentiment.bullishPercent > 65 ? 'Retail crowd long-heavy (Contrarian Short bias)' : (cachedSentiment.bearishPercent > 65 ? 'Retail crowd short-heavy (Contrarian Long bias)' : 'Balanced crowd positioning')}.`,
             evidence: [
@@ -927,15 +908,15 @@ export function generateAssetIntelligence(
           return {
             ...base,
             bias: instBias,
-            confidence: 74,
+            confidence: 0,
             status: 'ONLINE',
-            lastOpinion: `Institutional volume profile active (${volType}). Price is trading ${abovePoc ? 'ABOVE' : 'BELOW'} Point of Control (${volumeProfile.poc}). VAH: ${volumeProfile.vah}, VAL: ${volumeProfile.val}.`,
+            lastOpinion: `Volume profile structural distribution active (${volType}). Price is trading ${abovePoc ? 'ABOVE' : 'BELOW'} Point of Control (${volumeProfile.poc}). VAH: ${volumeProfile.vah}, VAL: ${volumeProfile.val}.`,
             evidence: [
               `Volume Mode: ${volType}`,
               `Point of Control (POC): ${volumeProfile.poc}`,
               `Value Area (70%): [${volumeProfile.val} - ${volumeProfile.vah}]`,
               `High Volume Nodes: ${volumeProfile.hvnLevels.length} mapped`,
-              `Institutional Bias: ${abovePoc ? 'ACCEPTANCE_ABOVE_POC' : 'ACCEPTANCE_BELOW_POC'}`
+              `Structural Bias: ${abovePoc ? 'ACCEPTANCE_ABOVE_POC' : 'ACCEPTANCE_BELOW_POC'}`
             ],
             keyRisk: 'Late London fix algorithmic rebalancing',
             invalidation: 'POC level breach and volume migration',
@@ -952,7 +933,7 @@ export function generateAssetIntelligence(
           bias: 'NEUTRAL',
           confidence: 0,
           status: 'DATA LIMITED',
-          lastOpinion: `Institutional volume profiling awaiting verified OHLC candles for ${normSymbol}.`,
+          lastOpinion: `Volume profile structural distribution awaiting verified OHLC candles for ${normSymbol}.`,
           evidence: ['Volume Profile: PENDING CANDLES'],
           keyRisk: 'N/A',
           invalidation: 'N/A',
@@ -967,20 +948,16 @@ export function generateAssetIntelligence(
       case 'ORDER_FLOW': {
         if (orderFlowRecord) {
           let flowBias: BiasType = 'NEUTRAL';
-          let flowConf = 62;
           let flowOpinion = '';
 
           if (orderFlowRecord.buyerSellerDelta > 0.15) {
             flowBias = 'BULLISH';
-            flowConf = 74;
             flowOpinion = `Micro-flow buyer aggression detected (${orderFlowRecord.flowType}). Delta: +${(orderFlowRecord.buyerSellerDelta * 100).toFixed(1)}%. Velocity: ${orderFlowRecord.tickVelocity} ticks/bar. Fast bias LONG.`;
           } else if (orderFlowRecord.buyerSellerDelta < -0.15) {
             flowBias = 'BEARISH';
-            flowConf = 74;
             flowOpinion = `Micro-flow selling absorption detected (${orderFlowRecord.flowType}). Delta: ${(orderFlowRecord.buyerSellerDelta * 100).toFixed(1)}%. Velocity: ${orderFlowRecord.tickVelocity} ticks/bar. Fast bias SHORT.`;
           } else {
             flowBias = 'NEUTRAL';
-            flowConf = 60;
             flowOpinion = `Micro-flow balanced (${orderFlowRecord.flowType}). Delta within normal bounds. Velocity: ${orderFlowRecord.tickVelocity} ticks/bar.`;
           }
 
@@ -989,7 +966,7 @@ export function generateAssetIntelligence(
             name: 'Scalper / Flow Sniper',
             role: 'M1/M5 Micro-Structure & Momentum',
             bias: flowBias,
-            confidence: flowConf,
+            confidence: 0,
             status: 'ONLINE',
             lastOpinion: flowOpinion,
             evidence: [
@@ -1183,7 +1160,7 @@ export function generateAssetIntelligence(
 
         if (ag.type === 'ORDER_FLOW') {
           sourceName = orderFlowRecord
-            ? (orderFlowRecord.flowType === 'EXCHANGE_ORDER_BOOK' ? 'Exchange Order Flow' : 'Broker Flow Proxy')
+            ? (orderFlowRecord.flowType === 'EXCHANGE_VOLUME_DELTA' ? 'Exchange Volume Delta' : 'Broker Flow Proxy')
             : `Micro-Momentum Engine (${effectiveCandleProvider})`;
           sourceTimestampMs = orderFlowRecord?.timestamp && !isNaN(new Date(orderFlowRecord.timestamp).getTime())
             ? new Date(orderFlowRecord.timestamp).getTime()
@@ -1211,11 +1188,11 @@ export function generateAssetIntelligence(
         sourceName = volumeProfile.isExchangeVolume ? 'Exchange Volume Profile' : 'Broker Tick Volume Profile';
         sourceTimestampMs = candleTimestampMs;
         structuralGate = false;
-      } else if (ag.type === 'CORRELATION' && hasCandles) {
-        classification = 'MODEL_INFERENCE';
-        sourceName = 'Intermarket Correlation Engine';
-        sourceType = 'MODEL_INFERENCE';
-        sourceTimestampMs = candleTimestampMs;
+      } else if (ag.type === 'CORRELATION') {
+        classification = 'UNAVAILABLE';
+        sourceName = 'Intermarket Correlation Baseline';
+        sourceType = 'HISTORICAL_REFERENCE';
+        sourceTimestampMs = undefined;
         structuralGate = false;
       } else if (ag.type === 'VISION' && hasCandles && marketStructure) {
         classification = effectiveCandleProvenance === 'INDEPENDENT_REFERENCE'

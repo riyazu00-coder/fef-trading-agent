@@ -27,10 +27,10 @@ export const ExecutabilityBadge: React.FC<ExecutabilityBadgeProps> = ({
     return (
       <div
         className={`inline-flex items-center font-mono font-bold uppercase tracking-wider rounded-md border backdrop-blur-md transition-all border-emerald-500/40 bg-emerald-950/30 text-emerald-400 ${sizeClasses[size]} ${className}`}
-        title={reason || 'Market open and quotes validated. Execution permitted.'}
+        title={reason || 'Market session active and quotes validated. Order transport remains read-only.'}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-        <span>EXECUTABLE</span>
+        <span>MARKET READY</span>
         {score !== undefined && (
           <span className="text-[9px] text-emerald-300/80 font-normal pl-1 border-l border-emerald-500/30">
             {score}%

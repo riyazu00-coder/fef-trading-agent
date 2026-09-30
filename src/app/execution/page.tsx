@@ -571,13 +571,16 @@ export default function ExecutionPage() {
                 {isMt5Connected ? (
                   <span className="text-[9px] bg-emerald-950/80 text-[#34D399] border border-emerald-500/50 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>UNIVERSAL EXECUTION (ANY BROKER) ⚡</span>
+                    <span>BROKER TELEMETRY CONNECTED (READ-ONLY)</span>
                   </span>
                 ) : (
                   <span className="text-[9px] bg-white/5 text-gray-400 border border-white/10 px-2 py-0.5 rounded font-mono">
                     STANDALONE (DISCONNECTED)
                   </span>
                 )}
+                <span className="text-[9px] bg-purple-950/80 text-purple-300 border border-purple-500/50 px-2 py-0.5 rounded font-mono font-bold">
+                  GLOBAL READ-ONLY • ORDER TRANSPORT LOCKED
+                </span>
                 {isMt5Connected && (
                   <span className="text-[9px] bg-cyan-950/60 text-[#67E8F9] border border-cyan-500/40 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
@@ -588,7 +591,7 @@ export default function ExecutionPage() {
                 <ExecutabilityBadge executable={assetProfile.tradeExecutable} size="xs" />
               </div>
               <p className="text-xs text-[#94A3B8] font-sans mt-1">
-                Strict Demo Guardrails &bull; Dual-Phase Human Authorization Gate &bull; 20-Point Pre-Trade Audit
+                Strict Demo Guardrails &bull; Dual-Phase Human Authorization Gate &bull; 20-Point Pre-Trade Audit &bull; Order Transport Locked (READ-ONLY)
               </p>
             </div>
 
@@ -1161,7 +1164,7 @@ export default function ExecutionPage() {
 
             {/* Guardrail Disclaimer */}
             <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-[10px] text-cyan-200">
-              ⚠️ <strong>MANDATORY HUMAN REVIEW:</strong> Review all 20 execution parameters below before authorizing dispatch. Live real accounts are strictly blocked. Order will be sent exclusively to connected MT5 Demo.
+              ⚠️ <strong>MANDATORY HUMAN REVIEW:</strong> Review all 20 execution parameters below before authorizing review submission. READ_ONLY execution mode is canonically locked. Order transport is locked; live real accounts are strictly blocked.
             </div>
 
             {/* Execution Route Selector & Ticket Fingerprint (Phase 2C) */}
@@ -1355,7 +1358,7 @@ export default function ExecutionPage() {
                 }`}
               >
                 <span>{isExecutingDemo ? '⏳' : '⚡'}</span>
-                <span>{isExecutingDemo ? 'TRANSMITTING TO DEMO MT5...' : 'EXECUTE ON DEMO MT5'}</span>
+                <span>{isExecutingDemo ? 'TRANSMITTING REVIEW TO DEMO MT5...' : 'SUBMIT PRE-TRADE REVIEW (DEMO)'}</span>
               </button>
             </div>
           </div>

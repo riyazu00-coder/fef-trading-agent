@@ -49,7 +49,7 @@ export function computeOrderFlowMetrics(
     symbol: normSymbol,
     timeframe,
     timestamp: new Date().toISOString(),
-    flowType: isExchangeVolume ? 'EXCHANGE_ORDER_BOOK' : 'BROKER_FLOW_PROXY',
+    flowType: isExchangeVolume ? 'EXCHANGE_VOLUME_DELTA' : 'BROKER_FLOW_PROXY',
     buyerSellerDelta: normalizedDelta,
     tickVelocity: avgVelocity,
     isExchangeVolume,

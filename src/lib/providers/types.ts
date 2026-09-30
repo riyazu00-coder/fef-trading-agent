@@ -188,7 +188,7 @@ export interface OrderFlowRecord {
   symbol: string;
   timeframe: string;
   timestamp: string;
-  flowType: 'BROKER_FLOW_PROXY' | 'EXCHANGE_ORDER_BOOK';
+  flowType: 'BROKER_FLOW_PROXY' | 'EXCHANGE_VOLUME_DELTA' | 'EXCHANGE_ORDER_BOOK';
   buyerSellerDelta: number; // positive = buy dominant, negative = sell dominant
   tickVelocity: number; // ticks per second or volume velocity
   largeOrderCount?: number;
