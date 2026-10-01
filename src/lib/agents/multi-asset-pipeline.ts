@@ -627,14 +627,15 @@ export function generateAssetIntelligence(
             confidence: 85,
             status: highImpactNear ? 'RESTRICTED' : 'ONLINE',
             lastOpinion: highImpactNear
-              ? `Event Risk Lockout: High-impact release "${highImpactNear.title}" in ${Math.round((highImpactNear.epochMs - nowMs) / 60000)}m. New order dispatch locked.`
-              : `Exposure bounds verified. Mandatory SL enforced at ${blueprint.sl.price}. Risk budget capped at 0.50%.`,
+              ? `Event Risk Lockout: High-impact release "${highImpactNear.title}" in ${Math.round((highImpactNear.epochMs - nowMs) / 60000)}m. Execution eligibility restricted.`
+              : `Structural stop defined at ${blueprint.sl.price}. Risk policy cap is 0.50% equity. Position sizing remains pending validation.`,
             evidence: [
-              `Mandatory SL: ${blueprint.sl.price}`,
-              'Exposure cap: 0.50% equity',
+              `Structural SL: ${blueprint.sl.price}`,
+              'Risk policy cap: 0.50% equity',
+              'Position sizing: PENDING VALIDATION',
               highImpactNear
                 ? `Event Risk: ${highImpactNear.title} (${highImpactNear.country}) — ${highImpactNear.scheduledAt}`
-                : 'Economic Release Window: CLEAR'
+                : 'Economic calendar telemetry unavailable'
             ],
             keyRisk: highImpactNear ? `Imminent release ${highImpactNear.title}` : 'Spread widening during volatility',
             invalidation: 'N/A'
@@ -647,15 +648,15 @@ export function generateAssetIntelligence(
             confidence: 70,
             status: highImpactNear ? 'RESTRICTED' : 'ONLINE',
             lastOpinion: highImpactNear
-              ? `Risk Guardian armed with event lockout: "${highImpactNear.title}" approaching.`
-              : `Risk Guardian armed. Capital preservation rules active. Maximum 0.50% exposure per execution enforced.`,
+              ? `Risk Guardian armed with event lockout: "${highImpactNear.title}" approaching. Execution eligibility restricted.`
+              : `Risk Guardian armed. Maximum risk policy cap is 0.50% equity. Position sizing and execution remain pending a validated blueprint.`,
             evidence: [
-              'Mandatory SL constraint: ARMED',
-              'Risk budget cap: 0.50% equity',
-              'Execution state: STANDBY',
+              'Mandatory SL policy: ARMED',
+              'Risk policy cap: 0.50% equity',
+              'Execution state: READ_ONLY / STANDBY',
               highImpactNear
                 ? `Event Risk: ${highImpactNear.title} (${highImpactNear.country}) — ${highImpactNear.scheduledAt}`
-                : 'Economic Release Window: CLEAR'
+                : 'Economic calendar telemetry unavailable'
             ],
             keyRisk: highImpactNear ? `Imminent release ${highImpactNear.title}` : 'Slippage during news spikes',
             invalidation: 'N/A'
@@ -1393,7 +1394,14 @@ export function generateAssetIntelligence(
     : effectiveSetupDirection.includes('SELL')
       ? 'BEARISH'
       : 'NEUTRAL';
-  const riskPosture: RiskPosture = !tradeExecutable ? 'RESTRICTED' : 'CAUTION';
+  const rgAgent = assembledAgents.find((a) => a.type === 'RISK_GUARDIAN');
+  const riskPosture: RiskPosture = !tradeExecutable
+    ? 'RESTRICTED'
+    : rgAgent?.bias === 'RESTRICTED'
+    ? 'RESTRICTED'
+    : rgAgent?.bias === 'NEUTRAL'
+    ? 'CLEAR'
+    : 'CAUTION';
 
   // Canonical Consensus Confidence Authority (P1 Integrity):
   // User-facing profile confidence is strictly derived from consensus evidence trust,
@@ -1412,20 +1420,22 @@ export function generateAssetIntelligence(
     : 0;
 
   const macroDebateAgent = assembledAgents.find((a) => a.type === 'MACRO');
+  const techDebateAgent = assembledAgents.find((a) => a.type === 'TECHNICAL');
+  const debateTimeStr = new Date(evalTimeMs).toISOString().substring(11, 19);
 
   const debateMessages = [
     {
-      time: '18:14:50',
+      time: debateTimeStr,
       agent: 'TECHNICAL AGENT',
       text: hasCandles
         ? `${normSymbol} ${normTf} structure ${marketStructure?.trend || 'analyzed'}. Swings: ${marketStructure?.swingHighs.length || 0}H / ${marketStructure?.swingLows.length || 0}L.`
         : `Phase 2D: ${normSymbol} awaiting verified OHLC candles from broker before structure analysis.`,
-      status: (assembledAgents.find((a) => a.type === 'TECHNICAL')?.status === 'ONLINE'
-        ? assembledAgents.find((a) => a.type === 'TECHNICAL')?.bias
+      status: (techDebateAgent?.status === 'ONLINE'
+        ? techDebateAgent?.bias
         : 'DATA LIMITED') as any
     },
     {
-      time: '18:14:53',
+      time: debateTimeStr,
       agent: 'MACRO AGENT',
       text: macroDebateAgent?.lastOpinion || `No live macro indicators matched for ${normSymbol}. Telemetry awaiting update.`,
       status: (macroDebateAgent?.status === 'ONLINE'
@@ -1433,20 +1443,27 @@ export function generateAssetIntelligence(
         : 'DATA LIMITED') as any
     },
     {
-      time: '18:14:57',
+      time: debateTimeStr,
       agent: 'RISK GUARDIAN',
       text: tradeExecutable
-        ? (blueprint ? `Mandatory stop loss defined at ${blueprint.sl.price}. Risk budget capped at 0.50%.` : `Risk Guardian armed. Execution locked until verified blueprint exists.`)
+        ? (blueprint ? `Structural stop defined at ${blueprint.sl.price}. Risk policy cap is 0.50% equity. Position sizing unvalidated.` : `Risk Guardian armed. Maximum risk policy cap is 0.50% equity. Execution locked until verified blueprint exists.`)
         : `Execution hard-locked: Market is ${sessionState.marketState}. All order routes disabled.`,
-      status: 'CAUTION' as const
+      status: (rgAgent?.bias === 'RESTRICTED' ? 'RESTRICTED' : rgAgent?.bias === 'NEUTRAL' ? 'ACTIVE' : 'CAUTION') as any
     },
     {
-      time: '18:15:00',
+      time: debateTimeStr,
       agent: 'FINAL DECISION',
       text: `Council status: ${effectiveSetupDirection}. Verified evidence trust: ${consensusTrust.evidenceTrust}%.`,
       status: (finalAgent?.bias || 'NEUTRAL') as any
     }
   ];
+
+  const limitedAgentsList = assembledAgents
+    .filter((a) => a.status === 'DATA LIMITED' || a.status === 'OFFLINE' || a.status === 'ERROR')
+    .map((a) => a.name.replace(' Agent', ''));
+  const feedStatusLine = limitedAgentsList.length > 0
+    ? `Feeds currently DATA LIMITED: ${limitedAgentsList.slice(0, 4).join(', ')}${limitedAgentsList.length > 4 ? ` (+${limitedAgentsList.length - 4} more)` : ''}.`
+    : 'All 15 council agent telemetry feeds active.';
 
   return {
     symbol: normSymbol,
@@ -1474,7 +1491,7 @@ export function generateAssetIntelligence(
     whyThisTrade: [
       `Price: ${p.toFixed(5)} (${isPos ? '+' : ''}${liveAsset?.change24h?.toFixed(2) || 0}% 24h).`,
       hasCandles ? `Market structure: ${marketStructure?.trend}. Verified ${verifiedCandles?.length} bars.` : 'Market structure analysis pending. Verified OHLC candles required.',
-      'Unconnected feeds (News / Macro / Sentiment / Order Flow) remain DATA LIMITED.',
+      feedStatusLine,
     ],
     opposingRisks: [
       blueprint ? 'Structural invalidation level breach' : 'No verified blueprint exists — do not trade without structure-derived levels.',

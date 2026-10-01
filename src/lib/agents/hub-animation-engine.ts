@@ -41,11 +41,11 @@ export interface TradingRiskAssessment {
   impactEvent: {
     name: string;
     countdown: string;
-    impact: 'HIGH' | 'MEDIUM' | 'LOW';
+    impact: 'HIGH' | 'MEDIUM' | 'LOW' | 'DATA LIMITED';
   };
   volatility: 'LOW' | 'MODERATE' | 'HIGH' | 'ELEVATED';
   volatilityDetail: string;
-  spreadStatus: 'NORMAL' | 'ELEVATED' | 'WIDE';
+  spreadStatus: 'NORMAL' | 'ELEVATED' | 'WIDE' | 'DATA LIMITED';
   spreadDetail: string;
   agentDisagreement: 'LOW' | 'MODERATE' | 'HIGH';
   disagreementDetail: string;
@@ -183,21 +183,15 @@ export function evaluateTradingRisk(
     profile.volatility === 'EXTREME' ? 'ELEVATED' : isVolHigh ? 'HIGH' : profile.volatility === 'LOW' ? 'LOW' : 'MODERATE';
 
   // Evaluate spread
-  const isSpreadElevated = spreadVal > 2.5;
-  const spreadStatus: 'NORMAL' | 'ELEVATED' | 'WIDE' = 
-    spreadVal > 4.0 ? 'WIDE' : isSpreadElevated ? 'ELEVATED' : 'NORMAL';
+  const hasSpread = typeof spreadVal === 'number' && Number.isFinite(spreadVal) && spreadVal >= 0;
+  const isSpreadElevated = hasSpread && spreadVal > 2.5;
+  const spreadStatus: 'NORMAL' | 'ELEVATED' | 'WIDE' | 'DATA LIMITED' =
+    !hasSpread ? 'DATA LIMITED' : spreadVal > 4.0 ? 'WIDE' : isSpreadElevated ? 'ELEVATED' : 'NORMAL';
 
-  // Proximity economic event (deterministic from active symbol)
-  const eventName = profile.symbol.includes('USD') || profile.symbol.startsWith('US')
-    ? 'Non-Farm Payrolls (Preview)'
-    : profile.symbol.includes('EUR')
-    ? 'ECB Monetary Policy Statement'
-    : profile.symbol.includes('JPY')
-    ? 'Tokyo CPI Inflation Rate'
-    : 'Core PCE Price Index';
-
-  const eventCountdown = profile.symbol.includes('USD') ? 'in 2h 14m' : 'Tomorrow';
-  const eventImpact: 'HIGH' | 'MEDIUM' | 'LOW' = 'HIGH';
+  // Economic event calendar telemetry (truthful fail-closed unavailable state)
+  const eventName = 'Economic calendar unavailable';
+  const eventCountdown = 'DATA LIMITED';
+  const eventImpact: 'HIGH' | 'MEDIUM' | 'LOW' | 'DATA LIMITED' = 'DATA LIMITED';
 
   // Synthesize overall warning level strictly based on severity
   let level: RiskWarningLevel = 'LOW';
@@ -207,7 +201,7 @@ export function evaluateTradingRisk(
     level = 'CRITICAL';
   } else if (isSessionClosed || rgState === 'CAUTION' || isVolHigh || disagreement === 'HIGH' || spreadStatus === 'WIDE') {
     level = 'HIGH';
-  } else if (disagreement === 'MODERATE' || isSpreadElevated || eventImpact === 'HIGH') {
+  } else if (disagreement === 'MODERATE' || isSpreadElevated) {
     level = 'MODERATE';
   }
 
@@ -217,10 +211,6 @@ export function evaluateTradingRisk(
     riskGuardianAction = 'EXECUTION LOCKED';
   } else if (isSessionClosed) {
     riskGuardianAction = 'EXECUTION LOCKED';
-  } else if (level === 'HIGH' && eventCountdown.includes('h') && eventImpact === 'HIGH') {
-    riskGuardianAction = 'NEW ENTRIES RESTRICTED';
-  } else if (eventCountdown.includes('h') && eventImpact === 'HIGH') {
-    riskGuardianAction = 'WAITING FOR EVENT';
   } else if (level === 'HIGH' || rgState === 'CAUTION') {
     riskGuardianAction = 'POSITION SIZE REDUCED';
   } else if (level === 'MODERATE') {
@@ -251,10 +241,12 @@ export function evaluateTradingRisk(
     : isSessionClosed
     ? `MARKET ${profile.sessionState?.statusLabel || 'CLOSED'}: Execution locked by Risk Guardian until ${profile.sessionState?.nextOpenCountdown ? 'reopening in ' + profile.sessionState.nextOpenCountdown : 'session opens'}.`
     : level === 'HIGH'
-    ? 'ELEVATED RISK: Volatility and event shock filters armed. Use reduced lot sizing.'
+    ? 'ELEVATED RISK: Volatility filters armed. Use reduced lot sizing.'
+    : profile.actionabilityState === 'ACTIONABLE' && profile.blueprint
+    ? 'NOMINAL RISK: Analysis gates satisfied for the current blueprint. Execution remains READ-ONLY pending position and execution validation.'
     : level === 'MODERATE'
-    ? 'MODERATE RISK: Standard parameters active with upcoming event caution.'
-    : 'NOMINAL RISK: All confluence checks clear for blueprint execution.';
+    ? 'MODERATE RISK: Elevated spread or market dispersion detected. Standard monitoring active.'
+    : `NOMINAL RISK: ${profile.actionabilityState || 'DATA LIMITED'} posture. Execution locked in READ-ONLY mode.`;
 
   return {
     level,
@@ -267,14 +259,20 @@ export function evaluateTradingRisk(
       impact: eventImpact,
     },
     volatility: volatilityLevel,
-    volatilityDetail: isVolHigh ? 'ATR 35% above 14-period average' : 'ATR within normal regime bounds',
+    volatilityDetail: isVolHigh ? 'Elevated volatility regime detected' : 'Normal volatility regime detected',
     spreadStatus,
-    spreadDetail: `Current: ${spreadVal > 0 ? spreadVal.toFixed(1) : '1.2'} pips (${isMt5Standby ? 'Broker Tick Standby' : 'MT5 Live'})`,
+    spreadDetail: hasSpread
+      ? `Current: ${spreadVal.toFixed(1)} pips (${isMt5Standby ? 'Broker Tick Standby' : 'MT5 Live'})`
+      : 'Spread: DATA LIMITED / UNAVAILABLE',
     agentDisagreement: disagreement,
     disagreementDetail: `${bullishCount} Bullish, ${cautionCount} Caution, ${bearishCount} Bearish`,
     riskGuardianState: rgState,
-    accountRisk: '0.50% max allocated risk budget',
-    positionCheck: isSessionClosed ? `Market ${profile.sessionState?.statusLabel || 'Closed'} (Analysis Only)` : 'Within Risk Limits (Calculated Stop Distance)',
+    accountRisk: '0.50% max policy risk cap (Awaiting position sizing)',
+    positionCheck: isSessionClosed
+      ? `Market ${profile.sessionState?.statusLabel || 'Closed'} (Analysis Only)`
+      : profile.blueprint && profile.blueprint.sl
+      ? `Structural Stop Pegged (${profile.blueprint.sl.price}) • Awaiting Position Validation`
+      : 'Awaiting validated position sizing',
     summary: summaryText
   };
 }
@@ -283,22 +281,16 @@ export function evaluateTradingRisk(
  * Extracts and formats truthful live dialogue messages derived from current asset profile
  */
 export function getTruthfulLiveMessages(profile: AssetIntelligenceProfile): HubLiveMessage[] {
-  const baseMessages = profile.debateMessages && profile.debateMessages.length > 0
-    ? profile.debateMessages
-    : [
-        { time: '14:32:18', agent: 'Technical Agent', text: 'Bullish structure confirmed on H1', status: 'BULLISH' as const },
-        { time: '14:32:19', agent: 'Macro Agent', text: 'No major negative catalysts detected', status: 'BULLISH' as const },
-        { time: '14:32:19', agent: 'Risk Guardian', text: 'Position size within limits (0.50%)', status: 'CAUTION' as const },
-        { time: '14:32:20', agent: 'Vision / Chart Agent', text: 'Chart pattern: Confluence breakout', status: 'BULLISH' as const },
-        { time: '14:32:20', agent: 'Opportunity Agent', text: 'Optimal R:R trade blueprint validated', status: 'BULLISH' as const },
-        { time: '14:32:21', agent: 'FEF AI Orchestrator', text: `Synthesizing final decision: ${profile.setupDirection}`, status: 'BULLISH' as const },
-      ];
+  if (!profile.debateMessages || profile.debateMessages.length === 0) {
+    return [];
+  }
+  const baseMessages = profile.debateMessages;
 
   return baseMessages.map((msg, i) => {
     const rawAgentName = msg.agent || 'Council Agent';
     const cleanName = rawAgentName.replace(' Agent', '');
     const foundAgent = profile.agents.find(a => a.name.includes(cleanName) || cleanName.includes(a.name.replace(' Agent', '')));
-    const agentType = foundAgent ? foundAgent.type : 'TECHNICAL';
+    const agentType: AgentType = foundAgent ? foundAgent.type : 'COUNCIL_DEBATE';
     const packetColor = getPacketColor(msg.status as BiasType, 'ONLINE', agentType);
 
     return {

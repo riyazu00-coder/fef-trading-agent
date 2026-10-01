@@ -301,7 +301,6 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
  * Consensus Trust Metrics across the 15-Agent Council
  */
 export interface ConsensusTrustMetrics {
-  councilDirection: string;
   councilConfidence: number;
   evidenceTrust: number;
   verifiedAgentCount: number;
@@ -353,7 +352,6 @@ export function calculateConsensusTrust(agents: AgentState[]): ConsensusTrustMet
   const avgTrust = Math.round(totalTrust / (votingAgents.length || 1));
 
   return {
-    councilDirection: 'WATCH',
     councilConfidence: avgTrust,
     evidenceTrust: avgTrust,
     verifiedAgentCount,

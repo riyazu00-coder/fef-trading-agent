@@ -37,8 +37,13 @@ export const HubMiniFeed: React.FC<HubMiniFeedProps> = ({ messages, activeSymbol
       </div>
 
       {/* 3 Compact Rotating Lines */}
-      <div className="space-y-1 transition-all duration-500">
-        {displayedMessages.map((msg) => {
+      {messages.length === 0 ? (
+        <div className="py-2 text-center text-gray-500 text-[8.5px] italic">
+          Awaiting verified agent communications
+        </div>
+      ) : (
+        <div className="space-y-1 transition-all duration-500">
+          {displayedMessages.map((msg) => {
           const isCaution = msg.status === 'CAUTION' || msg.status === 'RESTRICTED';
           const isBull = msg.status === 'BULLISH';
           const isBear = msg.status === 'BEARISH';
@@ -71,6 +76,7 @@ export const HubMiniFeed: React.FC<HubMiniFeedProps> = ({ messages, activeSymbol
           );
         })}
       </div>
+      )}
     </div>
   );
 };

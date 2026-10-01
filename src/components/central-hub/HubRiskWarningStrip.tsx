@@ -61,15 +61,26 @@ export const HubRiskWarningStrip: React.FC<HubRiskWarningStripProps> = ({
         </div>
       </div>
 
-      {/* 2. Event Line: Proximity Event Name + Countdown */}
+      {/* 2. Event Line: Proximity Event Name + Countdown / Status */}
       <div className="flex items-center justify-between text-[8px] text-gray-300 min-w-0">
         <div className="truncate pr-1 min-w-0">
           <span className="text-gray-400 font-bold">Event: </span>
-          <span className="text-white font-medium truncate" title={assessment.impactEvent.name}>
+          <span
+            className={`font-medium truncate ${
+              assessment.impactEvent.impact === 'DATA LIMITED' ? 'text-gray-400 italic' : 'text-white'
+            }`}
+            title={assessment.impactEvent.name}
+          >
             {assessment.impactEvent.name}
           </span>
         </div>
-        <span className="text-cyan-300 font-mono font-bold flex-shrink-0 bg-cyan-950/40 px-1 py-0.2 rounded border border-cyan-500/20">
+        <span
+          className={`font-mono font-bold flex-shrink-0 px-1 py-0.2 rounded border text-[7.5px] ${
+            assessment.impactEvent.impact === 'DATA LIMITED'
+              ? 'text-amber-400 bg-amber-950/40 border-amber-500/30'
+              : 'text-cyan-300 bg-cyan-950/40 border-cyan-500/20'
+          }`}
+        >
           {assessment.impactEvent.countdown}
         </span>
       </div>
@@ -93,7 +104,9 @@ export const HubRiskWarningStrip: React.FC<HubRiskWarningStripProps> = ({
           <span className="text-gray-500 block text-[6.5px] uppercase">SPREAD</span>
           <strong
             className={`truncate block ${
-              assessment.spreadStatus === 'WIDE'
+              assessment.spreadStatus === 'DATA LIMITED'
+                ? 'text-amber-400 font-semibold'
+                : assessment.spreadStatus === 'WIDE'
                 ? 'text-amber-300'
                 : assessment.spreadStatus === 'ELEVATED'
                 ? 'text-amber-200'

@@ -136,7 +136,11 @@ export const HubDetailDrawer: React.FC<HubDetailDrawerProps> = ({
               <div className="bg-black/30 p-2 rounded-xl border border-white/5 space-y-1">
                 <span className="text-[8px] font-bold text-gray-400 uppercase">Catalyst Proximity</span>
                 <p className="text-white font-bold">{riskAssessment.impactEvent.name}</p>
-                <p className="text-cyan-300 text-[8.5px]">Window: {riskAssessment.impactEvent.countdown} ({riskAssessment.impactEvent.impact} Impact)</p>
+                {riskAssessment.impactEvent.impact === 'DATA LIMITED' ? (
+                  <p className="text-amber-400 text-[8.5px]">Status: DATA LIMITED / UNAVAILABLE</p>
+                ) : (
+                  <p className="text-cyan-300 text-[8.5px]">Window: {riskAssessment.impactEvent.countdown} ({riskAssessment.impactEvent.impact} Impact)</p>
+                )}
               </div>
 
               <div className="bg-black/30 p-2 rounded-xl border border-white/5 space-y-1">

@@ -64,7 +64,9 @@ export const CentralIntelligenceHub: React.FC = () => {
 
   // Dynamic Trading Risk Assessment bounded by active asset profile & live telemetry
   const riskAssessment: TradingRiskAssessment = useMemo(() => {
-    const spreadVal = activeAsset.spread || 1.2;
+    const spreadVal = typeof activeAsset.spread === 'number' && !isNaN(activeAsset.spread)
+      ? activeAsset.spread
+      : NaN;
     return evaluateTradingRisk(assetProfile, spreadVal, true);
   }, [assetProfile, activeAsset.spread]);
 
