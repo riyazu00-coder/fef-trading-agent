@@ -949,6 +949,191 @@ function pass(msg) {
   pass('MT5 HTTP heartbeat state, CompactCentralAgentCore impact wording, and HubRiskWarningStrip confluenceScore defaults truthfully verified');
 }
 
+// 32. News & Calendar provenance truthfulness (Bug 1 & Bug 2)
+{
+  const newsEngineFile = fs.readFileSync('src/lib/news/global-news-engine.ts', 'utf8');
+  const calendarEngineFile = fs.readFileSync('src/lib/calendar/economic-calendar-engine.ts', 'utf8');
+
+  // 1. Missing news timestamp != Date.now() / no pubDate || new Date()
+  assert.strictEqual(
+    newsEngineFile.includes('pubDate || new Date().toISOString()'),
+    false,
+    'global-news-engine.ts must never default missing pubDate to new Date().toISOString()'
+  );
+  assert.strictEqual(
+    newsEngineFile.includes(': Date.now()'),
+    false,
+    'global-news-engine.ts must never fallback unparseable pubDate to Date.now()'
+  );
+
+  // 2. Malformed news timestamp != Date.now() and is dropped fail-closed
+  assert.strictEqual(
+    newsEngineFile.includes('!isNaN(publishedEpoch)'),
+    true,
+    'global-news-engine.ts must require authentic finite publishedEpoch'
+  );
+
+  // 3. Atom/RSS date format support
+  assert.strictEqual(
+    newsEngineFile.includes('(?:published|updated)'),
+    true,
+    'global-news-engine.ts must support Atom published and updated tags'
+  );
+  assert.strictEqual(
+    newsEngineFile.includes('dc:date'),
+    true,
+    'global-news-engine.ts must support dc:date tag'
+  );
+
+  // 4. Collision-resistant SHA-256 news ID generation
+  assert.strictEqual(
+    newsEngineFile.includes('crypto.createHash(\'sha256\')'),
+    true,
+    'global-news-engine.ts must use crypto sha256 for deterministic collision-resistant ID'
+  );
+  assert.strictEqual(
+    newsEngineFile.includes('Buffer.from(normTitle).toString(\'base64\').slice(0, 16)'),
+    false,
+    'global-news-engine.ts must not use truncated Base64 normTitle slice that causes collisions'
+  );
+
+  // 5. Test parseXmlFeed and normalizeAndDeduplicate functionality directly
+  const { globalNewsEngine } = require('../src/lib/news/global-news-engine');
+
+  // Test old Fed release preserves authentic timestamp and does not become current
+  const testFedXml = `<?xml version="1.0" encoding="utf-8" ?>
+  <rss version="2.0">
+    <channel>
+      <item>
+        <title>Minutes of the Federal Open Market Committee, June 16-17, 2026</title>
+        <link>https://www.federalreserve.gov/newsevents/pressreleases/monetary20260708a.htm</link>
+        <description>Minutes of the FOMC meeting</description>
+        <pubDate>Wed, 08 Jul 2026 18:00:00 GMT</pubDate>
+      </item>
+      <item>
+        <title>Minutes of the Federal Open Market Committee, July 28–29, 2026</title>
+        <link>https://www.federalreserve.gov/newsevents/pressreleases/monetary20260819a.htm</link>
+        <description>Minutes of the FOMC meeting</description>
+        <pubDate>Wed, 19 Aug 2026 18:00:00 GMT</pubDate>
+      </item>
+      <item>
+        <title>Malformed Date Article</title>
+        <link>https://example.com/bad-date</link>
+        <description>This should be dropped</description>
+        <pubDate>invalid-date-string-not-real</pubDate>
+      </item>
+      <item>
+        <title>Missing Date Article</title>
+        <link>https://example.com/no-date</link>
+        <description>This should be dropped</description>
+      </item>
+    </channel>
+  </rss>`;
+
+  const parsedItems = globalNewsEngine.parseXmlFeed(testFedXml, 'Federal Reserve');
+  assert.strictEqual(parsedItems.length, 2, 'Malformed and missing date articles must be dropped (fail-closed)');
+
+  const item1 = parsedItems.find((i) => i.title.includes('June 16-17'));
+  assert.strictEqual(Boolean(item1), true, 'June FOMC release must be present');
+  assert.strictEqual(item1.publishedEpoch, Date.parse('Wed, 08 Jul 2026 18:00:00 GMT'), 'Authentic July 2026 timestamp must be preserved');
+  assert.notStrictEqual(item1.publishedIso.slice(0, 7), '2026-10', 'July release must not be stamped with October current date');
+
+  // Test deduplication and unique collision-resistant IDs
+  const normalized = globalNewsEngine.normalizeAndDeduplicate(parsedItems);
+  assert.strictEqual(normalized.length, 2, 'Both distinct Fed releases must be normalized');
+  assert.notStrictEqual(normalized[0].id, normalized[1].id, 'Distinct Fed releases with similar title prefixes must have different IDs');
+  assert.strictEqual(normalized[0].id.startsWith('news-'), true, 'News ID must start with news-');
+
+  // Test deterministic ID across normalization
+  const normalizedAgain = globalNewsEngine.normalizeAndDeduplicate(parsedItems);
+  assert.strictEqual(normalized[0].id, normalizedAgain[0].id, 'News item ID must be deterministic across calls');
+  assert.strictEqual(normalized[1].id, normalizedAgain[1].id, 'News item ID must be deterministic across calls');
+
+  // Test Atom feed support
+  const testAtomXml = `<?xml version="1.0" encoding="utf-8"?>
+  <feed xmlns="http://www.w3.org/2005/Atom">
+    <entry>
+      <title>Atom Fed Telemetry Release</title>
+      <link href="https://example.com/atom-fed-release" />
+      <updated>2026-05-10T14:30:00Z</updated>
+      <summary>Atom feed summary</summary>
+    </entry>
+  </feed>`;
+  const parsedAtom = globalNewsEngine.parseXmlFeed(testAtomXml, 'Atom Test Source');
+  assert.strictEqual(parsedAtom.length, 1, 'Valid Atom entry must be parsed');
+  assert.strictEqual(parsedAtom[0].publishedEpoch, Date.parse('2026-05-10T14:30:00Z'), 'Atom updated timestamp must be preserved');
+
+  // 6. Calendar engine provenance & date validation
+  const { economicCalendarEngine } = require('../src/lib/calendar/economic-calendar-engine');
+  const mockCalendarRecords = [
+    {
+      title: 'US Non-Farm Payrolls',
+      country: 'USD',
+      date: '2026-10-02T12:30:00Z',
+      impact: 'High',
+      forecast: '180K',
+      previous: '142K'
+    },
+    {
+      title: 'Corrupted Event Date',
+      country: 'USD',
+      date: 'invalid-date-not-parseable',
+      impact: 'High',
+      forecast: '100',
+      previous: '90'
+    },
+    {
+      title: 'Unknown Country Reserve Rate',
+      country: 'XYZ',
+      date: '2026-10-02T15:00:00Z',
+      impact: 'Medium',
+      forecast: '5.0%',
+      previous: '4.5%'
+    }
+  ];
+
+  const normCalendar = economicCalendarEngine.normalizeCalendarEvents(mockCalendarRecords);
+  assert.strictEqual(normCalendar.length, 2, 'Corrupted date calendar event must be discarded, valid events kept');
+
+  const nfpEvent = normCalendar.find((e) => e.title === 'US Non-Farm Payrolls');
+  assert.strictEqual(Boolean(nfpEvent), true, 'US Non-Farm Payrolls must be normalized');
+  assert.strictEqual(nfpEvent.forecast, '180K', 'Forecast must be preserved');
+  assert.strictEqual(nfpEvent.previous, '142K', 'Previous must be preserved');
+  assert.strictEqual(nfpEvent.scheduledAt, '2026-10-02T12:30:00.000Z', 'Scheduled ISO must match authentic date');
+  assert.strictEqual(nfpEvent.classification, 'LIVE_EXTERNAL', 'Calendar event classification must be LIVE_EXTERNAL');
+  assert.notStrictEqual(nfpEvent.classification, 'INDEPENDENT_VERIFIED', 'Calendar event must NOT be classified as INDEPENDENT_VERIFIED');
+  assert.strictEqual(Boolean(nfpEvent.source), true, 'Source metadata must be populated');
+  assert.strictEqual(
+    nfpEvent.source.includes('Single Upstream Source'),
+    true,
+    'Calendar record must truthfully state single upstream source wire provenance'
+  );
+  assert.strictEqual(nfpEvent.providerId, 'economic-calendar-engine', 'providerId must be economic-calendar-engine');
+  assert.strictEqual(nfpEvent.relatedSymbols.includes('XAUUSD'), true, 'USD event should map to XAUUSD');
+  assert.strictEqual(nfpEvent.relatedSymbols.includes('EURUSD'), true, 'USD event should map to EURUSD');
+
+  // Verify unknown country event does NOT invent XAUUSD relevance
+  const unknownEvent = normCalendar.find((e) => e.title === 'Unknown Country Reserve Rate');
+  assert.strictEqual(Boolean(unknownEvent), true, 'Unknown country event must be normalized');
+  assert.strictEqual(unknownEvent.relatedSymbols.includes('XAUUSD'), false, 'Unknown event must NOT default or invent XAUUSD relevance');
+  assert.strictEqual(unknownEvent.relatedSymbols.length, 0, 'Unknown event should return empty relatedSymbols');
+  assert.strictEqual(unknownEvent.classification, 'LIVE_EXTERNAL', 'Unknown event must be LIVE_EXTERNAL');
+
+  // Verify economic-calendar-engine.ts file does not contain INDEPENDENT_VERIFIED or syms.add('XAUUSD') fallback
+  assert.strictEqual(
+    calendarEngineFile.includes("'INDEPENDENT_VERIFIED'"),
+    false,
+    'economic-calendar-engine.ts must not classify events as INDEPENDENT_VERIFIED'
+  );
+  assert.strictEqual(
+    calendarEngineFile.includes("if (syms.size === 0) syms.add('XAUUSD')"),
+    false,
+    'economic-calendar-engine.ts must not contain fallback adding XAUUSD to unmapped symbols'
+  );
+
+  pass('News timestamp authenticity, collision-free deterministic IDs, and calendar LIVE_EXTERNAL single-source provenance verified');
+}
+
 console.log(`\n=================================================================`);
-console.log(`ALL ${passedCount}/31 TRUTHFULNESS REGRESSION TESTS PASSED CLEANLY.`);
+console.log(`ALL ${passedCount}/32 TRUTHFULNESS REGRESSION TESTS PASSED CLEANLY.`);
 console.log(`=================================================================`);

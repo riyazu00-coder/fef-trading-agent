@@ -134,7 +134,9 @@ export class EconomicCalendarEngine implements CalendarProvider {
         forecast: item.forecast || undefined,
         previous: item.previous || undefined,
         relatedSymbols,
-        classification: 'INDEPENDENT_VERIFIED',
+        classification: 'LIVE_EXTERNAL',
+        source: 'Fair Economy Economic Calendar Wire (Single Upstream Source)',
+        providerId: this.id,
       });
     }
 
@@ -184,7 +186,6 @@ export class EconomicCalendarEngine implements CalendarProvider {
       syms.add('AUDUSD');
     }
 
-    if (syms.size === 0) syms.add('XAUUSD');
     return Array.from(syms);
   }
 }

@@ -9,12 +9,14 @@
 
 import { NormalizedNewsItem, NewsProvider, ProviderHealth } from '../providers/types';
 import { providerRegistry } from '../providers/provider-registry';
+import * as crypto from 'crypto';
 
 interface RawRssItem {
   title: string;
   link: string;
   description?: string;
-  pubDate: string;
+  publishedIso: string;
+  publishedEpoch: number;
   source: string;
 }
 
@@ -129,27 +131,41 @@ export class GlobalNewsEngine implements NewsProvider {
 
   private parseXmlFeed(xml: string, defaultSource: string): RawRssItem[] {
     const items: RawRssItem[] = [];
-    const itemMatches = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
+    const itemMatches = xml.match(/<(?:item|entry)[\s\S]*?<\/(?:item|entry)>/gi) || [];
 
     for (const itemBlock of itemMatches) {
-      const titleMatch = itemBlock.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
-      const linkMatch = itemBlock.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/i);
-      const descMatch = itemBlock.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i);
-      const pubDateMatch = itemBlock.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
-      const sourceMatch = itemBlock.match(/<source[^>]*>([\s\S]*?)<\/source>/i);
+      const titleMatch = itemBlock.match(/<title[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
+      const linkMatch = itemBlock.match(/<link[^>]*href=["']([^"']+)["'][^>]*>/i) ||
+                        itemBlock.match(/<link[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/i);
+      const descMatch = itemBlock.match(/<(?:description|summary|content)[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/(?:description|summary|content)>/i);
+      const dateMatch = itemBlock.match(/<pubDate[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/pubDate>/i) ||
+                        itemBlock.match(/<(?:published|updated)[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/(?:published|updated)>/i) ||
+                        itemBlock.match(/<dc:date[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/dc:date>/i);
+      const sourceMatch = itemBlock.match(/<source[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/source>/i);
 
       const title = (titleMatch ? titleMatch[1] : '').replace(/<[^>]+>/g, '').trim();
       const link = (linkMatch ? linkMatch[1] : '').trim();
       const description = (descMatch ? descMatch[1] : '').replace(/<[^>]+>/g, '').trim();
-      const pubDate = (pubDateMatch ? pubDateMatch[1] : '').trim();
+      const rawDate = (dateMatch ? dateMatch[1] : '').trim();
       const source = (sourceMatch ? sourceMatch[1] : '').trim() || defaultSource;
 
-      if (title && title.length > 5) {
+      // Authentically parse publication timestamp.
+      // If missing, empty, or unparseable, NEVER synthesize Date.now(); drop item fail-closed.
+      let publishedEpoch = NaN;
+      if (rawDate) {
+        const parsed = Date.parse(rawDate);
+        if (!isNaN(parsed)) {
+          publishedEpoch = parsed;
+        }
+      }
+
+      if (title && title.length > 5 && !isNaN(publishedEpoch)) {
         items.push({
           title,
           link,
           description: description.slice(0, 300),
-          pubDate: pubDate || new Date().toISOString(),
+          publishedIso: new Date(publishedEpoch).toISOString(),
+          publishedEpoch,
           source,
         });
       }
@@ -163,12 +179,17 @@ export class GlobalNewsEngine implements NewsProvider {
     const normalized: NormalizedNewsItem[] = [];
 
     for (const item of rawItems) {
-      const normTitle = item.title.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-      if (seen.has(normTitle)) continue;
-      seen.add(normTitle);
+      // Deterministic collision-resistant article identity
+      const canonicalSeed = (item.link && item.link.trim().length > 0)
+        ? item.link.trim().toLowerCase()
+        : `${item.source.trim().toLowerCase()}:${item.title.trim().toLowerCase()}`;
 
-      const publishedEpoch = !isNaN(Date.parse(item.pubDate)) ? Date.parse(item.pubDate) : Date.now();
-      const publishedIso = new Date(publishedEpoch).toISOString();
+      const stableHash = crypto.createHash('sha256').update(canonicalSeed).digest('hex').slice(0, 16);
+      const newsId = `news-${stableHash}`;
+
+      // Deduplicate by canonical news ID
+      if (seen.has(newsId)) continue;
+      seen.add(newsId);
 
       const symbols = this.mapSymbols(item.title, item.description || '');
       const impactTier = this.classifyImpact(item.title, item.description || '');
@@ -176,12 +197,12 @@ export class GlobalNewsEngine implements NewsProvider {
       const region = this.classifyRegion(item.title, item.description || '', item.source);
 
       normalized.push({
-        id: `news-${Buffer.from(normTitle).toString('base64').slice(0, 16)}`,
+        id: newsId,
         headline: item.title,
         summary: item.description,
         source: item.source,
-        publishedAt: publishedIso,
-        epochMs: publishedEpoch,
+        publishedAt: item.publishedIso,
+        epochMs: item.publishedEpoch,
         url: item.link || undefined,
         symbols,
         relevanceScore: symbols.length > 0 ? (symbols.includes('XAUUSD') ? 0.95 : 0.85) : 0.5,
@@ -192,7 +213,7 @@ export class GlobalNewsEngine implements NewsProvider {
       });
     }
 
-    // Sort by publication time descending (newest first)
+    // Sort strictly by authentic publication time descending (newest first)
     return normalized.sort((a, b) => b.epochMs - a.epochMs);
   }
 

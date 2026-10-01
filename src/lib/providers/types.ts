@@ -132,6 +132,8 @@ export interface NormalizedCalendarEvent {
   marketEffect?: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   relatedSymbols: string[];
   classification: EvidenceClassification;
+  source?: string;
+  providerId?: string;
 }
 
 export interface CalendarProvider extends BaseProvider {

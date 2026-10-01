@@ -222,7 +222,7 @@ async function runTests() {
   check(flowBroker?.isExchangeVolume === false, 'Order flow isExchangeVolume is false');
 
   const flowExchange = computeOrderFlowMetrics(testCandles, 'BTCUSD', 'M5', true);
-  check(flowExchange?.flowType === 'EXCHANGE_ORDER_BOOK', 'Order flow correctly labeled EXCHANGE_ORDER_BOOK');
+  check(flowExchange?.flowType === 'EXCHANGE_VOLUME_DELTA', 'Order flow correctly labeled EXCHANGE_VOLUME_DELTA');
   check(flowExchange?.isExchangeVolume === true, 'Order flow exchange volume is true');
 
   // TEST 10: Vision Agent: Continuous Algorithmic SMC Geometry Without Screenshot
