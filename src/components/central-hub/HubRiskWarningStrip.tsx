@@ -5,13 +5,13 @@ import { TradingRiskAssessment } from '@/lib/agents/hub-animation-engine';
 
 interface HubRiskWarningStripProps {
   assessment: TradingRiskAssessment;
-  confluenceScore?: number;
+  confluenceScore?: number | null;
   onOpenRiskModal: () => void;
 }
 
 export const HubRiskWarningStrip: React.FC<HubRiskWarningStripProps> = ({
   assessment,
-  confluenceScore = 81,
+  confluenceScore,
   onOpenRiskModal,
 }) => {
   const isCritical = assessment.level === 'CRITICAL';
@@ -119,8 +119,8 @@ export const HubRiskWarningStrip: React.FC<HubRiskWarningStripProps> = ({
 
         <div className="bg-black/40 rounded px-1 py-0.5 border border-white/5 truncate">
           <span className="text-gray-500 block text-[6.5px] uppercase">CONSENSUS</span>
-          <strong className={`truncate block ${confluenceScore === 0 ? 'text-amber-300 text-[6.5px]' : 'text-emerald-300'}`}>
-            {confluenceScore === 0 ? 'INSUFFICIENT' : `${confluenceScore}%`}
+          <strong className={`truncate block ${confluenceScore == null ? 'text-amber-400 text-[6.5px]' : confluenceScore === 0 ? 'text-amber-300 text-[6.5px]' : 'text-emerald-300'}`}>
+            {confluenceScore == null ? 'DATA LIMITED' : confluenceScore === 0 ? 'INSUFFICIENT' : `${confluenceScore}%`}
           </strong>
         </div>
 

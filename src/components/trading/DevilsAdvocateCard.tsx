@@ -39,8 +39,8 @@ export function DevilsAdvocateCard({
     {
       title: 'Macro Event Blindsiding',
       severity: 'HIGH',
-      description: `High-impact economic release approaching. Historic volatility spike of ±${(slDist * 2.5).toFixed(2)} within 120 seconds of print.`,
-      mitigation: `Hard SL mandated at $${trapLow} with lot reduction to 0.50% risk budget.`
+      description: `High-impact economic release risk. Historic volatility spike of ±${(slDist * 2.5).toFixed(2)} within 120 seconds of print.`,
+      mitigation: `Structural SL defined at $${trapLow}; risk policy cap is 0.50% equity.`
     },
     {
       title: 'Retail Positioning Herd Effect',
@@ -170,7 +170,7 @@ export function DevilsAdvocateCard({
       {showScenarios && (
         <div className="mt-2.5 pt-2.5 border-t border-white/10 space-y-2 text-[9.5px]">
           <div className="p-2.5 rounded-xl bg-red-950/40 backdrop-blur-md border border-red-500/40 text-gray-100 shadow-inner">
-            <span className="font-bold text-red-300">Scenario A (Data Shock):</span> Macro print comes in hotter than consensus. Real yields spike. Price dumps straight through support. <span className="text-emerald-300 font-bold">SL at ${trapLow} limits loss to exactly 0.50% risk budget.</span>
+            <span className="font-bold text-red-300">Scenario A (Data Shock):</span> Macro print comes in hotter than consensus. Real yields spike. Price dumps straight through support. <span className="text-emerald-300 font-bold">Structural SL defined at ${trapLow} aligns with 0.50% risk policy cap.</span>
           </div>
           <div className="p-2.5 rounded-xl bg-amber-950/40 backdrop-blur-md border border-amber-500/40 text-gray-100 shadow-inner">
             <span className="font-bold text-amber-300">Scenario B (Liquidity Sweep & Wick):</span> Session low swept briefly by stops, then aggressively reverses. <span className="text-cyan-300 font-bold">Mitigation: 15-minute body close required before invalidation.</span>

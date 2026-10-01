@@ -526,7 +526,7 @@ export function generateAssetIntelligence(
             bias: blueprint.direction === 'BUY' ? 'BULLISH' : 'BEARISH',
             confidence: 76,
             status: 'ONLINE',
-            lastOpinion: `Strategy protocol validated: ${blueprint.direction} setup at [${blueprint.entryZoneLow.price} - ${blueprint.entryZoneHigh.price}].`,
+            lastOpinion: `Strategy setup identified from verified structural blueprint: ${blueprint.direction} setup at [${blueprint.entryZoneLow.price} - ${blueprint.entryZoneHigh.price}].`,
             evidence: [
               `Entry: [${blueprint.entryZoneLow.price} - ${blueprint.entryZoneHigh.price}]`,
               `SL: ${blueprint.sl.price}`,
@@ -534,7 +534,7 @@ export function generateAssetIntelligence(
               `R:R: ${blueprint.rrRatio || '1:1.5'}`
             ],
             keyRisk: 'Invalidation price violation',
-            invalidation: `Hard stop at ${blueprint.sl.price}`
+            invalidation: `Structural stop at ${blueprint.sl.price}`
           };
         }
         if (hasCandles && marketStructure) {
@@ -574,7 +574,7 @@ export function generateAssetIntelligence(
             bias: blueprint.direction === 'BUY' ? 'BULLISH' : 'BEARISH',
             confidence: 78,
             status: 'ONLINE',
-            lastOpinion: `Asymmetric ${blueprint.rrRatio} risk-to-reward ratio verified against structural target ${blueprint.tp1.price}.`,
+            lastOpinion: `Structural R:R calculated as ${blueprint.rrRatio} against target ${blueprint.tp1.price}.`,
             evidence: [
               `Target TP1: ${blueprint.tp1.price}`,
               `Risk/Reward: ${blueprint.rrRatio}`

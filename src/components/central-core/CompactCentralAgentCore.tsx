@@ -150,7 +150,7 @@ export function CompactCentralAgentCore({
       default:
         return {
           peers: 'SWARM BLACKBOARD',
-          impact: '+8% collective confluence contribution',
+          impact: 'Collective confluence evidence contribution',
           hook: 'Real-Time Market Context'
         };
     }
@@ -289,15 +289,15 @@ export function CompactCentralAgentCore({
           <div className="space-y-1 text-[9.5px]">
             <div className="flex justify-between">
               <span className="text-gray-200 drop-shadow">Risk Budget Cap:</span>
-              <span className="text-amber-300 font-bold drop-shadow-[0_0_6px_rgba(251,191,36,0.6)]">0.50% ($512.25)</span>
+              <span className="text-amber-300 font-bold drop-shadow-[0_0_6px_rgba(251,191,36,0.6)]">0.50% equity (Max Policy Cap)</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-200 drop-shadow">Max Intraday Loss:</span>
-              <span className="text-rose-300 font-bold drop-shadow-[0_0_6px_rgba(244,63,94,0.6)]">-$2,000 Lockout</span>
+              <span className="text-rose-300 font-bold drop-shadow-[0_0_6px_rgba(244,63,94,0.6)]">Policy cap: -2.0% equity</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-200 drop-shadow">Event Shock Filter:</span>
-              <span className="text-cyan-300 font-bold drop-shadow-[0_0_6px_rgba(0,240,255,0.6)]">Active (PCE in 105m)</span>
+              <span className="text-amber-300 font-bold drop-shadow-[0_0_6px_rgba(251,191,36,0.6)]">Calendar: DATA LIMITED (Armed)</span>
             </div>
           </div>
 

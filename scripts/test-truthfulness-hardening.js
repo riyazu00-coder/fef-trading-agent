@@ -584,6 +584,371 @@ function pass(msg) {
   pass('Risk Guardian evidence wording truthfully reports economic calendar telemetry unavailable');
 }
 
+// 21. No production Core PCE, fake 105m countdown, fixed $512.25, or fixed 4341.70 stop
+{
+  const filesToCheck = [
+    'src/components/cockpit/EconomicEventsCard.tsx',
+    'src/components/cinematic/HexagonalSecurityShield.tsx',
+    'src/components/cockpit/RiskGuardianPolicy.tsx',
+    'src/components/cockpit/ExecutionControlCard.tsx',
+    'src/components/central-core/CompactCentralAgentCore.tsx',
+    'src/components/cockpit/VulnerabilityAuditCard.tsx',
+    'src/components/trading/DevilsAdvocateCard.tsx',
+    'src/lib/agents/system-architecture-state.ts',
+    'src/lib/agents/collective-calculation.ts',
+    'src/lib/agents/agent-swarm.ts',
+    'src/lib/agents/synapse-data-feed.ts',
+    'src/lib/agents/agent-blackboard.ts',
+    'src/components/cockpit/MasterTopNav.tsx'
+  ];
+
+  filesToCheck.forEach(file => {
+    const content = fs.readFileSync(file, 'utf8');
+    assert.strictEqual(content.includes('Core PCE'), false, `${file} must not contain Core PCE`);
+    assert.strictEqual(content.includes('512.25'), false, `${file} must not contain fixed $512.25`);
+    assert.strictEqual(content.includes('4341.70'), false, `${file} must not contain fixed 4341.70 stop`);
+    assert.strictEqual(content.includes('in 105 mins'), false, `${file} must not contain in 105 mins countdown`);
+  });
+  pass('Zero production Core PCE, 105m countdown, fixed $512.25, or fixed 4341.70 stop across all audited components');
+}
+
+// 22. No "limits loss to exactly 0.50%" or "strictly enforced" broker claims under READ_ONLY
+{
+  const devilsCard = fs.readFileSync('src/components/trading/DevilsAdvocateCard.tsx', 'utf8');
+  assert.strictEqual(devilsCard.includes('limits loss to exactly 0.50%'), false, 'DevilsAdvocateCard must not guarantee exact loss limits');
+  assert.strictEqual(devilsCard.includes('Hard SL mandated'), false, 'DevilsAdvocateCard must not claim mandated hard SL');
+
+  const chartEngine = fs.readFileSync('src/lib/chart-analysis/engine.ts', 'utf8');
+  assert.strictEqual(chartEngine.includes('strictly enforced'), false, 'chart-analysis engine must not claim strictly enforced broker stops under READ_ONLY');
+  pass('No "limits loss to exactly 0.50%" or "strictly enforced" broker stop claims');
+}
+
+// 23. MasterTopNav dynamically grounds Council evidence trust and removes static "15 Council agents report"
+{
+  const masterNav = fs.readFileSync('src/components/cockpit/MasterTopNav.tsx', 'utf8');
+  assert.strictEqual(masterNav.includes('15 Council agents report'), false, 'MasterTopNav must not assert static 15 Council agents report');
+  assert.strictEqual(masterNav.includes('Macro scheduled event shock buffer'), false, 'MasterTopNav must not claim fabricated scheduled event buffer');
+  assert.strictEqual(masterNav.includes('Council evidence trust:'), true, 'MasterTopNav must truthfully refer to Council evidence trust');
+  pass('MasterTopNav dynamically grounds Council evidence trust without static claims');
+}
+
+// 24. Strategy and Opportunity opinions do not overclaim external validation
+{
+  const pipeline = fs.readFileSync('src/lib/agents/multi-asset-pipeline.ts', 'utf8');
+  assert.strictEqual(pipeline.includes('Strategy protocol validated:'), false, 'Pipeline must not claim strategy protocol validated');
+  assert.strictEqual(pipeline.includes('risk-to-reward ratio verified'), false, 'Pipeline must not claim R:R verified without live execution');
+  assert.strictEqual(pipeline.includes('Strategy setup identified from verified structural blueprint'), true);
+  assert.strictEqual(pipeline.includes('Structural R:R calculated as'), true);
+  pass('Strategy and Opportunity opinions accurately distinguish structural calculation from external validation');
+}
+
+// 25. Static blackboard and swarm fixtures cannot claim 1-Click order ticket prepared or fake 88% confluence
+{
+  const blackboard = fs.readFileSync('src/lib/agents/agent-blackboard.ts', 'utf8');
+  assert.strictEqual(blackboard.includes('1-Click order ticket prepared'), false, 'Blackboard must not claim 1-Click order ticket prepared');
+
+  const swarm = fs.readFileSync('src/lib/agents/agent-swarm.ts', 'utf8');
+  assert.strictEqual(swarm.includes('confluence aligns at 88%'), false, 'Swarm must not claim arbitrary 88% confluence');
+  assert.strictEqual(swarm.includes('down 6 bps to 4.21%'), false, 'Swarm must not claim fake 10Y yield drop');
+  pass('Zero "1-Click order ticket", fake 88% confluence, or fake 10Y yield drop in agent fixtures');
+}
+
+// 26. 0.50% equity policy cap remains allowed and canonical execution lock is verified
+{
+  const { CANONICAL_EXECUTION_MODE, MT5_ORDER_TRANSPORT_ENABLED } = require('../src/lib/execution/execution-policy.ts');
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+
+  const policyFile = fs.readFileSync('src/components/cockpit/RiskGuardianPolicy.tsx', 'utf8');
+  assert.strictEqual(policyFile.includes('0.50% equity (Max policy cap)'), true, '0.50% equity policy cap must remain visible as policy');
+  pass('0.50% equity policy cap preserved and canonical execution lock strictly verified');
+}
+
+// 27. agent-swarm demo fixtures fail closed without fabricated trading intelligence
+{
+  const { INITIAL_AGENTS, INITIAL_DIALOGUE, SIMULATED_DIALOGUE_POOL, CURRENT_TRADE_SETUP } = require('../src/lib/agents/agent-swarm.ts');
+
+  // Verify all 15 agents fail closed
+  assert.strictEqual(INITIAL_AGENTS.length, 15, 'INITIAL_AGENTS must contain 15 council agents');
+  INITIAL_AGENTS.forEach(agent => {
+    assert.strictEqual(agent.bias !== 'BULLISH' && agent.bias !== 'BEARISH', true, `${agent.name} must not have BULLISH or BEARISH bias`);
+    assert.strictEqual(agent.confidence, 0, `${agent.name} must have 0 confidence`);
+    assert.strictEqual(agent.status, 'DATA LIMITED', `${agent.name} must have DATA LIMITED status`);
+    assert.strictEqual(agent.keyRisk, 'DATA LIMITED', `${agent.name} must have DATA LIMITED keyRisk`);
+  });
+
+  // Verify CURRENT_TRADE_SETUP is null
+  assert.strictEqual(CURRENT_TRADE_SETUP, null, 'CURRENT_TRADE_SETUP must be null');
+
+  // Verify INITIAL_DIALOGUE has 0 confidence and no BULLISH bias
+  INITIAL_DIALOGUE.forEach(msg => {
+    assert.strictEqual(msg.confidence, 0, 'INITIAL_DIALOGUE message must have 0 confidence');
+    assert.strictEqual(msg.bias, 'NEUTRAL', 'INITIAL_DIALOGUE message must be NEUTRAL');
+  });
+
+  // Verify SIMULATED_DIALOGUE_POOL has 0 confidence and no BULLISH/BEARISH bias
+  SIMULATED_DIALOGUE_POOL.forEach(msg => {
+    assert.strictEqual(msg.confidence, 0, 'SIMULATED_DIALOGUE_POOL message must have 0 confidence');
+    assert.strictEqual(msg.bias !== 'BULLISH' && msg.bias !== 'BEARISH', true, 'SIMULATED_DIALOGUE_POOL message must not be BULLISH/BEARISH');
+  });
+
+  // Verify no fabricated prices in agent-swarm.ts
+  const swarmCode = fs.readFileSync('src/lib/agents/agent-swarm.ts', 'utf8');
+  ['4341.20', '4348.50', '4368.00', '4343.80', 'CHOCH confirmed', 'breaker block completed'].forEach(pattern => {
+    assert.strictEqual(swarmCode.includes(pattern), false, `agent-swarm.ts must not contain '${pattern}'`);
+  });
+
+  pass('Agent-swarm demo fixtures fail closed: 0 confidence, DATA LIMITED status, null trade setup, and zero fabricated price levels');
+}
+
+// 28. Blackboard and createSharedBlackboardForAsset fail-closed truthfulness (Requirements A through Q)
+{
+  const { INITIAL_BLACKBOARD_STATE, createSharedBlackboardForAsset } = require('../src/lib/agents/agent-blackboard.ts');
+
+  // A. INITIAL_BLACKBOARD_STATE contains no hardcoded XAUUSD market snapshot
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.selectedSymbol !== 'XAUUSD', true, 'INITIAL_BLACKBOARD_STATE must not hardcode XAUUSD');
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.assetPrice, null, 'INITIAL_BLACKBOARD_STATE assetPrice must be null');
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.bid, null, 'INITIAL_BLACKBOARD_STATE bid must be null');
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.ask, null, 'INITIAL_BLACKBOARD_STATE ask must be null');
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.spread, null, 'INITIAL_BLACKBOARD_STATE spread must be null');
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.marketRegime.includes('FVG'), false, 'INITIAL_BLACKBOARD_STATE must not contain FVG claims');
+
+  // B. INITIAL_BLACKBOARD_STATE does not start WATCH BUY/WATCH SELL/BUY/SELL
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.directionalVerdict, 'WAIT', 'INITIAL_BLACKBOARD_STATE must start in non-directional WAIT');
+
+  // C. INITIAL_BLACKBOARD_STATE does not claim market tradeExecutable=true
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.marketSession?.tradeExecutable, false, 'INITIAL_BLACKBOARD_STATE marketSession must not be tradeExecutable');
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.marketSession?.marketState, 'CLOSED', 'INITIAL_BLACKBOARD_STATE marketSession must start CLOSED');
+
+  // D. INITIAL_BLACKBOARD_STATE does not contain hardcoded DXY 104.18
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.dxyState.price, null, 'INITIAL_BLACKBOARD_STATE DXY price must be null');
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.dxyState.trend, 'DATA LIMITED', 'INITIAL_BLACKBOARD_STATE DXY trend must be DATA LIMITED');
+
+  // E. INITIAL_BLACKBOARD_STATE does not contain hardcoded US10Y 4.214
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.yieldState.us10y, null, 'INITIAL_BLACKBOARD_STATE US10Y must be null');
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.yieldState.trend, 'DATA LIMITED', 'INITIAL_BLACKBOARD_STATE US10Y trend must be DATA LIMITED');
+
+  // F, G, H. INITIAL_BLACKBOARD_STATE contains no static SPDR, retail %, or fabricated agent confidence
+  const bbCode = fs.readFileSync('src/lib/agents/agent-blackboard.ts', 'utf8');
+  assert.strictEqual(bbCode.includes('+3.2 tonnes'), false, 'agent-blackboard.ts must not contain SPDR +3.2 tonnes');
+  assert.strictEqual(bbCode.includes('Retail positioning long cooled to 56%'), false, 'agent-blackboard.ts must not contain retail 56% claim');
+  assert.strictEqual(bbCode.includes('Fear & Greed index stable at 52'), false, 'agent-blackboard.ts must not contain Fear & Greed 52');
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.consensusScore, 0, 'INITIAL_BLACKBOARD_STATE consensusScore must be 0');
+  assert.strictEqual(Object.keys(INITIAL_BLACKBOARD_STATE.agentBiases).length, 0, 'INITIAL_BLACKBOARD_STATE agentBiases must be empty');
+
+  // I, J, K, L. createSharedBlackboardForAsset does not inject DXY 104.18/-0.36 or US10Y 4.214/-1.40 or automatic CONFIRMED/BULLISH_GOLD
+  const testBB = createSharedBlackboardForAsset(
+    'XAUUSD', 4350.0, 0.35, 1.2, 'METALS', 'Balanced Market', 'London', 0, 'WAIT', 4320.0, []
+  );
+  assert.strictEqual(testBB.dxyState.price, null, 'createSharedBlackboardForAsset without verified telemetry must not inject DXY price');
+  assert.strictEqual(testBB.dxyState.change, null, 'createSharedBlackboardForAsset without verified telemetry must not inject DXY change');
+  assert.strictEqual(testBB.dxyState.trend, 'DATA LIMITED', 'createSharedBlackboardForAsset DXY trend must be DATA LIMITED');
+  assert.strictEqual(testBB.dxyState.divergenceToGold !== 'CONFIRMED', true, 'Metals must not automatically receive CONFIRMED DXY divergence');
+
+  assert.strictEqual(testBB.yieldState.us10y, null, 'createSharedBlackboardForAsset without verified telemetry must not inject US10Y');
+  assert.strictEqual(testBB.yieldState.change, null, 'createSharedBlackboardForAsset without verified telemetry must not inject US10Y change');
+  assert.strictEqual(testBB.yieldState.trend, 'DATA LIMITED', 'createSharedBlackboardForAsset US10Y trend must be DATA LIMITED');
+  assert.strictEqual(testBB.yieldState.realYieldBias !== 'BULLISH_GOLD', true, 'Metals must not automatically receive BULLISH_GOLD real-yield bias');
+
+  // M, N. unavailable economic calendar is represented DATA LIMITED, not LOW; does not create directional bias
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.eventRisk.level, 'DATA LIMITED', 'INITIAL_BLACKBOARD_STATE eventRisk must be DATA LIMITED, not LOW');
+  assert.strictEqual(testBB.eventRisk.level, 'DATA LIMITED', 'createSharedBlackboardForAsset eventRisk must be DATA LIMITED, not LOW');
+  assert.strictEqual(testBB.eventRisk.lockoutActive, false, 'Unavailable calendar must not claim active lockout');
+
+  // O. bootstrap state is fail-closed/non-executable
+  assert.strictEqual(INITIAL_BLACKBOARD_STATE.marketSession?.tradeExecutable, false, 'Bootstrap state must be non-executable');
+
+  // P, Q. execution policy remains READ_ONLY and MT5_ORDER_TRANSPORT_ENABLED remains false
+  const { CANONICAL_EXECUTION_MODE, MT5_ORDER_TRANSPORT_ENABLED } = require('../src/lib/execution/execution-policy.ts');
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+
+  pass('Shared blackboard fail-closed truthfulness verified across requirements A through Q');
+}
+
+// 29. Settings MT5 Status Truthfulness and Configuration Isolation (Requirements A through L)
+{
+  const settingsCode = fs.readFileSync('src/app/settings/page.tsx', 'utf8');
+  const routeCode = fs.readFileSync('src/app/api/bridge/mt5/route.ts', 'utf8');
+  const { CANONICAL_EXECUTION_MODE, MT5_ORDER_TRANSPORT_ENABLED } = require('../src/lib/execution/execution-policy.ts');
+
+  // A. Canonical HTTP status ONLINE + MT5 connected = connected state
+  assert.strictEqual(settingsCode.includes("localProbeStatus.localBridge === 'ONLINE'"), true, 'Must test localProbeStatus.localBridge === ONLINE');
+  assert.strictEqual(settingsCode.includes("✓ Connected: Local HTTP Bridge & MetaTrader 5 live"), true, 'Must report connected when both bridge and MT5 are online');
+
+  // B. Canonical HTTP status ONLINE + MT5 disconnected = bridge online / terminal waiting, NOT bridge offline
+  assert.strictEqual(settingsCode.includes("Local HTTP Bridge is ONLINE"), true, 'Must report bridge ONLINE when MT5 is disconnected');
+  assert.strictEqual(settingsCode.includes("FEF_HTTP_Bridge.mq5 is not connected") || settingsCode.includes("terminal is not connected"), true, 'Must state terminal is not connected');
+
+  // C. Healthy HTTP status is authoritative and not overridden by failed legacy TCP fallback
+  const indexOfHttpCheck = settingsCode.indexOf("if (localProbeStatus && localProbeStatus.localBridge === 'ONLINE')");
+  const indexOfPingFallback = settingsCode.indexOf("fetch('/api/bridge/mt5?action=PING')");
+  assert.strictEqual(indexOfHttpCheck !== -1 && indexOfPingFallback !== -1, true, 'Both checks present');
+  assert.strictEqual(indexOfHttpCheck < indexOfPingFallback, true, 'Authoritative HTTP status must precede legacy PING fallback');
+
+  // D. Canonical HTTP port is 5556, legacy port 5555 is not presented as canonical HTTP
+  assert.strictEqual(settingsCode.includes("useState<number>(5556)"), true, 'Settings default MT5 port must be 5556');
+
+  // E. Connected MT5 does NOT imply execution-ready; mode defaults/falls back to READ_ONLY
+  assert.strictEqual(settingsCode.includes("const isExecutionReady = effectiveIsConnected;"), false, 'Connected MT5 must NOT set isExecutionReady');
+  assert.strictEqual(settingsCode.includes("effectiveMode = CANONICAL_EXECUTION_MODE"), true, 'effectiveMode must be CANONICAL_EXECUTION_MODE');
+
+  // F. Operating mode in Settings defaults to READ_ONLY
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+
+  // G. Settings has zero occurrences of UNIVERSAL_EXECUTION or UNIVERSAL MT5 ACTIVE
+  assert.strictEqual(settingsCode.includes('UNIVERSAL_EXECUTION'), false, 'Settings must not contain UNIVERSAL_EXECUTION');
+  assert.strictEqual(settingsCode.includes('UNIVERSAL MT5 ACTIVE'), false, 'Settings must not contain UNIVERSAL MT5 ACTIVE');
+
+  // H. Status payload does not fabricate 5ms or 8ms latency fallbacks
+  assert.strictEqual(settingsCode.includes('|| 5'), false, 'Settings must not fabricate 5ms latency fallback');
+  assert.strictEqual(settingsCode.includes('|| 8'), false, 'Settings must not fabricate 8ms latency fallback');
+
+  // I. Status payload handles heartbeatAgeMs = 0 truthfully (<1s ago, not false/none)
+  assert.strictEqual(settingsCode.includes("localProbeStatus.heartbeatAgeMs != null"), true, 'Must treat heartbeatAgeMs = 0 as valid non-null number');
+  assert.strictEqual(settingsCode.includes("mt5TestResult.heartbeatAgeMs != null"), true, 'UI metric must treat heartbeatAgeMs = 0 as valid non-null');
+
+  // J. route.ts handles port configuration updates without confusing HTTP and legacy TCP
+  assert.strictEqual(routeCode.includes("numericPort === 5556"), true, 'route.ts must distinguish port 5556 for mt5HttpClient');
+  assert.strictEqual(routeCode.includes("numericPort === 5555"), true, 'route.ts must distinguish port 5555 for mt5BridgeClient');
+
+  // K. Execution policy constants preserved
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+
+  // L. Legacy TCP fallback clearly labeled if invoked
+  assert.strictEqual(settingsCode.includes("Legacy TCP Bridge handshake verified"), true, 'Legacy TCP fallback must be clearly labeled');
+  assert.strictEqual(settingsCode.includes("TCP SOCKET (LEGACY)"), true, 'Legacy transport must be clearly labeled TCP SOCKET (LEGACY)');
+
+  pass('Settings MT5 status truthfulness and configuration isolation verified (Requirements A through L)');
+}
+
+// 30. MT5 Telemetry Context, Execution Semantics & Fabricated Fallback Elimination (Requirements 1 through 20)
+{
+  const contextCode = fs.readFileSync('src/context/MT5TelemetryContext.tsx', 'utf8');
+  const settingsCode = fs.readFileSync('src/app/settings/page.tsx', 'utf8');
+  const { deriveAccountRiskContext } = require('../src/lib/bridge/mt5-telemetry-state.ts');
+  const { CANONICAL_EXECUTION_MODE, MT5_ORDER_TRANSPORT_ENABLED } = require('../src/lib/execution/execution-policy.ts');
+
+  // 1. MT5 connected does NOT imply execution permission
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+
+  // 2. CANONICAL_EXECUTION_MODE remains READ_ONLY
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+
+  // 3. MT5_ORDER_TRANSPORT_ENABLED remains false
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+
+  // 4. MT5TelemetryContext contains zero UNIVERSAL_EXECUTION derivation from mt5Online
+  assert.strictEqual(contextCode.includes("mt5Online ? 'UNIVERSAL_EXECUTION' : 'READ_ONLY'"), false, 'Must not derive UNIVERSAL_EXECUTION from mt5Online');
+  assert.strictEqual(contextCode.includes("const isReadOnly = !mt5Online;"), false, 'Must not derive isReadOnly from !mt5Online');
+
+  // 5. Offline/unavailable telemetry remains READ_ONLY
+  assert.strictEqual(contextCode.includes("operatingMode: 'READ_ONLY'"), true, 'Offline/unavailable telemetry must be READ_ONLY');
+
+  // 6. readOnlyLockActive remains true under current policy
+  assert.strictEqual(contextCode.includes("readOnlyLockActive: true"), true, 'readOnlyLockActive must remain true');
+  assert.strictEqual(contextCode.includes("readOnlyLockActive: false"), false, 'readOnlyLockActive must never be set false');
+
+  // 7, 8. No fabricated Exness broker or Exness-MT5Trial16 server fallback
+  assert.strictEqual(contextCode.includes("broker: 'Exness'"), false, 'Context must not contain fabricated broker: Exness fallback');
+  assert.strictEqual(contextCode.includes("server: 'Exness-MT5Trial16'"), false, 'Context must not contain fabricated server: Exness-MT5Trial16 fallback');
+  assert.strictEqual(contextCode.includes("brokerName: data.broker || 'Exness'"), false, 'Terminal must not fabricate brokerName Exness');
+  assert.strictEqual(contextCode.includes("brokerServer: data.server || 'Exness-MT5Trial16'"), false, 'Terminal must not fabricate brokerServer Exness-MT5Trial16');
+
+  // 9. No fabricated $10,000 account fallback in MT5TelemetryContext
+  assert.strictEqual(contextCode.includes("balance: data.balance || 10000"), false, 'Context must not fabricate balance 10000');
+  assert.strictEqual(contextCode.includes("equity: data.equity || 10000"), false, 'Context must not fabricate equity 10000');
+  assert.strictEqual(contextCode.includes("freeMargin: data.freeMargin || 10000"), false, 'Context must not fabricate freeMargin 10000');
+
+  // 10. No fabricated leverage 200 fallback in MT5TelemetryContext
+  assert.strictEqual(contextCode.includes("leverage: data.leverage || 200"), false, 'Context must not fabricate leverage 200');
+
+  // 11. No fabricated terminal ping 5ms fallback
+  assert.strictEqual(contextCode.includes("ping: data.ping ?? 5"), false, 'Context must not fabricate terminal ping 5ms');
+
+  // 12. No fabricated tradeAllowed=true fallback in MT5TelemetryContext
+  assert.strictEqual(contextCode.includes("tradeAllowed: true"), false, 'Context must not fabricate tradeAllowed: true');
+
+  // 13. heartbeatAgeMs 0 remains valid
+  assert.strictEqual(contextCode.includes("data.heartbeatAgeMs ?? null"), true, 'Context must preserve heartbeatAgeMs=0 via nullish coalescing');
+
+  // 14. latency 0 remains valid (typeof check or ?? null)
+  assert.strictEqual(contextCode.includes("typeof data.terminal.pingToBrokerMs === 'number'"), true, 'Context must preserve pingToBrokerMs=0');
+
+  // 15. Remote telemetry success can represent MT5 CONNECTED without claiming cloud localhost bridge access
+  assert.strictEqual(contextCode.includes("localOnline = isRemote ? false : (data.localBridge === 'ONLINE' || data.success === true)"), true, 'Remote telemetry must not claim localBridgeOnline=true');
+
+  // 16. Settings cannot let failed localhost diagnostics override healthy canonical remote telemetry
+  assert.strictEqual(settingsCode.includes("refreshTelemetry()"), true, 'Settings test must refresh canonical telemetry');
+  assert.strictEqual(settingsCode.includes("if (isMt5Connected || telemetry.mt5Connected)"), true, 'Settings must respect canonical remote MT5 connection');
+  assert.strictEqual(settingsCode.includes("NOT DIRECTLY OBSERVABLE FROM CLOUD"), true, 'Settings must explain cloud-side local probe status');
+
+  // 17. Settings does not contain UNIVERSAL_EXECUTION
+  assert.strictEqual(settingsCode.includes('UNIVERSAL_EXECUTION'), false, 'Settings must not contain UNIVERSAL_EXECUTION');
+
+  // 18. Settings does not equate connected with execution-ready
+  assert.strictEqual(settingsCode.includes("const isExecutionReady"), false, 'Settings must not define isExecutionReady');
+
+  // 19. Legacy TCP 5555 remains explicitly legacy and does not replace canonical HTTP 5556
+  const routeCode = fs.readFileSync('src/app/api/bridge/mt5/route.ts', 'utf8');
+  assert.strictEqual(routeCode.includes("numericPort === 5556"), true, 'route.ts must support canonical HTTP port 5556');
+  assert.strictEqual(routeCode.includes("numericPort === 5555"), true, 'route.ts must preserve legacy TCP port 5555');
+
+  // 20. deriveAccountRiskContext returns null when account has no numeric balance (no fabricated account)
+  const emptyContext = deriveAccountRiskContext(null, [], 'READ_ONLY');
+  assert.strictEqual(emptyContext, null, 'deriveAccountRiskContext(null) must return null');
+  const invalidContext = deriveAccountRiskContext({ balance: undefined }, [], 'READ_ONLY');
+  assert.strictEqual(invalidContext, null, 'deriveAccountRiskContext with undefined balance must return null');
+
+  pass('MT5 Telemetry Context, execution semantics, and fabricated fallback elimination verified (Requirements 1 through 20)');
+}
+
+// 31. Static-truthfulness cleanups: MT5 heartbeat, CompactCentralAgentCore, HubRiskWarningStrip
+{
+  // 1. scripts/mt5-http-bridge-service.js contains state: 'CONNECTED_READ_ONLY' and not CONNECTED_UNIVERSAL_EXECUTION
+  const bridgeServiceCode = fs.readFileSync('scripts/mt5-http-bridge-service.js', 'utf8');
+  assert.strictEqual(
+    bridgeServiceCode.includes("state: 'CONNECTED_READ_ONLY'"),
+    true,
+    'mt5-http-bridge-service.js must return state: CONNECTED_READ_ONLY in heartbeat response'
+  );
+  assert.strictEqual(
+    bridgeServiceCode.includes("state: 'CONNECTED_UNIVERSAL_EXECUTION'"),
+    false,
+    'mt5-http-bridge-service.js must not return state: CONNECTED_UNIVERSAL_EXECUTION'
+  );
+
+  // 2. src/components/central-core/CompactCentralAgentCore.tsx contains truthful evidence impact wording
+  const compactCoreCode = fs.readFileSync('src/components/central-core/CompactCentralAgentCore.tsx', 'utf8');
+  assert.strictEqual(
+    compactCoreCode.includes('+8% collective confluence contribution'),
+    false,
+    'CompactCentralAgentCore.tsx must not contain static +8% collective confluence contribution'
+  );
+  assert.strictEqual(
+    compactCoreCode.includes("impact: 'Collective confluence evidence contribution'"),
+    true,
+    'CompactCentralAgentCore.tsx must contain truthful impact description'
+  );
+
+  // 3. src/components/central-hub/HubRiskWarningStrip.tsx does not default confluenceScore to 81
+  const warningStripCode = fs.readFileSync('src/components/central-hub/HubRiskWarningStrip.tsx', 'utf8');
+  assert.strictEqual(
+    warningStripCode.includes('confluenceScore = 81'),
+    false,
+    'HubRiskWarningStrip.tsx must not default confluenceScore to 81'
+  );
+  assert.strictEqual(
+    warningStripCode.includes("confluenceScore == null ? 'DATA LIMITED'"),
+    true,
+    'HubRiskWarningStrip.tsx must render DATA LIMITED when confluenceScore is null/undefined'
+  );
+
+  pass('MT5 HTTP heartbeat state, CompactCentralAgentCore impact wording, and HubRiskWarningStrip confluenceScore defaults truthfully verified');
+}
+
 console.log(`\n=================================================================`);
-console.log(`ALL ${passedCount}/20 TRUTHFULNESS REGRESSION TESTS PASSED CLEANLY.`);
+console.log(`ALL ${passedCount}/31 TRUTHFULNESS REGRESSION TESTS PASSED CLEANLY.`);
 console.log(`=================================================================`);

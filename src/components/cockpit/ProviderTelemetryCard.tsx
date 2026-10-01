@@ -7,11 +7,10 @@ export const ProviderTelemetryCard: React.FC = () => {
   const { isMt5Connected, telemetry } = useMT5Telemetry();
 
   const isRemoteRelay = Boolean(telemetry.isRemote || (telemetry as any).transport?.includes('RELAY'));
-  const isExecutionReady = isMt5Connected && telemetry.operatingMode === 'UNIVERSAL_EXECUTION';
   const brokerName = telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER'
     ? telemetry.account.broker
     : telemetry.terminal?.brokerName || 'Connected Broker';
-  const pingMs = (telemetry.account as any)?.ping || 5;
+  const pingMs = telemetry.terminal?.pingToBrokerMs ?? (telemetry.account as any)?.ping ?? null;
 
   const mt5Item = isMt5Connected
     ? isRemoteRelay
@@ -24,7 +23,7 @@ export const ProviderTelemetryCard: React.FC = () => {
       : {
           name: 'MT5 Broker (Exec)',
           status: 'LIVE ⚡',
-          detail: `${brokerName} • ${pingMs}ms`,
+          detail: `${brokerName} • ${pingMs != null ? `${pingMs}ms` : 'LIVE'}`,
           statusColor: 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40'
         }
     : {

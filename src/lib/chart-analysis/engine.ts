@@ -224,7 +224,7 @@ export async function processChartAnalysis(req: ChartAnalysisRequest): Promise<C
       { agentName: 'Strategy Agent', type: 'STRATEGY', confirmed: true, comment: 'Protocol A-1 entry criteria satisfied. Risk-to-reward 2.75 acceptable.' },
       { agentName: 'Macro Agent', type: 'MACRO', confirmed: analysisMode === 'FULL_INTELLIGENCE', comment: analysisMode === 'FULL_INTELLIGENCE' ? 'Macro yields and intermarket beta support continuation.' : 'Bypassed in Chart-Only mode.' },
       { agentName: 'Correlation Agent', type: 'CORRELATION', confirmed: analysisMode === 'FULL_INTELLIGENCE', comment: analysisMode === 'FULL_INTELLIGENCE' ? 'DXY and cross-currency momentum align with direction.' : 'Bypassed in Chart-Only mode.' },
-      { agentName: 'Risk Guardian', type: 'RISK_GUARDIAN', confirmed: true, comment: `Stop loss ${sl} strictly enforced. Max allocation 0.50% account equity.` },
+      { agentName: 'Risk Guardian', type: 'RISK_GUARDIAN', confirmed: true, comment: `Structural stop defined at ${sl}. Maximum risk policy cap: 0.50% account equity.` },
       { agentName: 'Final Decision Agent', type: 'FINAL_DECISION', confirmed: true, comment: 'Swarm consensus approves setup with 82% confidence rating.' }
     ],
 

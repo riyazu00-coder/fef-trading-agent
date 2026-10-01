@@ -117,14 +117,14 @@ export const MasterTopNav: React.FC = () => {
           ? assetProfile.whyThisTrade.join(' ') 
           : `Market structure alignment across higher timeframes confirming ${assetProfile.setupDirection} posture.`;
         setAiAnswer(
-          `Why ${activeSymbol} is ${assetProfile.setupDirection} (${assetProfile.confidence}% Confluence at ${currentPriceFmt}): ${reasons} Invalidation is strictly defined at ${assetProfile.invalidation}.${sessionClosedNotice}`
+          `Why ${activeSymbol} is ${assetProfile.setupDirection} (Council evidence trust: ${assetProfile.confidence}% at ${currentPriceFmt}): ${reasons} Invalidation is strictly defined at ${assetProfile.invalidation}.${sessionClosedNotice}`
         );
       } else if (q.includes('risk') || q.includes('danger') || q.includes('guard') || q.includes('loss') || q.includes('sl')) {
         const risks = assetProfile.opposingRisks?.length > 0
           ? assetProfile.opposingRisks.map((r, i) => `${i + 1}) ${r}`).join(' ')
-          : `Macro scheduled event shock buffer and liquidity sweeps against stop loss level at ${assetProfile.stopLoss}.`;
+          : `Market structure invalidation and liquidity sweeps against stop loss level at ${assetProfile.stopLoss}.`;
         setAiAnswer(
-          `Risk Guardian Parameters for ${activeSymbol}: Stop Loss is pegged at ${assetProfile.stopLoss} (Risk/Reward ${assetProfile.rr}). Active Opposing Risks identified by Council: ${risks} Max mathematical portfolio allocation: 0.50% - 1.00%.${sessionClosedNotice}`
+          `Risk Guardian Parameters for ${activeSymbol}: Stop Loss is pegged at ${assetProfile.stopLoss} (Risk/Reward ${assetProfile.rr}). Active Opposing Risks identified by Council: ${risks} Max mathematical portfolio allocation policy cap: 0.50% equity.${sessionClosedNotice}`
         );
       } else if (q.includes('level') || q.includes('target') || q.includes('entry') || q.includes('tp')) {
         setAiAnswer(
@@ -135,7 +135,7 @@ export const MasterTopNav: React.FC = () => {
         const bearishCount = assetProfile.agents.filter(a => a.bias === 'BEARISH').length;
         const neutralCount = assetProfile.agents.length - bullishCount - bearishCount;
         setAiAnswer(
-          `15-Agent Council Consensus for ${activeSymbol}: ${bullishCount} Bullish, ${bearishCount} Bearish, ${neutralCount} Neutral/Restricted (${assetProfile.confidence}% Confluence). Leading vote: ${assetProfile.setupDirection}. Center Orchestrator enforces strict Risk Guardian exposure bounds before any signal dispatch.${sessionClosedNotice}`
+          `Council Consensus for ${activeSymbol}: ${bullishCount} Bullish, ${bearishCount} Bearish, ${neutralCount} Neutral/Restricted (Council evidence trust: ${assetProfile.confidence}%). Leading posture: ${assetProfile.setupDirection}. Center Orchestrator enforces strict Risk Guardian exposure bounds before any signal dispatch.${sessionClosedNotice}`
         );
       } else if (q.includes('macro') || q.includes('dxy') || q.includes('yield') || q.includes('fed')) {
         const macroAgent = assetProfile.agents.find(a => a.name.includes('Macro') || a.name.includes('Correlation'));
@@ -144,9 +144,9 @@ export const MasterTopNav: React.FC = () => {
         );
       } else {
         const topReason = assetProfile.whyThisTrade?.[0] || `Order flow and institutional liquidity aligning with ${assetProfile.setupDirection}.`;
-        const topRisk = assetProfile.opposingRisks?.[0] || `Scheduled news release volatility buffer.`;
+        const topRisk = assetProfile.opposingRisks?.[0] || `Market volatility buffer and structure preservation.`;
         setAiAnswer(
-          `FEF AI Swarm Analysis for "${searchQuery}": 15 Council agents report ${assetProfile.confidence}% confluence on ${activeSymbol} (${currentPriceFmt}) with posture ${assetProfile.setupDirection}. Primary Thesis: "${topReason}". Risk Constraint: "${topRisk}". Risk Guardian limit: Max 0.50% account risk.${sessionClosedNotice}`
+          `FEF AI Swarm Analysis for "${searchQuery}": Council evidence trust: ${assetProfile.confidence}% on ${activeSymbol} (${currentPriceFmt}) with posture ${assetProfile.setupDirection}. Primary Thesis: "${topReason}". Risk Constraint: "${topRisk}". Risk Guardian limit: Max policy cap 0.50% equity.${sessionClosedNotice}`
         );
       }
     }, 500);
@@ -236,10 +236,10 @@ export const MasterTopNav: React.FC = () => {
             <Link
               href="/execution"
               className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.2)]"
-              title="MT5 Bridge Connected & Ready for Execution"
+              title="MT5 Telemetry Connected (READ-ONLY)"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-bold tracking-wider">MT5 CONNECTED ({telemetry.account?.broker || 'LIVE'})</span>
+              <span className="font-bold tracking-wider">MT5 CONNECTED ({telemetry.account?.broker || (telemetry.isRemote ? 'RELAY' : 'LIVE')})</span>
             </Link>
           ) : (
             <Link

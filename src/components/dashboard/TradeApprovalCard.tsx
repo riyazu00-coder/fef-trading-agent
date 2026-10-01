@@ -236,7 +236,7 @@ export const TradeApprovalCard: React.FC<TradeApprovalCardProps> = ({ setup }) =
             </div>
             <div className="flex justify-between">
               <span>News Auto-Lockout:</span>
-              <span className="text-amber-400 font-semibold">Armed (T - 1h 45m)</span>
+              <span className="text-amber-400 font-semibold">Armed (Shock Policy Active)</span>
             </div>
           </div>
         </div>

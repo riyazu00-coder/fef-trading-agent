@@ -157,9 +157,9 @@ export const BASE_SYNAPSE_NODES: SynapseNode[] = [
   {
     id: 'syn-9',
     category: 'RISK',
-    title: 'High-Impact PCE Event Countdown',
-    detail: 'US Core PCE release scheduled in 105 mins. Risk discount activated; max risk capped at 0.50%',
-    value: 'T - 1h 45m',
+    title: 'Economic Calendar Telemetry',
+    detail: 'Calendar feed: DATA LIMITED / UNAVAILABLE. Risk policy cap: 0.50% equity active.',
+    value: 'DATA LIMITED',
     agent: 'Risk Guardian',
     source: 'Economic Calendar Service',
     timestamp: '18:25:28',

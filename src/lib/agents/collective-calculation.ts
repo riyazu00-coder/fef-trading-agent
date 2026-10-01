@@ -83,7 +83,7 @@ export const INITIAL_AGENT_VECTORS: AgentMathVector[] = [
     weight: 0.06,
     confidence: 68,
     equation: 'V_news = Log(BullishArticles / BearishArticles)',
-    latestValue: '+0.12 (Neutral ahead of Core PCE)',
+    latestValue: '+0.12 (Neutral sentiment baseline)',
     status: 'CALCULATING'
   },
   {
@@ -121,7 +121,7 @@ export function computeCollectiveConvergence(vectors: AgentMathVector[]): Collec
   });
 
   const rawConvergence = totalWeight > 0 ? weightedVectorSum / totalWeight : 0;
-  const riskDiscountFactor = 0.88; // Reduced slightly due to PCE in 1h 45m
+  const riskDiscountFactor = 0.88; // Macro event shock filter policy discount factor
   const finalConfluencePercent = Math.round(rawConvergence * riskDiscountFactor * 100);
 
   const now = new Date();

@@ -434,7 +434,7 @@ async function handleHttpRequest(req, res) {
 
     return sendJson(res, 200, {
       success: true,
-      state: 'CONNECTED_UNIVERSAL_EXECUTION',
+      state: 'CONNECTED_READ_ONLY',
       serverTime: new Date().toISOString(),
       mode: bridgeState.operatingMode,
       operatingMode: bridgeState.operatingMode,

@@ -138,14 +138,24 @@ export async function POST(req: NextRequest) {
 
     // Optional configuration update from UI
     if (host || port) {
-      mt5BridgeClient.updateConfig({
-        ...(host ? { host } : {}),
-        ...(port ? { port: Number(port) } : {}),
-        ...(token ? { token } : {})
-      });
-      if (port === 5556 || host) {
+      const numericPort = port ? Number(port) : undefined;
+      // If configured for canonical HTTP bridge port 5556 or just changing host
+      if (numericPort === 5556 || (!numericPort && host)) {
         mt5HttpClient.updateConfig({
-          baseUrl: `http://${host || '127.0.0.1'}:${port || 5556}`,
+          baseUrl: `http://${host || '127.0.0.1'}:5556`,
+          ...(token ? { token } : {})
+        });
+      } else if (numericPort === 5555) {
+        // Explicit legacy TCP bridge port configuration
+        mt5BridgeClient.updateConfig({
+          ...(host ? { host } : {}),
+          port: 5555,
+          ...(token ? { token } : {})
+        });
+      } else if (numericPort) {
+        // Custom port applies to HTTP client
+        mt5HttpClient.updateConfig({
+          baseUrl: `http://${host || '127.0.0.1'}:${numericPort}`,
           ...(token ? { token } : {})
         });
       }

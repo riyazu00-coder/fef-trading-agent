@@ -124,7 +124,7 @@ export const ExecutionControlCard: React.FC = () => {
       <div className="space-y-1">
         <div className="flex items-center justify-between text-[9.5px]">
           <span className="text-gray-400">Account Risk Budget</span>
-          <span className="text-cyan-300 font-bold">0.50% ($512.25 Max)</span>
+          <span className="text-cyan-300 font-bold">0.50% equity (Max Policy Cap)</span>
         </div>
         <div className="flex items-center justify-between gap-1 text-[8.5px]">
           {['0.25%', '0.50%', '1.00%', '1.50%'].map((rp) => (

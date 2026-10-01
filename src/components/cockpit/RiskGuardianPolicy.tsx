@@ -57,15 +57,15 @@ export const RiskGuardianPolicy: React.FC = () => {
           </div>
           <div className="flex items-center justify-between text-[#CBD5E1]">
             <span className="text-[#94A3B8]">Risk Budget Cap:</span>
-            <span className="text-[#F8FAFC] font-mono font-bold">0.50% ($512.25)</span>
+            <span className="text-[#F8FAFC] font-mono font-bold">0.50% equity (Max policy cap)</span>
           </div>
           <div className="flex items-center justify-between text-[#CBD5E1]">
             <span className="text-[#94A3B8]">Max Intraday Loss:</span>
-            <span className="text-[#FB7185] font-mono font-bold">-$2,000 Lockout</span>
+            <span className="text-[#FB7185] font-mono font-bold">Policy cap: -2.0% equity</span>
           </div>
           <div className="flex items-center justify-between text-[#CBD5E1]">
             <span className="text-[#94A3B8]">Event Shock Filter:</span>
-            <span className="text-[#FBBF24] font-mono font-bold">Active (PCE in 105m)</span>
+            <span className="text-amber-400 font-mono font-bold">Calendar: DATA LIMITED (Armed)</span>
           </div>
         </div>
       </div>

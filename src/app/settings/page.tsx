@@ -7,10 +7,11 @@ import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { CANONICAL_EXECUTION_MODE } from '@/lib/execution/execution-policy';
 
 export default function SettingsPage() {
   const { activeSymbol } = useActiveAsset();
-  const { telemetry, isMt5Connected, isLocalBridgeOnline } = useMT5Telemetry();
+  const { telemetry, isMt5Connected, isLocalBridgeOnline, refreshTelemetry } = useMT5Telemetry();
 
   // Settings State
   const [maxDailyLoss, setMaxDailyLoss] = useState<number>(2.0);
@@ -18,7 +19,7 @@ export default function SettingsPage() {
   const [requireStopLoss, setRequireStopLoss] = useState<boolean>(true);
   const [newsLockoutMinutes, setNewsLockoutMinutes] = useState<number>(15);
 
-  // MT5 Settings
+  // MT5 Settings (Local Diagnostic / Development Bridge)
   const [mt5Host, setMt5Host] = useState<string>('127.0.0.1');
   const [mt5Port, setMt5Port] = useState<number>(5556);
   const [magicNumber, setMagicNumber] = useState<number>(8882026);
@@ -26,19 +27,20 @@ export default function SettingsPage() {
   const [mt5TestResult, setMt5TestResult] = useState<{
     success: boolean;
     localBridgeOnline: boolean;
+    localBridgeDiagnostic: string;
     mt5Connected: boolean;
     message: string;
     terminal?: any;
     account?: any;
-    latencyMs?: number;
+    latencyMs?: number | null;
     heartbeatAgeMs?: number | null;
     transport?: string;
     mode?: string;
   } | null>(null);
 
-  const effectiveIsConnected = mt5TestResult ? mt5TestResult.mt5Connected : isMt5Connected;
-  const effectiveMode = 'UNIVERSAL_EXECUTION';
-  const isExecutionReady = effectiveIsConnected;
+  // Canonical connection state: grounded in canonical telemetry context
+  const effectiveIsConnected = isMt5Connected || Boolean(mt5TestResult?.mt5Connected);
+  const effectiveMode = CANONICAL_EXECUTION_MODE;
 
   // UI Audio & Appearance
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -50,112 +52,118 @@ export default function SettingsPage() {
     setMt5TestResult(null);
 
     try {
-      // First update bridge config if user changed host/port
-      await fetch('/api/bridge/mt5', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host: mt5Host, port: mt5Port })
-      });
+      // 1. Refresh canonical telemetry first (includes remote relay & background supervisor state)
+      await refreshTelemetry();
 
-      // Query detailed HTTP bridge status
-      const statusRes = await fetch('/api/bridge/mt5?action=STATUS');
-      const statusData = await statusRes.json();
+      // 2. Perform local bridge probe if running in local environment
+      let localProbeStatus: any = null;
+      try {
+        await fetch('/api/bridge/mt5', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host: mt5Host, port: mt5Port })
+        });
+        const statusRes = await fetch('/api/bridge/mt5?action=STATUS');
+        if (statusRes.ok) {
+          localProbeStatus = await statusRes.json();
+        }
+      } catch {
+        // Direct local HTTP probe failed (normal on cloud/Vercel runtimes)
+      }
 
-      if (statusData && statusData.localBridge === 'ONLINE') {
-        const mt5Online = Boolean(statusData.mt5Connected);
-        const resolvedMode = (statusData.mode || statusData.operatingMode || 'READ_ONLY');
+      // Check if local bridge is directly online
+      if (localProbeStatus && localProbeStatus.localBridge === 'ONLINE') {
+        const mt5Online = Boolean(localProbeStatus.mt5Connected || isMt5Connected);
+        const heartbeatStr = localProbeStatus.heartbeatAgeMs != null
+          ? (localProbeStatus.heartbeatAgeMs < 1000 ? '<1s' : (localProbeStatus.heartbeatAgeMs / 1000).toFixed(1) + 's')
+          : (telemetry.heartbeatAgeMs != null ? `${(telemetry.heartbeatAgeMs / 1000).toFixed(1)}s` : 'N/A');
+
         setMt5TestResult({
           success: mt5Online,
           localBridgeOnline: true,
+          localBridgeDiagnostic: 'ONLINE (LOCAL)',
           mt5Connected: mt5Online,
           message: mt5Online
-            ? `✓ Connected: Local HTTP Bridge & MetaTrader 5 live (Heartbeat: ${statusData.heartbeatAgeMs ? (statusData.heartbeatAgeMs / 1000).toFixed(1) + 's' : '<1s'})`
-            : `⚠ Local HTTP Bridge is ONLINE (127.0.0.1:${mt5Port}), but FEF_HTTP_Bridge.mq5 is not connected yet in MT5.`,
-          terminal: statusData.terminal,
-          account: statusData.account,
-          latencyMs: statusData.localBridgeLatencyMs || 5,
-          heartbeatAgeMs: statusData.heartbeatAgeMs,
-          transport: statusData.transport || 'HTTP / WEBREQUEST',
-          mode: resolvedMode
+            ? `✓ Connected: Local HTTP Bridge & MetaTrader 5 live (Heartbeat: ${heartbeatStr})`
+            : `⚠ Local HTTP Bridge is ONLINE (127.0.0.1:${mt5Port}), but MetaTrader 5 terminal is not connected. Attach FEF_HTTP_Bridge.mq5 in MT5.`,
+          terminal: localProbeStatus.terminal || telemetry.terminal,
+          account: localProbeStatus.account || telemetry.account,
+          latencyMs: localProbeStatus.localBridgeLatencyMs ?? null,
+          heartbeatAgeMs: localProbeStatus.heartbeatAgeMs ?? telemetry.heartbeatAgeMs,
+          transport: localProbeStatus.transport || 'HTTP / WEBREQUEST',
+          mode: CANONICAL_EXECUTION_MODE
         });
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({
-            connected: mt5Online,
-            state: statusData.state,
-            transport: statusData.transport || 'HTTP / WEBREQUEST',
-            terminal: statusData.terminal,
-            account: statusData.account,
-            latencyMs: statusData.localBridgeLatencyMs || 5,
-            timestamp: Date.now(),
-            mode: resolvedMode
-          }));
-        }
         return;
       }
 
-      // If HTTP bridge service is offline, fallback to standard PING
-      const pingRes = await fetch('/api/bridge/mt5?action=PING');
-      const pingData = await pingRes.json();
+      // 3. Fallback to canonical remote relay telemetry if local direct probe is unobservable
+      if (isMt5Connected || telemetry.mt5Connected) {
+        const heartbeatStr = telemetry.heartbeatAgeMs != null
+          ? (telemetry.heartbeatAgeMs < 1000 ? '<1s' : `${(telemetry.heartbeatAgeMs / 1000).toFixed(1)}s`)
+          : 'N/A';
 
-      if (!pingData.success) {
         setMt5TestResult({
-          success: false,
+          success: true,
           localBridgeOnline: false,
-          mt5Connected: false,
-          message: pingData.error?.message || 'Failed to connect to MT5 Bridge on ' + mt5Host + ':' + mt5Port,
-          latencyMs: pingData.latencyMs,
-          transport: pingData.transport || 'HTTP / WEBREQUEST',
-          mode: 'READ_ONLY'
+          localBridgeDiagnostic: 'NOT DIRECTLY OBSERVABLE FROM CLOUD',
+          mt5Connected: true,
+          message: `✓ Connected via Secure Remote Relay: MetaTrader 5 active (${telemetry.account?.broker || telemetry.terminal?.brokerName || 'Connected Broker'} • Heartbeat: ${heartbeatStr})`,
+          terminal: telemetry.terminal,
+          account: telemetry.account,
+          latencyMs: telemetry.terminal?.pingToBrokerMs ?? null,
+          heartbeatAgeMs: telemetry.heartbeatAgeMs,
+          transport: telemetry.transport || 'SECURE_RELAY (WSS)',
+          mode: CANONICAL_EXECUTION_MODE
         });
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({ connected: false, state: pingData.state, mode: 'READ_ONLY' }));
-        }
         return;
       }
 
-      // Fetch authentic terminal status & account
-      const [statusRes2, accountRes] = await Promise.all([
-        fetch('/api/bridge/mt5?action=GET_TERMINAL_STATUS'),
-        fetch('/api/bridge/mt5?action=GET_ACCOUNT')
-      ]);
-      const termData = await statusRes2.json();
-      const accountData = await accountRes.json();
-      const pingMode = (pingData.mode || pingData.operatingMode || 'READ_ONLY');
+      // 4. Diagnostic fallback: probe legacy TCP socket if both local HTTP and remote relay are unverified
+      let legacyProbe: any = null;
+      try {
+        const pingRes = await fetch('/api/bridge/mt5?action=PING');
+        if (pingRes.ok) {
+          legacyProbe = await pingRes.json();
+        }
+      } catch {}
 
-      setMt5TestResult({
-        success: true,
-        localBridgeOnline: true,
-        mt5Connected: true,
-        message: `✓ Bridge handshake verified: Latency ${pingData.latencyMs || 8}ms`,
-        terminal: termData.data,
-        account: accountData.data,
-        latencyMs: pingData.latencyMs || 8,
-        transport: pingData.transport || 'HTTP / WEBREQUEST',
-        mode: pingMode
-      });
-
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({
-          connected: true,
-          state: pingMode === 'DEMO_EXECUTION' ? 'CONNECTED_DEMO_EXECUTION' : 'CONNECTED_READ_ONLY',
-          terminal: termData.data,
-          account: accountData.data,
-          latencyMs: pingData.latencyMs || 8,
-          timestamp: Date.now(),
-          mode: pingMode
-        }));
+      if (legacyProbe && legacyProbe.success) {
+        setMt5TestResult({
+          success: true,
+          localBridgeOnline: true,
+          localBridgeDiagnostic: 'ONLINE (LEGACY TCP)',
+          mt5Connected: true,
+          message: `✓ Legacy TCP Bridge handshake verified: Latency ${legacyProbe.latencyMs != null ? `${legacyProbe.latencyMs}ms` : 'DATA LIMITED'}`,
+          terminal: telemetry.terminal,
+          account: telemetry.account,
+          latencyMs: legacyProbe.latencyMs ?? null,
+          transport: 'TCP SOCKET (LEGACY)',
+          mode: CANONICAL_EXECUTION_MODE
+        });
+        return;
       }
+
+      // 5. Total offline/unreachable diagnosis
+      setMt5TestResult({
+        success: false,
+        localBridgeOnline: false,
+        localBridgeDiagnostic: 'OFFLINE / UNREACHABLE',
+        mt5Connected: false,
+        message: `MT5 is disconnected: Local HTTP bridge (127.0.0.1:${mt5Port}) and Remote Relay are offline. Verify 'com.fef.mt5-connectivity' background service.`,
+        latencyMs: null,
+        heartbeatAgeMs: null,
+        transport: 'HTTP / WEBREQUEST',
+        mode: CANONICAL_EXECUTION_MODE
+      });
     } catch (err: any) {
       setMt5TestResult({
         success: false,
         localBridgeOnline: false,
+        localBridgeDiagnostic: 'ERROR',
         mt5Connected: false,
         message: 'Bridge communication error: ' + (err.message || 'Bridge request failed'),
-        mode: 'READ_ONLY'
+        mode: CANONICAL_EXECUTION_MODE
       });
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('fef_mt5_bridge_status', JSON.stringify({ connected: false, state: 'BRIDGE_OFFLINE', mode: 'READ_ONLY' }));
-      }
     } finally {
       setTestingMt5(false);
     }
@@ -316,11 +324,13 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex items-center space-x-2">
                   <span className={`text-[9px] px-2 py-0.5 rounded font-mono font-bold border ${
-                    isExecutionReady
-                      ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.25)]'
+                    effectiveIsConnected
+                      ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/50 shadow-[0_0_10px_rgba(34,211,238,0.25)]'
                       : 'bg-white/5 text-gray-400 border-white/10'
                   }`}>
-                    {isExecutionReady ? 'UNIVERSAL MT5 ACTIVE ⚡' : 'MT5 STANDBY'}
+                    {effectiveIsConnected
+                      ? (telemetry.isRemote ? 'CONNECTED — REMOTE RELAY' : 'CONNECTED — LOCAL BRIDGE')
+                      : 'MT5 STANDBY'}
                   </span>
                   <span className="text-[9px] bg-cyan-950 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-mono">
                     PORT {mt5Port}
@@ -330,7 +340,7 @@ export default function SettingsPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div className="space-y-1">
-                  <label className="text-gray-400 text-[10px]">BRIDGE IP / HOST</label>
+                  <label className="text-gray-400 text-[10px]">LOCAL BRIDGE IP / HOST (DEV DIAGNOSTIC)</label>
                   <input
                     type="text"
                     value={mt5Host}
@@ -339,7 +349,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-gray-400 text-[10px]">HTTP BRIDGE PORT</label>
+                  <label className="text-gray-400 text-[10px]">LOCAL HTTP BRIDGE PORT</label>
                   <input
                     type="number"
                     value={mt5Port}
@@ -387,8 +397,8 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/10 text-[10px]">
                     <div className="bg-black/40 p-2 rounded border border-white/5">
                       <span className="text-gray-400 block text-[8.5px]">LOCAL BRIDGE</span>
-                      <span className={`font-bold ${mt5TestResult.localBridgeOnline ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {mt5TestResult.localBridgeOnline ? 'ONLINE' : 'OFFLINE'} ({mt5TestResult.latencyMs || 0}ms)
+                      <span className={`font-bold ${mt5TestResult.localBridgeOnline ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {mt5TestResult.localBridgeDiagnostic} {mt5TestResult.latencyMs != null ? `(${mt5TestResult.latencyMs}ms)` : ''}
                       </span>
                     </div>
                     <div className="bg-black/40 p-2 rounded border border-white/5">
@@ -405,8 +415,8 @@ export default function SettingsPage() {
                     </div>
                     <div className="bg-black/40 p-2 rounded border border-white/5">
                       <span className="text-gray-400 block text-[8.5px]">OPERATING MODE</span>
-                      <span className={`font-bold ${isExecutionReady ? 'text-emerald-400' : 'text-gray-400'}`}>
-                        {isExecutionReady ? 'UNIVERSAL EXECUTION ⚡' : 'STANDBY'}
+                      <span className={`font-bold ${effectiveIsConnected ? 'text-cyan-400' : 'text-gray-400'}`}>
+                        {effectiveMode}
                       </span>
                     </div>
                   </div>

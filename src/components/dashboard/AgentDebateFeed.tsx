@@ -177,8 +177,10 @@ export const AgentDebateFeed: React.FC<AgentDebateFeedProps> = ({ onAgentTalk })
                     className={`text-[9px] px-1 rounded ${
                       msg.bias === 'BULLISH'
                         ? 'text-emerald-400 bg-emerald-950/60'
-                        : msg.bias === 'CAUTION'
+                        : msg.bias === 'CAUTION' || msg.bias === 'WAIT'
                         ? 'text-amber-400 bg-amber-950/60'
+                        : msg.bias === 'NEUTRAL' || msg.bias === ('DATA LIMITED' as any)
+                        ? 'text-cyan-400 bg-cyan-950/60'
                         : 'text-red-400 bg-red-950/60'
                     }`}
                   >

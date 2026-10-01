@@ -2,28 +2,21 @@
 
 import React, { useState } from 'react';
 
-interface EconomicEventItem {
-  time: string;
+interface EventPolicyRule {
   name: string;
-  currency: string;
-  impact: 'HIGH' | 'MEDIUM' | 'LOW';
-  impactColor: string;
-  countdown: string;
-  forecast: string;
-  previous: string;
-  riskLockout: string;
+  buffer: string;
+  policyAction: string;
 }
 
 export const EconomicEventsCard: React.FC = () => {
   const [showAllModal, setShowAllModal] = useState<boolean>(false);
 
-  const events: EconomicEventItem[] = [
-    { time: '18:30', name: 'Core PCE Price Index (MoM)', currency: 'USD', impact: 'HIGH', impactColor: 'bg-rose-950/60 text-rose-300 border-rose-500/40', countdown: 'in 1h 45m', forecast: '0.2%', previous: '0.3%', riskLockout: 'LOCKOUT ACTIVE (15m buffer)' },
-    { time: '19:15', name: 'Fed Governor Speech (Chicago)', currency: 'USD', impact: 'MEDIUM', impactColor: 'bg-amber-950/60 text-amber-300 border-amber-500/40', countdown: 'in 2h 30m', forecast: 'N/A', previous: 'N/A', riskLockout: 'CAUTION SIZING' },
-    { time: '21:00', name: '10-Year Bond Auction', currency: 'USD', impact: 'MEDIUM', impactColor: 'bg-cyan-950/60 text-cyan-300 border-cyan-500/40', countdown: 'in 4h 15m', forecast: '4.22%', previous: '4.28%', riskLockout: 'STANDARD' },
-    { time: '23:00', name: 'Non-Farm Payrolls (Preview)', currency: 'USD', impact: 'HIGH', impactColor: 'bg-rose-950/60 text-rose-300 border-rose-500/40', countdown: 'in 22h 0m', forecast: '165K', previous: '187K', riskLockout: 'SCHEDULED LOCKOUT' },
-    { time: '08:30', name: 'ECB Monetary Policy Statement', currency: 'EUR', impact: 'HIGH', impactColor: 'bg-rose-950/60 text-rose-300 border-rose-500/40', countdown: 'Tomorrow', forecast: '3.75%', previous: '3.75%', riskLockout: 'SCHEDULED' },
-    { time: '01:30', name: 'Tokyo CPI Inflation Rate', currency: 'JPY', impact: 'MEDIUM', impactColor: 'bg-amber-950/60 text-amber-300 border-amber-500/40', countdown: 'Tomorrow', forecast: '2.4%', previous: '2.5%', riskLockout: 'STANDARD' },
+  // Truthful policy configuration parameters (not fabricated active events)
+  const eventPolicyRules: EventPolicyRule[] = [
+    { name: 'High Impact USD/EUR/GBP Releases', buffer: 'T-15m to T+15m', policyAction: 'MANDATORY LOCKOUT' },
+    { name: 'Central Bank Rate Decisions (Fed, ECB, BOJ)', buffer: 'T-30m to T+30m', policyAction: 'EXECUTION RESTRICTED' },
+    { name: 'Tier-1 Inflation Prints (CPI, PCE)', buffer: 'T-15m to T+15m', policyAction: 'POLICY SIZING REDUCTION' },
+    { name: 'Sovereign Bond Auctions / Speeches', buffer: 'Continuous', policyAction: 'ELEVATED SPREAD MONITOR' },
   ];
 
   return (
@@ -42,41 +35,46 @@ export const EconomicEventsCard: React.FC = () => {
             onClick={() => setShowAllModal(true)}
             className="text-[9px] text-[#67E8F9] hover:text-white transition-colors cursor-pointer font-bold"
           >
-            View All ({events.length}) &rarr;
+            Policy Rules ({eventPolicyRules.length}) &rarr;
           </button>
         </div>
 
-        <div className="space-y-2 text-[10px]">
-          {events.slice(0, 4).map((ev, i) => (
+        {/* Real-time telemetry status */}
+        <div className="p-2 rounded-lg bg-black/40 border border-amber-500/20 flex items-center justify-between text-[9px]">
+          <span className="text-gray-400">Calendar Telemetry:</span>
+          <span className="text-amber-400 font-bold bg-amber-950/40 px-1.5 py-0.2 rounded border border-amber-500/30">
+            DATA LIMITED / UNAVAILABLE
+          </span>
+        </div>
+
+        <div className="space-y-1.5 text-[9.5px]">
+          <div className="text-[8px] text-gray-400 uppercase tracking-wider font-sans font-bold">
+            Configured Risk Safeguards
+          </div>
+          {eventPolicyRules.slice(0, 3).map((rule, i) => (
             <div key={i} className="flex items-center justify-between p-1.5 rounded-lg bg-black/30 border border-white/5">
-              <div className="flex items-center space-x-2">
-                <span className="text-gray-400 font-bold">{ev.time}</span>
-                <span className="text-white font-medium truncate max-w-[125px]">{ev.name}</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded border ${ev.impactColor}`}>
-                  {ev.impact}
-                </span>
-                <span className="text-[9px] text-gray-400">{ev.countdown}</span>
-              </div>
+              <span className="text-gray-300 font-medium truncate max-w-[140px] text-[8.5px]">{rule.name}</span>
+              <span className="text-[7.5px] font-bold px-1.5 py-0.2 rounded border bg-amber-950/40 text-amber-300 border-amber-500/30">
+                {rule.policyAction}
+              </span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Full Institutional Economic Calendar Modal */}
+      {/* Institutional Event Risk Policy Modal */}
       {showAllModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="ghost-glass-panel-elevated rounded-2xl max-w-2xl w-full p-5 space-y-4 border border-cyan-500/30 shadow-[0_0_40px_rgba(0,0,0,0.8)] font-sans">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center space-x-2.5">
-                <span className="text-xl">📅</span>
+                <span className="text-xl">🛡️</span>
                 <div>
                   <h2 className="text-base font-bold text-[#F8FAFC] uppercase tracking-[0.06em]">
-                    INSTITUTIONAL ECONOMIC CALENDAR
+                    MACRO EVENT RISK POLICY & SAFEGUARDS
                   </h2>
                   <p className="text-xs text-[#94A3B8]">
-                    Real-time Macro Catalyst Schedule &bull; Risk Guardian Automatic Lockout Rules
+                    Calendar Telemetry: DATA LIMITED / UNAVAILABLE &bull; Protective shock policies armed
                   </p>
                 </div>
               </div>
@@ -89,50 +87,34 @@ export const EconomicEventsCard: React.FC = () => {
             </div>
 
             <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-              {events.map((ev, idx) => (
+              {eventPolicyRules.map((rule, idx) => (
                 <div
                   key={idx}
                   className="bg-black/40 border border-white/[0.08] p-3 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs font-mono"
                 >
-                  <div className="flex items-center space-x-3">
-                    <span className="text-cyan-300 font-bold text-sm w-12">{ev.time}</span>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold font-sans">
-                          {ev.currency}
-                        </span>
-                        <span className="text-[#F8FAFC] font-bold font-sans">{ev.name}</span>
-                      </div>
-                      <div className="text-[10px] text-[#94A3B8] mt-0.5">
-                        Forecast: <span className="text-white">{ev.forecast}</span> &bull; Previous: <span className="text-white">{ev.previous}</span>
-                      </div>
+                  <div>
+                    <span className="text-[#F8FAFC] font-bold font-sans">{rule.name}</span>
+                    <div className="text-[10px] text-[#94A3B8] mt-0.5">
+                      Configured Buffer Window: <span className="text-white">{rule.buffer}</span>
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-3 text-right">
-                    <div>
-                      <span className={`text-[9px] px-2 py-0.5 rounded border font-bold ${ev.impactColor}`}>
-                        {ev.impact} IMPACT
-                      </span>
-                      <span className="block text-[10px] text-[#67E8F9] font-bold mt-1">
-                        {ev.countdown}
-                      </span>
-                    </div>
-                    <div className="hidden sm:block text-[9.5px] text-amber-300 bg-amber-950/40 border border-amber-500/30 px-2 py-1 rounded">
-                      {ev.riskLockout}
-                    </div>
+                  <div className="text-right">
+                    <span className="text-[9px] px-2 py-0.5 rounded border font-bold bg-amber-950/60 text-amber-300 border-amber-500/40">
+                      {rule.policyAction}
+                    </span>
                   </div>
                 </div>
               ))}
             </div>
 
             <div className="pt-2 border-t border-white/10 flex justify-between items-center text-[10px] text-[#94A3B8]">
-              <span>Shock Filter: Live wire scans lock execution 15m prior to High Impact prints.</span>
+              <span>Shock Policy: Live trade lockout activates when verified calendar feed confirms imminent catalyst.</span>
               <button
                 onClick={() => setShowAllModal(false)}
                 className="px-4 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/50 text-[#67E8F9] font-bold rounded-xl transition-all cursor-pointer"
               >
-                Close Calendar
+                Close Policy
               </button>
             </div>
           </div>

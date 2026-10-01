@@ -232,8 +232,10 @@ export const CentralIntelligenceCore: React.FC<CentralIntelligenceCoreProps> = (
                 className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded ${
                   selectedAgentData.bias === 'BULLISH'
                     ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
-                    : selectedAgentData.bias === 'RESTRICTED'
+                    : selectedAgentData.bias === 'RESTRICTED' || selectedAgentData.bias === 'CAUTION'
                     ? 'bg-amber-950/80 text-amber-300 border border-amber-800'
+                    : selectedAgentData.bias === 'BEARISH'
+                    ? 'bg-rose-950/80 text-rose-300 border border-rose-800'
                     : 'bg-gray-900 text-gray-300 border border-gray-800'
                 }`}
               >
@@ -267,7 +269,10 @@ export const CentralIntelligenceCore: React.FC<CentralIntelligenceCoreProps> = (
             </div>
             <div className="flex justify-between">
               <span>DXY BIAS:</span>
-              <span className="text-emerald-400 font-bold">{blackboard.dxyState.trend} (Divergence Confirmed)</span>
+              <span className="text-emerald-400 font-bold">
+                {blackboard.dxyState.trend}
+                {blackboard.dxyState.divergenceToGold && blackboard.dxyState.divergenceToGold !== 'NORMAL' ? ` (${blackboard.dxyState.divergenceToGold})` : ''}
+              </span>
             </div>
             <div className="flex justify-between">
               <span>EVENT RISK:</span>

@@ -98,8 +98,8 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
           localBridgeOnline: false,
           mt5Connected: false,
           state: 'MT5_OFFLINE',
-          operatingMode: 'UNIVERSAL_EXECUTION',
-          readOnlyLockActive: false,
+          operatingMode: 'READ_ONLY',
+          readOnlyLockActive: true,
           lastSyncTimestamp: Date.now()
         }));
         return;
@@ -114,8 +114,8 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
           localBridgeOnline: false,
           mt5Connected: false,
           state: 'MT5_OFFLINE',
-          operatingMode: 'UNIVERSAL_EXECUTION',
-          readOnlyLockActive: false,
+          operatingMode: 'READ_ONLY',
+          readOnlyLockActive: true,
           lastSyncTimestamp: Date.now()
         }));
         return;
@@ -129,40 +129,60 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Format quotes map
       const allQuotes: Record<string, any> = data.quotes || {};
 
-      const opMode: 'UNIVERSAL_EXECUTION' | 'READ_ONLY' = mt5Online ? 'UNIVERSAL_EXECUTION' : 'READ_ONLY';
-      const isReadOnly = !mt5Online;
+      // Execution policy is canonically locked to READ_ONLY for this milestone
+      const opMode: 'READ_ONLY' = 'READ_ONLY';
+      const isReadOnly = true;
 
-      // Transform raw account to account context with consistent authoritative operating mode
-      const rawAccount = data.account || {
-        account: data.maskedAccount || data.accountMasked || '00***00',
-        broker: data.broker || 'Exness',
-        server: data.server || 'Exness-MT5Trial16',
-        balance: data.balance || 10000,
-        equity: data.equity || 10000,
-        margin: data.margin || 0,
-        freeMargin: data.freeMargin || 10000,
-        leverage: data.leverage || 200,
-        currency: data.currency || 'USD',
-        tradeMode: data.tradeMode || 'DEMO',
-        tradeAllowed: true,
-      };
+      // Transform authentic account only when provided by upstream telemetry
+      const rawAccount = data.account || (data.maskedAccount || data.balance != null ? {
+        maskedLogin: data.maskedAccount || data.accountMasked,
+        broker: data.broker,
+        server: data.server,
+        balance: data.balance,
+        equity: data.equity,
+        margin: data.margin,
+        freeMargin: data.freeMargin,
+        leverage: data.leverage,
+        currency: data.currency,
+        tradeMode: data.tradeMode,
+        tradeAllowed: data.tradeAllowed
+      } : null);
       const accountContext = deriveAccountRiskContext(rawAccount, data.positions, opMode);
+
+      // Terminal status: preserve authentic terminal telemetry if provided, otherwise null
+      const terminalStatus = data.terminal ? {
+        terminalConnected: Boolean(data.terminal.connected ?? data.terminal.terminalConnected ?? mt5Online),
+        brokerConnected: Boolean(data.terminal.brokerConnected ?? data.terminal.connected ?? mt5Online),
+        brokerName: data.terminal.brokerName || data.broker || '',
+        brokerServer: data.terminal.brokerServer || data.server || '',
+        terminalBuild: Number(data.terminal.terminalBuild || 0),
+        tradeAllowed: Boolean(data.terminal.tradeAllowed),
+        tradeExpert: Boolean(data.terminal.tradeExpert),
+        pingToBrokerMs: typeof data.terminal.pingToBrokerMs === 'number'
+          ? data.terminal.pingToBrokerMs
+          : (typeof data.terminal.ping === 'number' ? data.terminal.ping : 0),
+        bridgeVersion: data.terminal.bridgeVersion || '',
+        operatingMode: 'READ_ONLY' as const,
+        lastHeartbeat: data.terminal.lastHeartbeat || data.lastHeartbeat || ''
+      } : null;
+
+      const connectionState = (data.state && data.state !== 'CONNECTED_UNIVERSAL_EXECUTION')
+        ? (data.state === 'CONNECTED_DEMO_EXECUTION' || data.state === 'CONNECTED_LIVE_EXECUTION' ? 'CONNECTED_READ_ONLY' : data.state)
+        : (mt5Online ? 'CONNECTED_READ_ONLY' : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE');
+
+      const transportLabel = isRemote
+        ? (data.transport || 'SECURE_RELAY (WSS)')
+        : (data.transport || 'HTTP / WEBREQUEST');
 
       setTelemetry({
         localBridgeOnline: localOnline,
         mt5Connected: mt5Online,
         isRemote,
-        state: data.state || (mt5Online ? 'CONNECTED_UNIVERSAL_EXECUTION' : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE'),
-        transport: isRemote ? 'SECURE_RELAY (WSS)' : (data.transport || 'HTTP / WEBREQUEST'),
+        state: connectionState,
+        transport: transportLabel,
         heartbeatAgeMs: data.heartbeatAgeMs ?? null,
         lastHeartbeat: data.lastHeartbeat ?? null,
-        terminal: data.terminal || {
-          connected: true,
-          tradeAllowed: true,
-          brokerName: data.broker || 'Exness',
-          brokerServer: data.server || 'Exness-MT5Trial16',
-          ping: data.ping ?? 5,
-        },
+        terminal: terminalStatus,
         account: accountContext,
         allPositions: Array.isArray(data.positions) ? data.positions : [],
         allPendingOrders: Array.isArray(data.orders) ? data.orders : [],

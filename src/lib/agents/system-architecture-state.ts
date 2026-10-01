@@ -179,20 +179,20 @@ export const ARCHITECTURE_STAGES: ArchitectureStage[] = [
     agentRole: 'Position Sizing, Stop Loss Geometry & Drawdown Protection',
     status: 'ACTIVE',
     telemetry: [
-      { label: 'Max Risk/Trade', value: '0.50%' },
+      { label: 'Max Risk/Trade', value: '0.50% Policy Cap' },
       { label: 'Planned R:R', value: '1 : 2.85' },
-      { label: 'News Lockout', value: 'Armed (T - 1h 45m)' }
+      { label: 'News Lockout', value: 'Armed (Shock Policy Active)' }
     ],
     items: [
-      'Entry Zone: $2,344.00 - $2,346.50',
-      'Volatility-Based Stop Loss: $2,339.80',
-      'Multi-Tier Take Profits: TP1 $2,354, TP2 $2,362, TP3 $2,371.50',
-      'Position Sizing: 0.50 Lots ($500 risk)',
+      'Entry Zone: Bounded by active structural blueprint',
+      'Volatility-Based Stop Loss: Defined by swing invalidation',
+      'Multi-Tier Take Profits: Structured R:R targets',
+      'Position Sizing: Dynamic calculation bounded by 0.50% equity cap',
       'Spread & Slippage Safety Thresholds',
-      'Max Daily Loss Boundary: -$2,000 (Protected)',
-      'Invalidation: M15 Close below $2,339.80'
+      'Max Daily Loss Boundary: -2.0% equity policy threshold',
+      'Invalidation: Defined by structural swing breach'
     ],
-    lastAction: 'Locked maximum risk to 0.50% due to upcoming Core PCE release.'
+    lastAction: 'Strict 0.50% equity risk policy cap active. Position sizing remains pending validation.'
   },
   {
     id: 8,
