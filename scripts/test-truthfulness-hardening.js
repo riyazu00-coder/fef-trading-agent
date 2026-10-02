@@ -2330,6 +2330,142 @@ function pass(msg) {
     assert.strictEqual(mixedCryptoMapping.symbols.includes('ETHUSD'), true, 'Mixed article mentioning Ethereum must map ETHUSD');
     assert.strictEqual(mixedCryptoMapping.relevanceScore, 0.90, 'Explicit mixed crypto article must receive 0.90 relevance');
 
+    // REGRESSION ITEM 4E: Exchange Listing Ticker Syntax False Positives (Negative Tests)
+    // Production Case 1: Robinhood (NASDAQ: $HOOD) tokenized stocks -> must NOT map US100
+    const hoodTickerMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Robinhood’s Tokenized Stocks Are Becoming a New Memecoin Trade: Report',
+      'Robinhood’s (NASDAQ: $HOOD) tokenized stocks are seeing speculative activity according to on-chain analysts.'
+    );
+    assert.strictEqual(
+      hoodTickerMapping.symbols.includes('US100'),
+      false,
+      'Exchange listing prefix (NASDAQ: $HOOD) must NOT map to US100'
+    );
+    assert.strictEqual(hoodTickerMapping.symbols.includes('GLOBAL'), true, 'Unrelated ticker article should default to GLOBAL');
+    assert.strictEqual(hoodTickerMapping.relevanceScore, 0.40, 'Incidental ticker mention must remain 0.40 contextual relevance');
+
+    // Production Case 2: U.S. Global Investors (NASDAQ:GROW) -> must NOT map US100
+    const growTickerMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Frank Talk: Berkshire’s Delta bet shows why quality matters in airline stocks',
+      'U.S. Global Investors (NASDAQ:GROW) analysis shows airline profitability depends on capital discipline.'
+    );
+    assert.strictEqual(
+      growTickerMapping.symbols.includes('US100'),
+      false,
+      'Exchange listing prefix (NASDAQ:GROW) must NOT map to US100'
+    );
+    assert.strictEqual(growTickerMapping.relevanceScore, 0.40, 'Incidental listing metadata must not elevate relevance');
+
+    // Production Case 3: Incidental S&P 500 comparison in company article -> must NOT map US500
+    const spComparisonMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'XYZ Corp reports record quarterly revenue',
+      'The company shares have performed well against the S&P 500 over the past six months.'
+    );
+    assert.strictEqual(
+      spComparisonMapping.symbols.includes('US500'),
+      false,
+      'Incidental comparison "against the S&P 500" in single company article must NOT map US500'
+    );
+    assert.strictEqual(spComparisonMapping.relevanceScore, 0.40, 'Incidental comparison must not inflate relevance to 0.85');
+
+    // Production Case 4: Exchange listing headlines without index evidence -> must NOT map US100
+    const transferListingMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'XYZ transfers listing to Nasdaq',
+      'The board approved transfer from regional exchange to Nasdaq.'
+    );
+    assert.strictEqual(transferListingMapping.symbols.includes('US100'), false, 'Transferring listing must not map US100');
+    assert.strictEqual(transferListingMapping.symbols.includes('GLOBAL'), true, 'Exchange listing story defaults to GLOBAL');
+    assert.strictEqual(transferListingMapping.relevanceScore, 0.40, 'Exchange listing story must receive 0.40 relevance');
+
+    const beginsTradingMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'ABC begins trading on Nasdaq Monday',
+      'Trading commences under new symbol following business combination.'
+    );
+    assert.strictEqual(beginsTradingMapping.symbols.includes('US100'), false, 'Beginning trading on exchange must not map US100');
+    assert.strictEqual(beginsTradingMapping.relevanceScore, 0.40, 'Listing announcement must receive 0.40 relevance');
+
+    const appliesListingMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Company applies for Nasdaq listing',
+      'Management submitted initial listing application to the exchange.'
+    );
+    assert.strictEqual(appliesListingMapping.symbols.includes('US100'), false, 'Applying for listing must not map US100');
+    assert.strictEqual(appliesListingMapping.relevanceScore, 0.40, 'Listing application must receive 0.40 relevance');
+
+    const welcomesExchangeMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Nasdaq welcomes XYZ to the exchange',
+      'Exchange leadership hosted welcoming ceremony for newly listed issuer.'
+    );
+    assert.strictEqual(welcomesExchangeMapping.symbols.includes('US100'), false, 'Exchange welcome must not map US100');
+    assert.strictEqual(welcomesExchangeMapping.relevanceScore, 0.40, 'Exchange ceremony must receive 0.40 relevance');
+
+    // REGRESSION ITEM 4F: Genuine Major Index Movement & Subject (Positive Tests)
+    // "Nasdaq Powers Up On U.S. Jobs Shortfall" -> maps US100 with 0.85
+    const nasdaqPositiveMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Nasdaq Powers Up On U.S. Jobs Shortfall',
+      'Technology shares advance as bond yields retreat following softer labor data.'
+    );
+    assert.strictEqual(nasdaqPositiveMapping.symbols.includes('US100'), true, 'Genuine Nasdaq index rally must map US100');
+    assert.strictEqual(nasdaqPositiveMapping.relevanceScore, 0.85, 'Direct major index subject must earn 0.85 relevance');
+
+    // "Nasdaq falls after jobs report" -> maps US100 with 0.85
+    const nasdaqFallsMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Nasdaq falls after jobs report',
+      'Tech-heavy index declines as bond yields spike on sticky wage inflation.'
+    );
+    assert.strictEqual(nasdaqFallsMapping.symbols.includes('US100'), true, 'Nasdaq market decline must map US100');
+    assert.strictEqual(nasdaqFallsMapping.relevanceScore, 0.85, 'Direct Nasdaq index movement must receive 0.85 relevance');
+
+    // "Nasdaq composite rises" -> maps US100 with 0.85
+    const nasdaqCompositeMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Nasdaq composite rises',
+      'Broad technology benchmarks advance for third consecutive session.'
+    );
+    assert.strictEqual(nasdaqCompositeMapping.symbols.includes('US100'), true, 'Nasdaq composite index rally must map US100');
+    assert.strictEqual(nasdaqCompositeMapping.relevanceScore, 0.85, 'Nasdaq composite must receive 0.85 relevance');
+
+    // "Nasdaq-100 futures rise" -> maps US100 with 0.85
+    const nasdaqFuturesMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Nasdaq-100 futures rise ahead of opening bell',
+      'Index futures indicate higher start for tech sector.'
+    );
+    assert.strictEqual(nasdaqFuturesMapping.symbols.includes('US100'), true, 'Nasdaq-100 futures must map US100');
+    assert.strictEqual(nasdaqFuturesMapping.relevanceScore, 0.85, 'Explicit Nasdaq-100 must receive 0.85 relevance');
+
+    // "S&P 500 falls after jobs report" -> maps US500
+    const sp500FallsMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'S&P 500 falls after jobs report prints hot',
+      'Benchmark index drops as interest rate expectations adjust.'
+    );
+    assert.strictEqual(sp500FallsMapping.symbols.includes('US500'), true, 'S&P 500 index decline must map US500');
+    assert.strictEqual(sp500FallsMapping.relevanceScore, 0.85, 'Direct S&P 500 index movement must receive 0.85 relevance');
+
+    // "US500 futures decline" -> maps US500
+    const us500FuturesMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'US500 futures decline in premarket trade',
+      'Contracts on broad market index track global equity pullback.'
+    );
+    assert.strictEqual(us500FuturesMapping.symbols.includes('US500'), true, 'US500 futures must map US500');
+    assert.strictEqual(us500FuturesMapping.relevanceScore, 0.85, 'Explicit US500 must receive 0.85 relevance');
+
+    // REGRESSION ITEM 4G: Multi-asset preservation when incidental exchange syntax is rejected
+    // Article mentions Oil prices AND incidental Nasdaq ticker -> USOIL must remain mapped
+    const multiAssetIncidentalMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Crude oil supply tightens as OPEC holds output steady',
+      'Energy company (NASDAQ: $XOM) analysts note storage drawdown.'
+    );
+    assert.strictEqual(multiAssetIncidentalMapping.symbols.includes('USOIL'), true, 'USOIL must remain mapped despite ticker metadata');
+    assert.strictEqual(multiAssetIncidentalMapping.symbols.includes('US100'), false, 'NASDAQ ticker metadata must NOT contaminate article with US100');
+    assert.strictEqual(multiAssetIncidentalMapping.relevanceScore, 0.90, 'Direct asset relevance (0.90) must be preserved');
+
+    // Article genuinely discusses both Oil and Nasdaq index -> both mapped
+    const multiAssetValidMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Oil prices fall as Nasdaq rises',
+      'Crude slips on inventory build while tech-heavy Nasdaq composite extends weekly gains.'
+    );
+    assert.strictEqual(multiAssetValidMapping.symbols.includes('USOIL'), true, 'USOIL must be mapped when genuine subject');
+    assert.strictEqual(multiAssetValidMapping.symbols.includes('US100'), true, 'US100 must be mapped when genuine subject');
+    assert.strictEqual(multiAssetValidMapping.relevanceScore, 0.90, 'Highest direct asset relevance (0.90) must be retained');
+
     // REGRESSION ITEM 5: Generic company earnings article mentioning inflation
     // Must NOT become HIGH impact merely because "inflation" appears
     const earningsImpact = testNewsEngine.classifyImpact(

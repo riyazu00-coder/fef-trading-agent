@@ -328,12 +328,47 @@ export class GlobalNewsEngine implements NewsProvider {
       maxRelevance = Math.max(maxRelevance, 0.90);
     }
 
-    // Explicit Major Indices
-    if (text.match(/\b(nasdaq|nasdaq-?100|us100)\b/)) {
+    // Major Index: US100 (Nasdaq-100 / Nasdaq index & market movement)
+    // Strip exchange ticker listing syntax (e.g. "NASDAQ:HOOD", "NASDAQ: $HOOD", "NASDAQ:GROW")
+    const textWithoutNasdaqTickers = text.replace(/nasdaq\s*:\s*\$?[a-z0-9._-]+/gi, ' ');
+
+    // Explicitly reject exchange/listing semantics from mapping to US100 index evidence
+    const isNasdaqExchangeListing =
+      /\b(listed\s+on\s+nasdaq|listing\s+on\s+nasdaq|nasdaq\s+listing|transfers?\s+listing\s+to\s+nasdaq|begins?\s+trading\s+on\s+nasdaq|applies?\s+(for\s+(a\s+)?nasdaq\s+listing|to\s+list\s+on\s+nasdaq)|plans?\s+to\s+list\s+on\s+nasdaq|nasdaq-listed|rings?\s+(the\s+)?nasdaq\s+opening\s+bell|nasdaq\s+exchange|nasdaq\s+welcomes?|welcomes?\s+.*?\bto\s+(the\s+)?(nasdaq\s+)?exchange)\b/i.test(text);
+
+    const hasStrongNasdaqSymbol =
+      /\b(nasdaq-?100|us100)\b/i.test(text) ||
+      /\bnasdaq\s+100\b/i.test(text);
+
+    const hasNasdaqIndexOrMarketForm =
+      /\b(nasdaq\s+(futures|index|composite|market|benchmark))\b/i.test(textWithoutNasdaqTickers) ||
+      /\b(tech-heavy\s+nasdaq)\b/i.test(textWithoutNasdaqTickers);
+
+    const hasNasdaqMovementAction =
+      /\b(nasdaq|nasdaq\s+composite|tech-heavy\s+nasdaq)\s+(powers\s+up|rises|surges|gains|rallies|jumps|climbs|advances|falls|drops|slides|slumps|tumbles|declines|retreats|closes|opens|plunges|ends|settles)\b/i.test(textWithoutNasdaqTickers) ||
+      /\b(powers\s+up|rises|surges|gains|rallies|jumps|climbs|advances|falls|drops|slides|slumps|tumbles|declines|retreats|plunges)\s+on\s+the\s+nasdaq\b/i.test(textWithoutNasdaqTickers);
+
+    if (!isNasdaqExchangeListing && (hasStrongNasdaqSymbol || hasNasdaqIndexOrMarketForm || hasNasdaqMovementAction)) {
       symbols.add('US100');
       maxRelevance = Math.max(maxRelevance, 0.85);
     }
-    if (text.match(/\b(s&p 500|sp500|us500)\b/)) {
+
+    // Major Index: US500 (S&P 500 / US500 index & market movement)
+    // Must NOT map merely because an unrelated company article compares performance "against the s&p 500" or benchmark
+    const hasStrongSp500Symbol = /\b(sp500|us500)\b/i.test(text);
+
+    const hasSp500IndexOrMarketForm =
+      /\b((s&p\s*500|standard\s*&\s*poor'?s\s*500)\s+(futures|index|benchmark|market))\b/i.test(text) ||
+      /\b(broad\s+s&p\s*500)\b/i.test(text);
+
+    const hasSp500MovementAction =
+      /\b(s&p\s*500|standard\s*&\s*poor'?s\s*500|sp500|us500)\s+(powers\s+up|rises|surges|gains|rallies|jumps|climbs|advances|falls|drops|slides|slumps|tumbles|declines|retreats|closes|opens|plunges|ends|settles)\b/i.test(text);
+
+    // Incidental comparison guard: "against the S&P 500", "beats the S&P 500", "trailing S&P 500", etc.
+    const isIncidentalSp500Comparison =
+      /\b(against|versus|vs\.?|compared\s+to|beating|beats|trailing|trails|underperforming|underperforms|outperforming|outperforms)\s+(the\s+)?(s&p\s*500|sp500)\b/i.test(text);
+
+    if (!isIncidentalSp500Comparison && (hasStrongSp500Symbol || hasSp500IndexOrMarketForm || hasSp500MovementAction)) {
       symbols.add('US500');
       maxRelevance = Math.max(maxRelevance, 0.85);
     }
