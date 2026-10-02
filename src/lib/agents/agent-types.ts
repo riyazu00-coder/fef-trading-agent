@@ -73,7 +73,7 @@ export interface AgentState {
   availableInputs?: string[];
   missingInputs?: string[];
   lastRun?: string;
-  freshness?: 'REALTIME' | 'CURRENT' | 'STALE' | 'OFFLINE';
+  freshness?: 'REALTIME' | 'CURRENT' | 'DELAYED' | 'STALE' | 'OFFLINE';
 }
 
 export interface MarketAsset {

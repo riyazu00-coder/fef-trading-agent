@@ -130,7 +130,7 @@ async function runTests() {
   if (freshNews.length > 0) {
     const item = freshNews[0];
     check(Boolean(item.id && item.headline && item.publishedAt), 'News items contain authentic ID, headline, and publishedAt timestamp');
-    check(item.classification === 'INDEPENDENT_VERIFIED', 'News item classification is marked INDEPENDENT_VERIFIED');
+    check(item.classification === 'LIVE_EXTERNAL', 'News item classification is marked LIVE_EXTERNAL');
     check(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(item.impactTier), 'News item has valid impactTier');
   } else {
     check(true, 'News cache gracefully empty when network isolated (fails closed to truthful empty array)');

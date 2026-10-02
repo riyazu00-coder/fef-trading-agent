@@ -1044,6 +1044,8 @@ function pass(msg) {
   assert.strictEqual(normalized.length, 2, 'Both distinct Fed releases must be normalized');
   assert.notStrictEqual(normalized[0].id, normalized[1].id, 'Distinct Fed releases with similar title prefixes must have different IDs');
   assert.strictEqual(normalized[0].id.startsWith('news-'), true, 'News ID must start with news-');
+  assert.strictEqual(normalized[0].classification, 'LIVE_EXTERNAL', 'Single RSS source news items must be classified as LIVE_EXTERNAL');
+  assert.notStrictEqual(normalized[0].classification, 'INDEPENDENT_VERIFIED', 'News item must NOT claim INDEPENDENT_VERIFIED');
 
   // Test deterministic ID across normalization
   const normalizedAgain = globalNewsEngine.normalizeAndDeduplicate(parsedItems);
@@ -2207,14 +2209,663 @@ function pass(msg) {
     Date.now = originalDateNowGeo;
   }
 
-  // Execution invariants strictly maintained
+  pass('Geopolitical intelligence truthfulness, strict qualification, corridor mapping, and corroboration verified');
+
+  // =================================================================
+  // 35. News Intelligence Truthfulness Hardening
+  // =================================================================
+  const newsEngineSource = fs.readFileSync(
+    path.join(__dirname, '../src/lib/news/global-news-engine.ts'),
+    'utf8'
+  );
+  const multiAssetPipelineSource = fs.readFileSync(
+    path.join(__dirname, '../src/lib/agents/multi-asset-pipeline.ts'),
+    'utf8'
+  );
+
+  // 1. Source verification: Ensure purged static artifacts and uncorroborated INDEPENDENT_VERIFIED
+  assert.strictEqual(
+    newsEngineSource.includes("latencyMs: 35"),
+    false,
+    'Must not hardcode latencyMs: 35'
+  );
+  assert.strictEqual(
+    newsEngineSource.includes("classification: 'INDEPENDENT_VERIFIED'"),
+    false,
+    'GlobalNewsEngine must not classify single RSS news as INDEPENDENT_VERIFIED'
+  );
+  assert.strictEqual(
+    multiAssetPipelineSource.includes("if (top.sentimentBias === 'BULLISH') newsBias = 'BULLISH'"),
+    false,
+    'multi-asset-pipeline.ts NEWS agent must not directly translate top.sentimentBias into agent bias'
+  );
+
+  const { GlobalNewsEngine, globalNewsEngine: liveNewsEngine } = require('../src/lib/news/global-news-engine.ts');
+  const { generateAssetIntelligence } = require('../src/lib/agents/multi-asset-pipeline.ts');
+
+  const testNewsEngine = new GlobalNewsEngine();
+  const testBaseTime = 1790940000000;
+  const originalFetchNews = global.fetch;
+  const originalDateNowNews = Date.now;
+
+  try {
+    Date.now = () => testBaseTime;
+
+    // REGRESSION ITEM 1: Silver-only article
+    // XAGUSD may be mapped; XAUUSD must NOT be mapped solely because silver/XAG appears
+    const silverMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Silver demand jumps as industrial consumption rises',
+      'Solar manufacturers increase spot silver and XAG purchasing.'
+    );
+    assert.strictEqual(silverMapping.symbols.includes('XAGUSD'), true, 'Silver article must map XAGUSD');
+    assert.strictEqual(silverMapping.symbols.includes('XAUUSD'), false, 'Silver-only article must NOT map XAUUSD');
+
+    // REGRESSION ITEM 2: Generic Fed commentary
+    // Must NOT automatically map XAUUSD + EURUSD + GBPUSD + US100 + US500
+    const fedCommentaryMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Analysts discuss how Fed policy could affect markets',
+      'Economists debate interest rates, inflation, and treasury yields in quarterly outlook.'
+    );
+    assert.strictEqual(
+      fedCommentaryMapping.symbols.includes('XAUUSD') || fedCommentaryMapping.symbols.includes('US100'),
+      false,
+      'Generic Fed commentary must NOT spray across multiple assets as direct evidence'
+    );
+    assert.strictEqual(fedCommentaryMapping.symbols.includes('GLOBAL'), true, 'Generic Fed commentary should map to GLOBAL contextual');
+    assert.strictEqual(fedCommentaryMapping.relevanceScore <= 0.50, true, 'Contextual macro news must receive conservative relevance score');
+
+    // REGRESSION ITEM 3: Explicit gold article
+    const goldMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Gold rises as bullion demand strengthens',
+      'Spot gold price advances amid central bank purchasing.'
+    );
+    assert.strictEqual(goldMapping.symbols.includes('XAUUSD'), true, 'Explicit gold article must map XAUUSD');
+    assert.strictEqual(goldMapping.relevanceScore >= 0.90, true, 'Direct asset mention must earn high relevance');
+
+    // REGRESSION ITEM 4: Explicit WTI/crude article
+    const crudeMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'WTI crude oil supply tightens as OPEC output slows',
+      'Petroleum inventories decline across major storage hubs.'
+    );
+    assert.strictEqual(crudeMapping.symbols.includes('USOIL'), true, 'Explicit crude oil article must map USOIL');
+    assert.strictEqual(crudeMapping.relevanceScore >= 0.90, true, 'Direct crude mention must earn high relevance');
+
+    // REGRESSION ITEM 4A: Explicit Ethereum article (Asset Isolation)
+    // "Ethereum rises after network upgrade" -> includes ETHUSD, does NOT include BTCUSD, relevance = 0.90
+    const ethMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Ethereum rises after network upgrade',
+      'Developers confirm successful protocol improvement on mainnet.'
+    );
+    assert.strictEqual(ethMapping.symbols.includes('ETHUSD'), true, 'Ethereum article must include ETHUSD');
+    assert.strictEqual(ethMapping.symbols.includes('BTCUSD'), false, 'Ethereum article must NOT include BTCUSD');
+    assert.strictEqual(ethMapping.relevanceScore, 0.90, 'Explicit Ethereum article must earn direct relevance 0.90');
+
+    // REGRESSION ITEM 4B: Explicit Bitcoin article (Asset Isolation)
+    // "Bitcoin rises after ETF inflows" -> includes BTCUSD, does NOT include ETHUSD, relevance = 0.90
+    const btcMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Bitcoin rises after ETF inflows',
+      'Institutional spot exchange-traded funds report record daily allocation.'
+    );
+    assert.strictEqual(btcMapping.symbols.includes('BTCUSD'), true, 'Bitcoin article must include BTCUSD');
+    assert.strictEqual(btcMapping.symbols.includes('ETHUSD'), false, 'Bitcoin article must NOT include ETHUSD');
+    assert.strictEqual(btcMapping.relevanceScore, 0.90, 'Explicit Bitcoin article must earn direct relevance 0.90');
+
+    // REGRESSION ITEM 4C: Generic crypto wording with NO explicit supported asset
+    // "Crypto market regulation outlook" -> maps GLOBAL, does NOT include BTCUSD, does NOT include ETHUSD, relevance = 0.40
+    const genericCryptoMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Crypto market regulation outlook',
+      'Policy makers discuss digital assets and cryptocurrency oversight frameworks.'
+    );
+    assert.strictEqual(genericCryptoMapping.symbols.includes('GLOBAL'), true, 'Generic crypto wording must map to GLOBAL');
+    assert.strictEqual(genericCryptoMapping.symbols.includes('BTCUSD'), false, 'Generic crypto must NOT automatically map BTCUSD');
+    assert.strictEqual(genericCryptoMapping.symbols.includes('ETHUSD'), false, 'Generic crypto must NOT automatically map ETHUSD');
+    assert.strictEqual(genericCryptoMapping.relevanceScore, 0.40, 'Generic crypto contextual evidence must receive 0.40 relevance');
+
+    // REGRESSION ITEM 4D: Article explicitly mentioning both Bitcoin and Ethereum
+    const mixedCryptoMapping = testNewsEngine.mapSymbolsWithRelevance(
+      'Bitcoin and Ethereum rally together as digital asset volumes climb',
+      'Both BTC and ETH experience strong spot exchange demand.'
+    );
+    assert.strictEqual(mixedCryptoMapping.symbols.includes('BTCUSD'), true, 'Mixed article mentioning Bitcoin must map BTCUSD');
+    assert.strictEqual(mixedCryptoMapping.symbols.includes('ETHUSD'), true, 'Mixed article mentioning Ethereum must map ETHUSD');
+    assert.strictEqual(mixedCryptoMapping.relevanceScore, 0.90, 'Explicit mixed crypto article must receive 0.90 relevance');
+
+    // REGRESSION ITEM 5: Generic company earnings article mentioning inflation
+    // Must NOT become HIGH impact merely because "inflation" appears
+    const earningsImpact = testNewsEngine.classifyImpact(
+      'Retailer quarterly earnings report beats revenue estimates',
+      'CEO notes that inflation pressures moderated during the quarter.'
+    );
+    assert.notStrictEqual(earningsImpact, 'HIGH', 'Earnings article mentioning inflation must not become HIGH impact');
+    assert.strictEqual(earningsImpact, 'MEDIUM', 'Earnings report should be classified as MEDIUM impact');
+
+    // REGRESSION ITEM 6: CPI preview
+    // "What to expect from tomorrow's CPI report" must NOT be treated as actual HIGH-impact release
+    const cpiPreviewImpact = testNewsEngine.classifyImpact(
+      'What to expect from tomorrow\'s CPI report',
+      'Preview of upcoming inflation release as analysts forecast 0.3% rise.'
+    );
+    assert.notStrictEqual(cpiPreviewImpact, 'HIGH', 'CPI preview must NOT be classified as HIGH impact');
+
+    // REGRESSION ITEM 7: Actual CPI release
+    // "US CPI rises 0.4% in September..." with clear statistical print may qualify as HIGH impact
+    const cpiActualImpact = testNewsEngine.classifyImpact(
+      'US CPI rises 0.4% in September as core inflation accelerates',
+      'Consumer price index prints higher than expected according to official labor bureau.'
+    );
+    assert.strictEqual(cpiActualImpact, 'HIGH', 'Actual statistical release with reported numbers must qualify as HIGH impact');
+
+    // REGRESSION ITEM 8: Powell commentary article vs actual Fed decision
+    const powellCommentaryImpact = testNewsEngine.classifyImpact(
+      'Powell speaks on economic history at university forum',
+      'Federal Reserve chairman discusses historical monetary policy.'
+    );
+    const fedActualDecisionImpact = testNewsEngine.classifyImpact(
+      'Fed raises rates by 25 basis points in unanimous vote',
+      'FOMC decides on interest rate policy statement.'
+    );
+    assert.notStrictEqual(powellCommentaryImpact, 'HIGH', 'Ordinary speech/commentary must NOT be HIGH impact');
+    assert.strictEqual(fedActualDecisionImpact, 'HIGH', 'Actual policy rate decision must qualify as HIGH impact');
+
+    // REGRESSION ITEM 9 & 10: Generic headline polarity must NOT produce BULLISH trading bias for XAUUSD or unrelated assets
+    const genericCorporatePolarity = testNewsEngine.classifySentiment(
+      'Company profits surge as revenue growth accelerates',
+      'Firm beats quarterly estimates with record sales.',
+      ['GLOBAL']
+    );
+    assert.strictEqual(genericCorporatePolarity, 'NEUTRAL', 'Generic corporate profit surge must classify as NEUTRAL');
+
+    const dollarRisesPolarity = testNewsEngine.classifySentiment(
+      'Dollar surges against global currencies',
+      'Greenback climbs to new highs.',
+      ['GLOBAL']
+    );
+    assert.strictEqual(dollarRisesPolarity, 'NEUTRAL', 'Dollar surges headline must NOT mechanically become BULLISH');
+
+    // REGRESSION ITEM 11: Gold rises headline sentiment
+    const goldRisesSentiment = testNewsEngine.classifySentiment(
+      'Gold rises as bullion demand strengthens',
+      'Spot gold price advances.',
+      ['XAUUSD']
+    );
+    assert.strictEqual(goldRisesSentiment, 'BULLISH', 'Explicit gold price rise maps to BULLISH asset-sentiment in news record');
+
+    // REGRESSION ITEM 11A: Explicit Ethereum price-rise sentiment (Item E)
+    const ethRisesSentiment = testNewsEngine.classifySentiment(
+      'Ethereum rallies as network activity surges',
+      'Spot ether rises amid heavy decentralized exchange turnover.',
+      ['ETHUSD']
+    );
+    assert.strictEqual(ethRisesSentiment, 'BULLISH', 'Explicit Ethereum price rise maps to BULLISH asset-sentiment in news record');
+
+    // REGRESSION ITEM 11B: Generic crypto positive/negative prose remains NEUTRAL (Item F)
+    const genericCryptoPositiveSentiment = testNewsEngine.classifySentiment(
+      'Crypto market explodes higher with massive optimism',
+      'Traders celebrate broad digital asset euphoria.',
+      ['GLOBAL']
+    );
+    assert.strictEqual(genericCryptoPositiveSentiment, 'NEUTRAL', 'Generic crypto positive wording must remain NEUTRAL');
+
+    const genericCryptoNegativeSentiment = testNewsEngine.classifySentiment(
+      'Crypto market panic as liquidity plunges',
+      'Broad digital asset decline causes widespread concern.',
+      ['GLOBAL']
+    );
+    assert.strictEqual(genericCryptoNegativeSentiment, 'NEUTRAL', 'Generic crypto negative wording must remain NEUTRAL');
+
+    // REGRESSION ITEM 12: Single RSS source article classification
+    const singleRssItem = testNewsEngine.normalizeAndDeduplicate([
+      {
+        title: 'Gold rises as bullion demand strengthens',
+        link: 'https://example.com/gold-news-1',
+        description: 'Spot gold advances.',
+        publishedIso: new Date(testBaseTime - 3600_000).toISOString(),
+        publishedEpoch: testBaseTime - 3600_000,
+        source: 'Yahoo Finance Market Wire'
+      }
+    ]);
+    assert.strictEqual(singleRssItem.length, 1, 'Article normalized');
+    assert.strictEqual(singleRssItem[0].classification, 'LIVE_EXTERNAL', 'Single RSS article must be LIVE_EXTERNAL');
+    assert.notStrictEqual(singleRssItem[0].classification, 'INDEPENDENT_VERIFIED', 'Single RSS article must NOT be INDEPENDENT_VERIFIED');
+
+    // REGRESSION ITEMS 13-18: Timestamp validation and age boundaries
+    const xmlTimestampSuite = `<?xml version="1.0" encoding="utf-8"?>
+    <rss version="2.0">
+      <channel>
+        <item>
+          <title>Article with missing timestamp</title>
+          <link>https://example.com/missing-ts</link>
+        </item>
+        <item>
+          <title>Article with invalid timestamp</title>
+          <link>https://example.com/invalid-ts</link>
+          <pubDate>not-a-valid-date</pubDate>
+        </item>
+        <item>
+          <title>Article 10 minutes in future</title>
+          <link>https://example.com/future-ts</link>
+          <pubDate>${new Date(testBaseTime + (10 * 60 * 1000)).toUTCString()}</pubDate>
+        </item>
+        <item>
+          <title>Article 3 minutes in future (tolerated clock skew)</title>
+          <link>https://example.com/skew-ts</link>
+          <pubDate>${new Date(testBaseTime + (3 * 60 * 1000)).toUTCString()}</pubDate>
+        </item>
+        <item>
+          <title>Article 8 days old (beyond 7-day horizon)</title>
+          <link>https://example.com/old-ts</link>
+          <pubDate>${new Date(testBaseTime - (8 * 24 * 3600 * 1000)).toUTCString()}</pubDate>
+        </item>
+        <item>
+          <title>Article exactly at 6.9-day boundary</title>
+          <link>https://example.com/boundary-ts</link>
+          <pubDate>${new Date(testBaseTime - (6.9 * 24 * 3600 * 1000)).toUTCString()}</pubDate>
+        </item>
+      </channel>
+    </rss>`;
+
+    const parsedXmlItems = testNewsEngine.parseXmlFeed(xmlTimestampSuite, 'Test Wire', 7 * 24 * 3600 * 1000);
+    assert.strictEqual(parsedXmlItems.length, 2, 'Only the 3-minute future and 6.9-day boundary items must be accepted');
+    assert.strictEqual(parsedXmlItems.some((i) => i.title.includes('missing')), false, 'Missing timestamp must be dropped');
+    assert.strictEqual(parsedXmlItems.some((i) => i.title.includes('invalid')), false, 'Invalid timestamp must be dropped');
+    assert.strictEqual(parsedXmlItems.some((i) => i.title.includes('10 minutes in future')), false, 'Future timestamp beyond 5m must be dropped');
+    assert.strictEqual(parsedXmlItems.some((i) => i.title.includes('8 days old')), false, 'Timestamp older than 7 days must be dropped');
+    assert.strictEqual(parsedXmlItems.some((i) => i.title.includes('3 minutes in future')), true, 'Clock skew within 5m must be accepted');
+    assert.strictEqual(parsedXmlItems.some((i) => i.title.includes('6.9-day boundary')), true, 'Item within 7-day horizon must be accepted');
+
+    // REGRESSION ITEM 13-18 (CONTINUED): Exact Millisecond Timestamp Boundary Tests
+    // A. Future Clock-Skew Boundary (tolerance exactly 5 minutes = 300,000 ms)
+    // 1. Exactly now + 5 min: ACCEPTED (inclusive boundary: publishedEpoch - now <= 300,000)
+    // 2. Exactly now + 5 min + 1 ms: REJECTED (publishedEpoch - now > 300,000)
+    // B. News Retention Horizon Boundary (horizon exactly 7 days = 604,800,000 ms)
+    // 3. Exactly now - 7 days: ACCEPTED (inclusive boundary: now - publishedEpoch <= 604,800,000)
+    // 4. Exactly now - 7 days - 1 ms: REJECTED (now - publishedEpoch > 604,800,000)
+    const exactBoundaryXml = `<?xml version="1.0" encoding="utf-8" ?>
+    <rss version="2.0">
+      <channel>
+        <item>
+          <title>Article exactly at plus 5 minutes future boundary</title>
+          <link>https://example.com/exact-future-5m</link>
+          <pubDate>${new Date(testBaseTime + (5 * 60 * 1000)).toISOString()}</pubDate>
+        </item>
+        <item>
+          <title>Article at plus 5 minutes plus 1 millisecond future boundary</title>
+          <link>https://example.com/exact-future-5m-plus-1ms</link>
+          <pubDate>${new Date(testBaseTime + (5 * 60 * 1000) + 1).toISOString()}</pubDate>
+        </item>
+        <item>
+          <title>Article exactly at minus 7 days retention boundary</title>
+          <link>https://example.com/exact-past-7d</link>
+          <pubDate>${new Date(testBaseTime - (7 * 24 * 3600 * 1000)).toISOString()}</pubDate>
+        </item>
+        <item>
+          <title>Article at minus 7 days minus 1 millisecond retention boundary</title>
+          <link>https://example.com/exact-past-7d-minus-1ms</link>
+          <pubDate>${new Date(testBaseTime - (7 * 24 * 3600 * 1000) - 1).toISOString()}</pubDate>
+        </item>
+      </channel>
+    </rss>`;
+
+    const parsedExactBoundaries = testNewsEngine.parseXmlFeed(exactBoundaryXml, 'Test Boundary Wire', 7 * 24 * 3600 * 1000);
+    assert.strictEqual(parsedExactBoundaries.length, 2, 'Only exactly +5m and exactly -7d items must be accepted at millisecond boundaries');
+    assert.strictEqual(
+      parsedExactBoundaries.some((i) => i.title.includes('exactly at plus 5 minutes')),
+      true,
+      'Item published exactly at now + 5 minutes must be ACCEPTED'
+    );
+    assert.strictEqual(
+      parsedExactBoundaries.some((i) => i.title.includes('plus 5 minutes plus 1 millisecond')),
+      false,
+      'Item published at now + 5 minutes + 1 ms must be REJECTED'
+    );
+    assert.strictEqual(
+      parsedExactBoundaries.some((i) => i.title.includes('exactly at minus 7 days')),
+      true,
+      'Item published exactly at now - 7 days must be ACCEPTED'
+    );
+    assert.strictEqual(
+      parsedExactBoundaries.some((i) => i.title.includes('minus 7 days minus 1 millisecond')),
+      false,
+      'Item published at now - 7 days - 1 ms must be REJECTED'
+    );
+
+    // Also verify getCachedNews preserves the same exact millisecond boundary behavior
+    testNewsEngine['cachedNews'] = [
+      {
+        id: 'news-future-exact',
+        headline: 'Future exact boundary item',
+        summary: 'Exact 5m future',
+        source: 'Boundary Wire',
+        publishedAt: new Date(testBaseTime + (5 * 60 * 1000)).toISOString(),
+        epochMs: testBaseTime + (5 * 60 * 1000),
+        symbols: ['XAUUSD'],
+        relevanceScore: 0.90,
+        impactTier: 'MEDIUM',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'GLOBAL'
+      },
+      {
+        id: 'news-future-plus-1ms',
+        headline: 'Future plus 1ms boundary item',
+        summary: '5m + 1ms future',
+        source: 'Boundary Wire',
+        publishedAt: new Date(testBaseTime + (5 * 60 * 1000) + 1).toISOString(),
+        epochMs: testBaseTime + (5 * 60 * 1000) + 1,
+        symbols: ['XAUUSD'],
+        relevanceScore: 0.90,
+        impactTier: 'MEDIUM',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'GLOBAL'
+      },
+      {
+        id: 'news-past-exact',
+        headline: 'Past exact boundary item',
+        summary: 'Exact 7d past',
+        source: 'Boundary Wire',
+        publishedAt: new Date(testBaseTime - (7 * 24 * 3600 * 1000)).toISOString(),
+        epochMs: testBaseTime - (7 * 24 * 3600 * 1000),
+        symbols: ['XAUUSD'],
+        relevanceScore: 0.90,
+        impactTier: 'MEDIUM',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'GLOBAL'
+      },
+      {
+        id: 'news-past-minus-1ms',
+        headline: 'Past minus 1ms boundary item',
+        summary: '7d - 1ms past',
+        source: 'Boundary Wire',
+        publishedAt: new Date(testBaseTime - (7 * 24 * 3600 * 1000) - 1).toISOString(),
+        epochMs: testBaseTime - (7 * 24 * 3600 * 1000) - 1,
+        symbols: ['XAUUSD'],
+        relevanceScore: 0.90,
+        impactTier: 'MEDIUM',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'GLOBAL'
+      }
+    ];
+
+    const cachedExact = testNewsEngine.getCachedNews();
+    assert.strictEqual(cachedExact.length, 2, 'getCachedNews must dynamically prune exactly at millisecond boundaries');
+    assert.strictEqual(cachedExact.some((i) => i.id === 'news-future-exact'), true, 'Exact +5m must be in cached news');
+    assert.strictEqual(cachedExact.some((i) => i.id === 'news-future-plus-1ms'), false, '+5m + 1ms must be pruned from cached news');
+    assert.strictEqual(cachedExact.some((i) => i.id === 'news-past-exact'), true, 'Exact -7d must be in cached news');
+    assert.strictEqual(cachedExact.some((i) => i.id === 'news-past-minus-1ms'), false, '-7d - 1ms must be pruned from cached news');
+
+    // REGRESSION ITEM 19 & 20: Deterministic article ID and deduplication
+    const norm1 = testNewsEngine.normalizeAndDeduplicate(parsedXmlItems);
+    const norm2 = testNewsEngine.normalizeAndDeduplicate(parsedXmlItems);
+    assert.strictEqual(norm1[0].id, norm2[0].id, 'Article ID must be deterministic across calls');
+    const duplicatedInput = [...parsedXmlItems, ...parsedXmlItems];
+    const deduplicated = testNewsEngine.normalizeAndDeduplicate(duplicatedInput);
+    assert.strictEqual(deduplicated.length, 2, 'Duplicate articles must be cleanly deduplicated');
+
+    // REGRESSION ITEM 21: Successful empty refresh respects cache TTL
+    let fetchCalls = 0;
+    global.fetch = async () => {
+      fetchCalls++;
+      return {
+        ok: true,
+        text: async () => '<?xml version="1.0"?><rss><channel></channel></rss>'
+      };
+    };
+
+    const emptyTestEngine = new GlobalNewsEngine();
+    let simTimeNews = testBaseTime;
+    Date.now = () => simTimeNews;
+
+    // Call 1: triggers initial refresh
+    await emptyTestEngine.getLatestNews();
+    assert.strictEqual(fetchCalls, 3, 'Initial refresh queries all configured feeds');
+
+    // Call 2: 30s later (within 60s TTL) -> must NOT refetch despite empty cache
+    simTimeNews += 30_000;
+    await emptyTestEngine.getLatestNews();
+    assert.strictEqual(fetchCalls, 3, 'Second call within TTL must not re-fetch upstream feeds');
+
+    // Call 3: 70s later (TTL expired) -> must refetch
+    simTimeNews += 40_000;
+    await emptyTestEngine.getLatestNews();
+    assert.strictEqual(fetchCalls, 6, 'Call after TTL expiration must refresh feeds');
+
+    // REGRESSION ITEM 22: Corrected News Provider Health & Error Accounting Semantics
+    // consecutiveErrors strictly means CONSECUTIVE TOTAL REFRESH FAILURES (where all feeds fail).
+    // Partial success (where at least 1 feed succeeds) is a DEGRADED condition but resets consecutiveErrors to 0.
+    let feed1Succeeds = true;
+    let feed2Succeeds = false;
+    let feed3Succeeds = false;
+
+    global.fetch = async (url) => {
+      if (url.includes('yahoo.com/news/rssindex')) {
+        return feed1Succeeds
+          ? {
+              ok: true,
+              text: async () => '<?xml version="1.0"?><rss><channel><item><title>Market update</title><link>https://example.com/1</link><pubDate>' + new Date(simTimeNews).toISOString() + '</pubDate></item></channel></rss>'
+            }
+          : { ok: false, status: 500 };
+      }
+      if (url.includes('finance.yahoo.com/news/rssindex')) {
+        return feed2Succeeds
+          ? {
+              ok: true,
+              text: async () => '<?xml version="1.0"?><rss><channel><item><title>Finance update</title><link>https://example.com/2</link><pubDate>' + new Date(simTimeNews).toISOString() + '</pubDate></item></channel></rss>'
+            }
+          : { ok: false, status: 500 };
+      }
+      return feed3Succeeds
+        ? {
+            ok: true,
+            text: async () => '<?xml version="1.0"?><rss><channel><item><title>Fed update</title><link>https://example.com/3</link><pubDate>' + new Date(simTimeNews).toISOString() + '</pubDate></item></channel></rss>'
+          }
+        : { ok: false, status: 500 };
+    };
+
+    const healthEngine = new GlobalNewsEngine();
+
+    // TEST A: FOUR consecutive partial successes (1 feed succeeds, 2 fail)
+    // Must remain DEGRADED with errorCount === 0 after each refresh. Must NEVER become OFFLINE.
+    for (let i = 1; i <= 4; i++) {
+      await healthEngine.refreshNews();
+      const partialHealth = await healthEngine.getHealth();
+      assert.strictEqual(partialHealth.status, 'DEGRADED', `Partial refresh #${i} must report DEGRADED, not OFFLINE`);
+      assert.strictEqual(partialHealth.errorCount, 0, `Partial refresh #${i} must have errorCount === 0 (not a total failure)`);
+      assert.strictEqual(healthEngine.getCachedNews().length > 0, true, `Partial refresh #${i} must retain genuine data from successful feed`);
+    }
+
+    // TEST B: THREE consecutive TOTAL failures (all 3 feeds fail)
+    feed1Succeeds = false;
+    feed2Succeeds = false;
+    feed3Succeeds = false;
+
+    // Total failure #1: errorCount = 1, not HEALTHY
+    await healthEngine.refreshNews();
+    const totalFail1 = await healthEngine.getHealth();
+    assert.strictEqual(totalFail1.errorCount, 1, 'Total failure #1 must report errorCount === 1');
+    assert.notStrictEqual(totalFail1.status, 'HEALTHY', 'Total failure #1 must not be HEALTHY');
+
+    // Total failure #2: errorCount = 2, not HEALTHY
+    await healthEngine.refreshNews();
+    const totalFail2 = await healthEngine.getHealth();
+    assert.strictEqual(totalFail2.errorCount, 2, 'Total failure #2 must report errorCount === 2');
+    assert.notStrictEqual(totalFail2.status, 'HEALTHY', 'Total failure #2 must not be HEALTHY');
+
+    // Total failure #3: errorCount = 3 -> OFFLINE
+    await healthEngine.refreshNews();
+    const totalFail3 = await healthEngine.getHealth();
+    assert.strictEqual(totalFail3.errorCount, 3, 'Total failure #3 must report errorCount === 3');
+    assert.strictEqual(totalFail3.status, 'OFFLINE', 'Total failure #3 must transition provider to OFFLINE');
+    assert.strictEqual(healthEngine.getCachedNews().length > 0, true, 'Genuine cache must not be erased when feeds fail');
+
+    // TEST C: Recovery through partial success (restore 1 feed)
+    feed1Succeeds = true;
+    feed2Succeeds = false;
+    feed3Succeeds = false;
+    await healthEngine.refreshNews();
+    const recoveredPartial = await healthEngine.getHealth();
+    assert.strictEqual(recoveredPartial.errorCount, 0, 'Recovery via partial success must reset total failure errorCount to 0');
+    assert.strictEqual(recoveredPartial.status, 'DEGRADED', 'Recovery via partial success must report DEGRADED (no longer OFFLINE)');
+    assert.strictEqual(healthEngine.getCachedNews().length > 0, true, 'Genuine data must be retained');
+
+    // TEST D: Recovery through full success (restore all feeds)
+    feed1Succeeds = true;
+    feed2Succeeds = true;
+    feed3Succeeds = true;
+    await healthEngine.refreshNews();
+    const recoveredFull = await healthEngine.getHealth();
+    assert.strictEqual(recoveredFull.errorCount, 0, 'Recovery via full success must report errorCount === 0');
+    assert.strictEqual(recoveredFull.status, 'HEALTHY', 'Recovery via full success must restore HEALTHY status');
+
+    // REGRESSION ITEM 22 (EDGE CASES): Provider Accounting When Body Reads or Parsers Fail
+    // TEST 1: ALL HTTP 200 BUT BODY READ FAILS
+    // Mock every configured feed as returning HTTP 200, but res.text() throws.
+    // Must be treated as TOTAL FAILURE: successfulFeeds = 0, consecutiveErrors/errorCount increments.
+    global.fetch = async () => ({
+      ok: true,
+      text: async () => { throw new Error('Stream read failed: socket prematurely closed'); }
+    });
+
+    const bodyFailureEngine = new GlobalNewsEngine();
+    await bodyFailureEngine.refreshNews();
+    const bodyFailHealth = await bodyFailureEngine.getHealth();
+    assert.strictEqual(bodyFailHealth.errorCount, 1, 'When all feeds throw on body read, it must record total failure (errorCount = 1)');
+    assert.notStrictEqual(bodyFailHealth.status, 'HEALTHY', 'Provider must NOT report HEALTHY when all body reads fail');
+
+    // TEST 2: ONE BODY FAILURE + REMAINING FEEDS SUCCESSFUL
+    // Feed 1 throws on text(); Feeds 2 & 3 return valid XML.
+    // Must be treated as PARTIAL SUCCESS: successfulFeeds = 2, failedFeeds = 1.
+    // consecutiveErrors = 0, lastPartialFailure = true, status = DEGRADED.
+    global.fetch = async (url) => {
+      if (url.includes('yahoo.com/news/rssindex')) {
+        return {
+          ok: true,
+          text: async () => { throw new Error('Body read error on feed 1'); }
+        };
+      }
+      return {
+        ok: true,
+        text: async () => '<?xml version="1.0"?><rss><channel><item><title>Gold update</title><link>https://example.com/gold</link><pubDate>' + new Date(simTimeNews).toISOString() + '</pubDate></item></channel></rss>'
+      };
+    };
+
+    const partialBodyFailEngine = new GlobalNewsEngine();
+    await partialBodyFailEngine.refreshNews();
+    const partialBodyHealth = await partialBodyFailEngine.getHealth();
+    assert.strictEqual(partialBodyHealth.status, 'DEGRADED', 'One body failure with other feeds succeeding must report DEGRADED');
+    assert.strictEqual(partialBodyHealth.errorCount, 0, 'Partial success with one body failure must have errorCount === 0');
+    assert.strictEqual(partialBodyFailEngine.getCachedNews().length > 0, true, 'Data from working feeds must be successfully cached');
+
+    // TEST 3: VALID EMPTY HTTP 200 COUNTS AS SUCCESS
+    // All feeds return HTTP 200 and valid XML with 0 items.
+    // Must count as successful feed refresh (successfulFeeds = 3, failedFeeds = 0).
+    // consecutiveErrors = 0, lastPartialFailure = false, status = HEALTHY.
+    global.fetch = async () => ({
+      ok: true,
+      text: async () => '<?xml version="1.0"?><rss><channel></channel></rss>'
+    });
+
+    const validEmptyEngine = new GlobalNewsEngine();
+    await validEmptyEngine.refreshNews();
+    const validEmptyHealth = await validEmptyEngine.getHealth();
+    assert.strictEqual(validEmptyHealth.errorCount, 0, 'Valid empty HTTP 200 must count as successful refresh (errorCount = 0)');
+    assert.strictEqual(validEmptyHealth.status, 'HEALTHY', 'Valid empty HTTP 200 must report HEALTHY');
+
+    // REGRESSION ITEM 23: Measured latency is non-negative and not hardcoded 35
+    assert.strictEqual(typeof recoveredFull.latencyMs, 'number', 'Latency must be numeric');
+    assert.strictEqual(recoveredFull.latencyMs >= 0, true, 'Latency must be non-negative');
+
+    // REGRESSION ITEM 24, 25 & 26: Multi-asset pipeline NEWS consumer behavior
+    // Test that NEWS agent fails closed to NEUTRAL trading bias and evaluates authentic freshness
+    const mockRecentNews = [
+      {
+        id: 'news-gold-bullish-headline',
+        headline: 'Gold rises as bullion demand strengthens amid safe-haven flows',
+        summary: 'Spot gold climbs to new highs.',
+        source: 'Yahoo Finance Market Wire',
+        publishedAt: new Date(simTimeNews - (10 * 60 * 1000)).toISOString(), // 10 minutes old
+        epochMs: simTimeNews - (10 * 60 * 1000),
+        symbols: ['XAUUSD'],
+        relevanceScore: 0.90,
+        impactTier: 'HIGH',
+        sentimentBias: 'BULLISH',
+        classification: 'LIVE_EXTERNAL',
+        region: 'GLOBAL'
+      }
+    ];
+
+    // Pipeline evaluation with recent article
+    const mockLiveAsset = { price: 2700, change24h: 0.5 };
+    const intelProfileRecent = generateAssetIntelligence(
+      'XAUUSD',
+      mockLiveAsset,
+      'H1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { news: mockRecentNews }
+    );
+    const newsAgentRecent = intelProfileRecent.agents.find((a) => a.type === 'NEWS');
+    assert.strictEqual(Boolean(newsAgentRecent), true, 'NEWS agent must exist in assembled agents');
+
+    assert.strictEqual(
+      newsAgentRecent.bias,
+      'NEUTRAL',
+      'NEWS agent must fail closed to NEUTRAL trading bias even with BULLISH headline'
+    );
+    assert.strictEqual(newsAgentRecent.status, 'ONLINE', 'NEWS agent must be ONLINE when live news is available');
+    assert.strictEqual(newsAgentRecent.freshness, 'CURRENT', '10-minute old article must be reported as CURRENT freshness');
+    assert.strictEqual(newsAgentRecent.confidence, newsAgentRecent.evidenceTrustScore, 'NEWS agent confidence must match evidence trust score');
+    assert.strictEqual(newsAgentRecent.evidenceRecords[0].decisionEligible, false, 'Single RSS news evidence must be strictly non-decision-eligible');
+
+    // Pipeline evaluation with delayed/older article (18 hours old)
+    const mockDelayedNews = [
+      {
+        id: 'news-delayed',
+        headline: 'Gold market weekly review',
+        summary: 'Analysis of previous trading sessions.',
+        source: 'Yahoo Finance Market Wire',
+        publishedAt: new Date(simTimeNews - (18 * 3600 * 1000)).toISOString(), // 18 hours old
+        epochMs: simTimeNews - (18 * 3600 * 1000),
+        symbols: ['XAUUSD'],
+        relevanceScore: 0.90,
+        impactTier: 'MEDIUM',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'GLOBAL'
+      }
+    ];
+
+    const intelProfileDelayed = generateAssetIntelligence(
+      'XAUUSD',
+      mockLiveAsset,
+      'H1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { news: mockDelayedNews }
+    );
+    const newsAgentDelayed = intelProfileDelayed.agents.find((a) => a.type === 'NEWS');
+    assert.strictEqual(Boolean(newsAgentDelayed), true, 'NEWS agent must exist in assembled agents');
+    assert.strictEqual(newsAgentDelayed.freshness, 'DELAYED', '18-hour old article must be reported as DELAYED, not CURRENT');
+
+  } finally {
+    global.fetch = originalFetchNews;
+    Date.now = originalDateNowNews;
+  }
+
+  // REGRESSION ITEM 27: Execution lock verification
   assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
   assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
 
-  pass('Geopolitical intelligence truthfulness, strict qualification, corridor mapping, and corroboration verified');
+  pass('News intelligence truthfulness, LIVE_EXTERNAL provenance, calibrated relevance, impact tier, and NEUTRAL bias verified');
 
   console.log(`\n=================================================================`);
-  console.log(`ALL ${passedCount}/34 TRUTHFULNESS REGRESSION TESTS PASSED CLEANLY.`);
+  console.log(`ALL ${passedCount}/35 TRUTHFULNESS REGRESSION TESTS PASSED CLEANLY.`);
   console.log(`=================================================================`);
 })().catch((err) => {
   console.error('Test execution failed:', err);

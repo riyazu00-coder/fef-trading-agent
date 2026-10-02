@@ -765,16 +765,31 @@ export function generateAssetIntelligence(
       case 'NEWS': {
         if (cachedNews.length > 0) {
           const top = cachedNews[0];
-          let newsBias: BiasType = 'NEUTRAL';
-          if (top.sentimentBias === 'BULLISH') newsBias = 'BULLISH';
-          else if (top.sentimentBias === 'BEARISH') newsBias = 'BEARISH';
+          // Conservative fail-closed invariant: News agent maintains NEUTRAL trading bias.
+          // Event awareness, severity, and authentic provenance are contributed without inventing directional conviction.
+          const newsBias: BiasType = 'NEUTRAL';
+
+          // Determine authentic freshness from top article's publishedAt timestamp
+          const now = Date.now();
+          const topEpoch = top.epochMs || Date.parse(top.publishedAt);
+          let articleFreshness: 'REALTIME' | 'CURRENT' | 'DELAYED' | 'STALE' = 'CURRENT';
+          if (!isNaN(topEpoch)) {
+            const ageMs = now - topEpoch;
+            if (ageMs <= 2 * 3600 * 1000) {
+              articleFreshness = 'CURRENT';
+            } else if (ageMs <= 24 * 3600 * 1000) {
+              articleFreshness = 'DELAYED';
+            } else {
+              articleFreshness = 'STALE';
+            }
+          }
 
           return {
             ...base,
             bias: newsBias,
             confidence: 0,
             status: 'ONLINE',
-            lastOpinion: `Live newswire active: "${top.headline.slice(0, 90)}..." (${top.source}).`,
+            lastOpinion: `Live newswire active [${top.impactTier}]: "${top.headline.slice(0, 85)}..." (${top.source}). Event context noted; market direction neutral.`,
             evidence: cachedNews.slice(0, 3).map((n) =>
               `[${n.impactTier}] ${n.headline} (${n.source}) — ${n.publishedAt}`
             ),
@@ -784,7 +799,7 @@ export function generateAssetIntelligence(
             availableInputs: ['Yahoo Market Wire / Fed RSS'],
             missingInputs: [],
             lastRun: new Date().toISOString(),
-            freshness: 'CURRENT',
+            freshness: articleFreshness,
           };
         }
 
