@@ -17,6 +17,7 @@
  */
 
 const fs = require('fs');
+const path = require('path');
 const assert = require('assert');
 const ts = require('typescript');
 
@@ -1131,9 +1132,447 @@ function pass(msg) {
     'economic-calendar-engine.ts must not contain fallback adding XAUUSD to unmapped symbols'
   );
 
-  pass('News timestamp authenticity, collision-free deterministic IDs, and calendar LIVE_EXTERNAL single-source provenance verified');
+  pass('News timestamp authenticity, collision-resistant deterministic IDs, and calendar LIVE_EXTERNAL single-source provenance verified');
 }
 
-console.log(`\n=================================================================`);
-console.log(`ALL ${passedCount}/32 TRUTHFULNESS REGRESSION TESTS PASSED CLEANLY.`);
-console.log(`=================================================================`);
+// 33. Macro Evidence Truthfulness Hardening
+(async () => {
+  const macroEngineSource = fs.readFileSync(
+    path.join(__dirname, '../src/lib/macro/global-macro-engine.ts'),
+    'utf8'
+  );
+  const { GlobalMacroEngine, globalMacroEngine } = require('../src/lib/macro/global-macro-engine.ts');
+
+  // 1. GlobalMacroEngine.sourceType === 'PUBLIC_FEED'
+  assert.strictEqual(
+    globalMacroEngine.sourceType,
+    'PUBLIC_FEED',
+    'Macro engine sourceType must be PUBLIC_FEED'
+  );
+  assert.strictEqual(
+    macroEngineSource.includes("sourceType = 'CENTRAL_BANK'"),
+    false,
+    'Macro engine must not declare sourceType CENTRAL_BANK'
+  );
+
+  // Secondary regression guard: Source text must not contain static fabricated claims
+  assert.strictEqual(
+    macroEngineSource.includes('confidence: 88'),
+    false,
+    'Macro engine must not stamp fabricated confidence: 88'
+  );
+  assert.strictEqual(
+    macroEngineSource.includes('latencyMs: 25'),
+    false,
+    'Macro engine must not contain static latencyMs: 25'
+  );
+
+  // -------------------------------------------------------------
+  // BEHAVIORAL TESTING UNDER CONTROLLED MOCKED FETCH ENVIRONMENT
+  // -------------------------------------------------------------
+  const originalFetch = global.fetch;
+  const originalDateNow = Date.now;
+
+  try {
+    // SCENARIO 1: Fresh GlobalMacroEngine instance reports initial sentinel latencyMs = 0
+    global.fetch = async () => {
+      throw new Error('Offline network simulation');
+    };
+
+    const freshEngine = new GlobalMacroEngine();
+    const offlineHealth = await freshEngine.getHealth();
+    assert.strictEqual(
+      offlineHealth.latencyMs,
+      0,
+      'Fresh GlobalMacroEngine before any completed request must report latency sentinel 0'
+    );
+    assert.strictEqual(
+      offlineHealth.status,
+      'OFFLINE',
+      'Offline fresh engine with 0 cached records must be OFFLINE'
+    );
+    assert.notStrictEqual(
+      offlineHealth.latencyMs,
+      25,
+      'Provider health latency must not be the historical static 25'
+    );
+
+    // SCENARIO 2: Valid mock response emits authentic releaseDate, distinct retrieval timestamp, and NO confidence property
+    const authenticEpochSec = 1775012345;
+    const expectedReleaseIso = new Date(authenticEpochSec * 1000).toISOString();
+
+    const makeValidYahooPayload = (symbol = 'DX-Y.NYB', price = 104.25, prevClose = 104.00, timeSec = authenticEpochSec) => ({
+      chart: {
+        result: [
+          {
+            meta: {
+              currency: 'USD',
+              symbol,
+              regularMarketPrice: price,
+              chartPreviousClose: prevClose,
+              regularMarketTime: timeSec
+            }
+          }
+        ]
+      }
+    });
+
+    global.fetch = async () => ({
+      ok: true,
+      json: async () => makeValidYahooPayload()
+    });
+
+    const testEngine = new GlobalMacroEngine();
+    await testEngine.refreshIndicators();
+    const indicators = testEngine.getCachedIndicators();
+    assert.strictEqual(indicators.length > 0, true, 'Mocked refresh must produce indicators');
+
+    const dxyRecord = indicators.find((i) => i.name.includes('Dollar'));
+    assert.strictEqual(Boolean(dxyRecord), true, 'DXY record must be emitted');
+
+    // Assert authentic releaseDate
+    assert.strictEqual(
+      dxyRecord.releaseDate,
+      expectedReleaseIso,
+      'Emitted releaseDate must exactly match authentic regularMarketTime in ISO format'
+    );
+    assert.strictEqual(
+      typeof dxyRecord.timestamp === 'string' && dxyRecord.timestamp.length > 0,
+      true,
+      'Retrieval timestamp must exist as valid ISO string'
+    );
+    assert.notStrictEqual(
+      dxyRecord.releaseDate,
+      dxyRecord.timestamp,
+      'releaseDate (observation time) and timestamp (retrieval time) must be semantically distinct'
+    );
+
+    // Assert NO own property "confidence"
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(dxyRecord, 'confidence'),
+      false,
+      'Emitted MacroIndicatorRecord must NOT possess own property "confidence"'
+    );
+    assert.strictEqual(
+      dxyRecord.confidence,
+      undefined,
+      'MacroIndicatorRecord.confidence must be undefined'
+    );
+
+    // Measured latency on completed request cycle
+    const postRefreshHealth = await testEngine.getHealth();
+    assert.strictEqual(
+      typeof postRefreshHealth.latencyMs === 'number',
+      true,
+      'Health latencyMs must be a number'
+    );
+    assert.strictEqual(
+      postRefreshHealth.latencyMs >= 0,
+      true,
+      'Health latencyMs must be non-negative measured number'
+    );
+    assert.notStrictEqual(
+      postRefreshHealth.latencyMs,
+      25,
+      'Post-refresh health latency must not be the historical static 25'
+    );
+
+    // SCENARIO 3: Missing, zero, negative, or invalid regularMarketTime fails closed
+    const failClosedTimestampCases = [
+      { label: 'missing regularMarketTime', meta: { regularMarketPrice: 100, chartPreviousClose: 99 } },
+      { label: 'zero regularMarketTime', meta: { regularMarketPrice: 100, chartPreviousClose: 99, regularMarketTime: 0 } },
+      { label: 'negative regularMarketTime', meta: { regularMarketPrice: 100, chartPreviousClose: 99, regularMarketTime: -1000 } },
+      { label: 'null regularMarketTime', meta: { regularMarketPrice: 100, chartPreviousClose: 99, regularMarketTime: null } },
+      { label: 'undefined regularMarketTime', meta: { regularMarketPrice: 100, chartPreviousClose: 99, regularMarketTime: undefined } },
+      { label: 'NaN regularMarketTime', meta: { regularMarketPrice: 100, chartPreviousClose: 99, regularMarketTime: NaN } }
+    ];
+
+    for (const testCase of failClosedTimestampCases) {
+      global.fetch = async () => ({
+        ok: true,
+        json: async () => ({
+          chart: {
+            result: [{ meta: testCase.meta }]
+          }
+        })
+      });
+
+      const failEngine = new GlobalMacroEngine();
+      await failEngine.refreshIndicators();
+      assert.strictEqual(
+        failEngine.getCachedIndicators().length,
+        0,
+        `Engine must fail closed and emit ZERO records when ${testCase.label}`
+      );
+    }
+
+    // SCENARIO 4: Materially future regularMarketTime fails closed (> 5 min future)
+    const farFutureEpochSec = Math.floor(Date.now() / 1000) + 7200; // 2 hours into future
+    global.fetch = async () => ({
+      ok: true,
+      json: async () => makeValidYahooPayload('DX-Y.NYB', 104.25, 104.00, farFutureEpochSec)
+    });
+
+    const futureEngine = new GlobalMacroEngine();
+    await futureEngine.refreshIndicators();
+    assert.strictEqual(
+      futureEngine.getCachedIndicators().length,
+      0,
+      'Materially future regularMarketTime (> 5m) must fail closed and emit zero records'
+    );
+
+    // SCENARIO 5: NaN, Infinity, -Infinity current value fails closed
+    const nonFiniteCurrentCases = [
+      { label: 'NaN current', val: NaN },
+      { label: 'Infinity current', val: Infinity },
+      { label: '-Infinity current', val: -Infinity },
+      { label: 'null current', val: null },
+      { label: 'undefined current', val: undefined },
+      { label: 'string current', val: '104.25' }
+    ];
+
+    for (const testCase of nonFiniteCurrentCases) {
+      global.fetch = async () => ({
+        ok: true,
+        json: async () => ({
+          chart: {
+            result: [
+              {
+                meta: {
+                  regularMarketPrice: testCase.val,
+                  chartPreviousClose: 104.00,
+                  regularMarketTime: authenticEpochSec
+                }
+              }
+            ]
+          }
+        })
+      });
+
+      const nonFiniteEngine = new GlobalMacroEngine();
+      await nonFiniteEngine.refreshIndicators();
+      assert.strictEqual(
+        nonFiniteEngine.getCachedIndicators().length,
+        0,
+        `Non-finite/unusable current value (${testCase.label}) must fail closed and emit zero records`
+      );
+    }
+
+    // SCENARIO 6: Missing/invalid previous close fails closed; NEVER fabricates delta = 0 or previous = current
+    const invalidPreviousCases = [
+      { label: 'missing chartPreviousClose', meta: { regularMarketPrice: 104.25, regularMarketTime: authenticEpochSec } },
+      { label: 'null chartPreviousClose', meta: { regularMarketPrice: 104.25, chartPreviousClose: null, regularMarketTime: authenticEpochSec } },
+      { label: 'NaN chartPreviousClose', meta: { regularMarketPrice: 104.25, chartPreviousClose: NaN, regularMarketTime: authenticEpochSec } },
+      { label: 'Infinity chartPreviousClose', meta: { regularMarketPrice: 104.25, chartPreviousClose: Infinity, regularMarketTime: authenticEpochSec } },
+      { label: 'zero chartPreviousClose', meta: { regularMarketPrice: 104.25, chartPreviousClose: 0, regularMarketTime: authenticEpochSec } },
+      { label: 'negative chartPreviousClose', meta: { regularMarketPrice: 104.25, chartPreviousClose: -10, regularMarketTime: authenticEpochSec } }
+    ];
+
+    for (const testCase of invalidPreviousCases) {
+      global.fetch = async () => ({
+        ok: true,
+        json: async () => ({
+          chart: {
+            result: [
+              {
+                meta: testCase.meta
+              }
+            ]
+          }
+        })
+      });
+
+      const prevFailEngine = new GlobalMacroEngine();
+      await prevFailEngine.refreshIndicators();
+      assert.strictEqual(
+        prevFailEngine.getCachedIndicators().length,
+        0,
+        `Missing/invalid previous close (${testCase.label}) must fail closed rather than manufacturing zero delta or previous = current`
+      );
+    }
+
+    // SCENARIO 7: Cached record freshness ages dynamically through getCachedIndicators() without receiving new upstream data
+    // Seed with valid record at observation time T_obs
+    const baseObsTimeSec = 1775000000;
+    const baseObsTimeMs = baseObsTimeSec * 1000;
+    global.fetch = async () => ({
+      ok: true,
+      json: async () => makeValidYahooPayload('DX-Y.NYB', 104.25, 104.00, baseObsTimeSec)
+    });
+
+    const agingEngine = new GlobalMacroEngine();
+    // Ingest while simulated clock is at T_obs + 1h
+    Date.now = () => baseObsTimeMs + (1 * 3600 * 1000);
+    await agingEngine.refreshIndicators();
+
+    // Call getCachedIndicators() at ~2h age
+    Date.now = () => baseObsTimeMs + (2 * 3600 * 1000);
+    const indicatorsAt2h = agingEngine.getCachedIndicators();
+    assert.strictEqual(indicatorsAt2h.length > 0, true, 'Seeded aging record exists in cache');
+    const recordAt2h = indicatorsAt2h[0];
+    const initialReleaseDate = recordAt2h.releaseDate;
+    const initialRetrievalTimestamp = recordAt2h.timestamp;
+    assert.strictEqual(recordAt2h.freshness, 'CURRENT', 'At ~2h observation age, public cache freshness must be CURRENT');
+
+    // Call getCachedIndicators() at ~12h age without refreshing upstream
+    Date.now = () => baseObsTimeMs + (12 * 3600 * 1000);
+    const indicatorsAt12h = agingEngine.getCachedIndicators();
+    const recordAt12h = indicatorsAt12h[0];
+    assert.strictEqual(recordAt12h.freshness, 'DELAYED', 'At ~12h observation age, public cache freshness must dynamically age to DELAYED');
+    assert.strictEqual(recordAt12h.releaseDate, initialReleaseDate, 'releaseDate must remain unchanged');
+    assert.strictEqual(recordAt12h.timestamp, initialRetrievalTimestamp, 'retrieval timestamp must remain unchanged');
+
+    // Call getCachedIndicators() at ~48h age without refreshing upstream
+    Date.now = () => baseObsTimeMs + (48 * 3600 * 1000);
+    const indicatorsAt48h = agingEngine.getCachedIndicators();
+    const recordAt48h = indicatorsAt48h[0];
+    assert.strictEqual(recordAt48h.freshness, 'STALE', 'At ~48h observation age, public cache freshness must dynamically age to STALE');
+    assert.strictEqual(recordAt48h.releaseDate, initialReleaseDate, 'releaseDate must remain unchanged');
+    assert.strictEqual(recordAt48h.timestamp, initialRetrievalTimestamp, 'retrieval timestamp must remain unchanged');
+
+    // SCENARIO 8: Full refresh failure with existing cached records:
+    // Captures lastSuccess before failure, then asserts lastSuccess DOES NOT advance on failed refresh
+    Date.now = () => baseObsTimeMs + (49 * 3600 * 1000);
+    const healthyHealthBeforeFailure = await agingEngine.getHealth();
+    const lastSuccessBeforeFailure = healthyHealthBeforeFailure.lastSuccess;
+    assert.strictEqual(
+      Boolean(lastSuccessBeforeFailure),
+      true,
+      'Initial successful refresh must have populated lastSuccess'
+    );
+
+    // Advance simulated clock by 5 hours so any accidental advancement would be distinct
+    Date.now = () => baseObsTimeMs + (54 * 3600 * 1000);
+
+    // Simulate complete network failure
+    global.fetch = async () => {
+      throw new Error('Network failure');
+    };
+
+    await agingEngine.refreshIndicators();
+    const indicatorsAfterFailure = agingEngine.getCachedIndicators();
+    assert.strictEqual(
+      indicatorsAfterFailure.length,
+      indicatorsAt2h.length,
+      'Existing cache must be retained on full failure'
+    );
+    assert.strictEqual(
+      indicatorsAfterFailure[0].releaseDate,
+      initialReleaseDate,
+      'Authentic releaseDate must remain intact on failure'
+    );
+
+    const degradedHealth = await agingEngine.getHealth();
+    assert.strictEqual(
+      degradedHealth.status,
+      'DEGRADED',
+      'Provider health must be DEGRADED on refresh failure with existing cache'
+    );
+    assert.strictEqual(
+      degradedHealth.errorCount > 0,
+      true,
+      'Error count must truthfully increment on failure'
+    );
+    assert.strictEqual(
+      degradedHealth.lastSuccess,
+      lastSuccessBeforeFailure,
+      'ProviderHealth.lastSuccess must remain EXACTLY equal to the value before failure and NOT advance'
+    );
+
+    // SCENARIO 9: Partial refresh:
+    // 1 metric succeeds, others fail. Health must be DEGRADED. Failed metrics retain cached records.
+    const partialEngine = new GlobalMacroEngine();
+    Date.now = () => baseObsTimeMs + (55 * 3600 * 1000);
+    // First, populate full healthy cache with 4 metrics
+    global.fetch = async (url) => {
+      return {
+        ok: true,
+        json: async () => makeValidYahooPayload('TEST', 100, 99, Math.floor(Date.now() / 1000) - 3600)
+      };
+    };
+    await partialEngine.refreshIndicators();
+    const fullInitialHealth = await partialEngine.getHealth();
+    assert.strictEqual(fullInitialHealth.status, 'HEALTHY', 'Full refresh with all 4 metrics must be HEALTHY');
+    assert.strictEqual(fullInitialHealth.errorCount, 0, 'Full refresh has errorCount 0');
+
+    // Next cycle: Only DXY succeeds, others fail
+    Date.now = () => baseObsTimeMs + (56 * 3600 * 1000);
+    global.fetch = async (url) => {
+      if (url.includes('DX-Y.NYB')) {
+        return {
+          ok: true,
+          json: async () => makeValidYahooPayload('DX-Y.NYB', 105.50, 104.25, Math.floor(Date.now() / 1000) - 1800)
+        };
+      }
+      return { ok: false, status: 500 };
+    };
+
+    await partialEngine.refreshIndicators();
+    const partialHealth = await partialEngine.getHealth();
+    assert.strictEqual(
+      partialHealth.status,
+      'DEGRADED',
+      'Partial refresh where only some metrics succeed must report DEGRADED'
+    );
+    assert.strictEqual(
+      partialHealth.errorCount > 0,
+      true,
+      'Partial refresh failure must reflect error state'
+    );
+
+    const partialRecords = partialEngine.getCachedIndicators();
+    assert.strictEqual(partialRecords.length, 4, 'Partial refresh must preserve prior genuine records for failed metrics');
+    const updatedDxy = partialRecords.find((i) => i.name.includes('Dollar'));
+    assert.strictEqual(updatedDxy.currentValue, 105.50, 'Successful metric must update with newest value');
+
+    // SCENARIO 10: Complete successful refresh restores HEALTHY
+    Date.now = () => baseObsTimeMs + (57 * 3600 * 1000);
+    global.fetch = async () => ({
+      ok: true,
+      json: async () => makeValidYahooPayload('TEST', 101, 100, Math.floor(Date.now() / 1000) - 1200)
+    });
+
+    await partialEngine.refreshIndicators();
+    const recoveredHealth = await partialEngine.getHealth();
+    assert.strictEqual(
+      recoveredHealth.status,
+      'HEALTHY',
+      'Complete successful refresh after degradation must restore HEALTHY status'
+    );
+    assert.strictEqual(
+      recoveredHealth.errorCount,
+      0,
+      'Error count must reset to 0 upon complete success'
+    );
+
+  } finally {
+    // TEST ISOLATION: Always restore global fetch and Date.now
+    global.fetch = originalFetch;
+    Date.now = originalDateNow;
+  }
+
+  // DXY naming: US Dollar Index (DXY) without false Trade-Weighted claim
+  assert.strictEqual(
+    macroEngineSource.includes("'DXY Trade-Weighted Dollar Index'"),
+    false,
+    'Must not misidentify DX-Y.NYB as trade-weighted dollar index'
+  );
+  assert.strictEqual(
+    macroEngineSource.includes("'US Dollar Index (DXY)'"),
+    true,
+    'Must name DX-Y.NYB accurately as US Dollar Index (DXY)'
+  );
+
+  // Execution invariants strictly maintained
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+
+  pass('Macro evidence truthfulness, measured latency, authentic releaseDate, and derived freshness verified');
+
+  console.log(`\n=================================================================`);
+  console.log(`ALL ${passedCount}/33 TRUTHFULNESS REGRESSION TESTS PASSED CLEANLY.`);
+  console.log(`=================================================================`);
+})().catch((err) => {
+  console.error('Test 33 execution failed:', err);
+  process.exit(1);
+});
