@@ -1565,14 +1565,658 @@ function pass(msg) {
 
   // Execution invariants strictly maintained
   assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
-  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
-
   pass('Macro evidence truthfulness, measured latency, authentic releaseDate, and derived freshness verified');
 
+  // =================================================================
+  // 34. Geopolitical Intelligence Truthfulness Hardening
+  // =================================================================
+  const geoEngineSource = fs.readFileSync(
+    path.join(__dirname, '../src/lib/geopolitical/geopolitical-engine.ts'),
+    'utf8'
+  );
+  const { GeopoliticalEngine, geopoliticalEngine } = require('../src/lib/geopolitical/geopolitical-engine.ts');
+  const { globalNewsEngine } = require('../src/lib/news/global-news-engine.ts');
+
+  // Source inspection: Ensure purged static artifacts and uncorroborated CONFIRMED/INDEPENDENT_VERIFIED
+  assert.strictEqual(
+    geoEngineSource.includes("latencyMs: 15"),
+    false,
+    'Must not hardcode latencyMs: 15'
+  );
+  assert.strictEqual(
+    geoEngineSource.includes("Baseline supply flows operational"),
+    false,
+    'Must not include unsupported claim: Baseline supply flows operational'
+  );
+  assert.strictEqual(
+    geoEngineSource.includes("classification: 'INDEPENDENT_VERIFIED'"),
+    false,
+    'Geopolitical engine must not claim INDEPENDENT_VERIFIED for derived assessments'
+  );
+
+  // Behavioral test suite for GeopoliticalEngine with controlled news engine responses
+  const originalGetLatestNews = globalNewsEngine.getLatestNews;
+  const originalNewsGetHealth = globalNewsEngine.getHealth;
+  const originalDateNowGeo = Date.now;
+
+  try {
+    const testGeoEngine = new GeopoliticalEngine();
+
+    // SUB-REQUIREMENT A: False-positive rejection
+    // Commercial, equity, labor, regulatory, corporate idioms, and non-sovereign trade commentary must NEVER qualify
+    const falsePositiveHeadlines = [
+      {
+        id: 'news-crwd-52w',
+        headline: 'Why Did CRWD, TWLO, P Stocks Hit 52-Week Highs Today?',
+        summary: 'Cloud and security software stocks rally to 52-week highs amid solid earnings.',
+        source: 'MarketWatch',
+        publishedAt: '2026-10-02T10:00:00Z',
+        epochMs: 1790935200000,
+        symbols: ['CRWD', 'TWLO'],
+        relevanceScore: 0.8,
+        impactTier: 'LOW',
+        sentimentBias: 'BULLISH',
+        classification: 'LIVE_EXTERNAL',
+        region: 'US'
+      },
+      {
+        id: 'news-bmo-loan',
+        headline: 'BMO reports surge in commercial loan demand across North American branches',
+        summary: 'Commercial lending expansion reflects corporate borrowing appetite.',
+        source: 'Reuters',
+        publishedAt: '2026-10-02T10:15:00Z',
+        epochMs: 1790936100000,
+        symbols: ['BMO'],
+        relevanceScore: 0.7,
+        impactTier: 'LOW',
+        sentimentBias: 'BULLISH',
+        classification: 'LIVE_EXTERNAL',
+        region: 'US'
+      },
+      {
+        id: 'news-price-war',
+        headline: 'Supermarket giant sparks fierce price war with discount rivals',
+        summary: 'Retailers engage in price war cutting grocery margins.',
+        source: 'Bloomberg',
+        publishedAt: '2026-10-02T10:30:00Z',
+        epochMs: 1790937000000,
+        symbols: [],
+        relevanceScore: 0.5,
+        impactTier: 'LOW',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'UK'
+      },
+      {
+        id: 'news-war-chest',
+        headline: 'Tech giant builds massive war chest for artificial intelligence acquisitions',
+        summary: 'Company accumulates cash reserves and debt facility to finance acquisitions.',
+        source: 'Financial Times',
+        publishedAt: '2026-10-02T10:35:00Z',
+        epochMs: 1790937300000,
+        symbols: [],
+        relevanceScore: 0.5,
+        impactTier: 'LOW',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'US'
+      },
+      {
+        id: 'news-generic-trade-war',
+        headline: 'Commentators debate whether retail competition resembles a trade war',
+        summary: 'Economists discuss market dynamics and corporate rivalry between retail giants.',
+        source: 'Bloomberg',
+        publishedAt: '2026-10-02T10:40:00Z',
+        epochMs: 1790937600000,
+        symbols: [],
+        relevanceScore: 0.4,
+        impactTier: 'LOW',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'GLOBAL'
+      },
+      {
+        id: 'news-labor-strike',
+        headline: 'Dock workers union votes for labor strike over wage dispute',
+        summary: 'Port authority faces worker strike following contract deadlock.',
+        source: 'Associated Press',
+        publishedAt: '2026-10-02T10:45:00Z',
+        epochMs: 1790937900000,
+        symbols: [],
+        relevanceScore: 0.6,
+        impactTier: 'MEDIUM',
+        sentimentBias: 'BEARISH',
+        classification: 'LIVE_EXTERNAL',
+        region: 'US'
+      },
+      {
+        id: 'news-strike-price',
+        headline: 'Options trading volumes surge at $2700 strike price for gold contracts',
+        summary: 'Derivative traders position for expiration at $2700 strike price.',
+        source: 'Financial Times',
+        publishedAt: '2026-10-02T11:00:00Z',
+        epochMs: 1790938800000,
+        symbols: ['XAUUSD'],
+        relevanceScore: 0.9,
+        impactTier: 'MEDIUM',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'GLOBAL'
+      },
+      {
+        id: 'news-cybersec',
+        headline: 'Tech firm rolls out critical cybersecurity patch to fix software vulnerability',
+        summary: 'Security patch addresses zero-day vulnerability across cloud systems.',
+        source: 'TechCrunch',
+        publishedAt: '2026-10-02T11:15:00Z',
+        epochMs: 1790939700000,
+        symbols: [],
+        relevanceScore: 0.4,
+        impactTier: 'LOW',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'GLOBAL'
+      },
+      {
+        id: 'news-trade-deficit',
+        headline: 'US trade deficit narrows slightly in second quarter economic report',
+        summary: 'Commerce department reports monthly trade deficit data.',
+        source: 'CNBC',
+        publishedAt: '2026-10-02T11:30:00Z',
+        epochMs: 1790940600000,
+        symbols: [],
+        relevanceScore: 0.6,
+        impactTier: 'MEDIUM',
+        sentimentBias: 'NEUTRAL',
+        classification: 'LIVE_EXTERNAL',
+        region: 'US'
+      }
+    ];
+
+    globalNewsEngine.getLatestNews = async () => falsePositiveHeadlines;
+    await testGeoEngine.refreshAlerts();
+
+    const falsePositiveAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(
+      falsePositiveAlerts.length,
+      0,
+      'Commercial, equity, labor, war chest, options strike, and cybersecurity news must yield ZERO geopolitical alerts'
+    );
+
+    // SUB-REQUIREMENT B: SOURCE INDEPENDENCE & CORROBORATION
+    // A) Reuters + Reuters alias/casing variation => DEVELOPING
+    const casingSourceItems = [
+      {
+        id: 'news-case-1',
+        headline: 'Naval escort requested following maritime security advisory in Baltic Sea',
+        summary: 'Defense advisory notes navigation hazard and naval monitoring.',
+        source: 'Reuters News Wire',
+        publishedAt: '2026-10-02T12:00:00Z'
+      },
+      {
+        id: 'news-case-2',
+        headline: 'Baltic maritime security advisory prompts request for naval escort',
+        summary: 'Follow-up bulletin on Baltic shipping advisory.',
+        source: '  THOMSON REUTERS  ',
+        publishedAt: '2026-10-02T12:05:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => casingSourceItems;
+    await testGeoEngine.refreshAlerts();
+    const casingAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(
+      casingAlerts[0].status,
+      'DEVELOPING',
+      'Reuters + Reuters alias/casing variation must remain DEVELOPING'
+    );
+
+    // B) PR Newswire + Business Wire => DEVELOPING
+    const prBusinessWireItems = [
+      {
+        id: 'news-pr-1',
+        headline: 'Naval escort requested following maritime security advisory in Baltic Sea',
+        summary: 'Defense advisory notes navigation hazard and naval monitoring.',
+        source: 'PR Newswire',
+        publishedAt: '2026-10-02T12:00:00Z'
+      },
+      {
+        id: 'news-bw-1',
+        headline: 'Baltic maritime security advisory prompts request for naval escort',
+        summary: 'Follow-up bulletin on Baltic shipping advisory.',
+        source: 'Business Wire',
+        publishedAt: '2026-10-02T12:05:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => prBusinessWireItems;
+    await testGeoEngine.refreshAlerts();
+    const prBwAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(
+      prBwAlerts[0].status,
+      'DEVELOPING',
+      'PR Newswire + Business Wire must remain DEVELOPING (syndicates cannot establish independent corroboration)'
+    );
+
+    // C) Unknown Publisher Alpha + Unknown Publisher Beta => DEVELOPING
+    const unknownPublishersItems = [
+      {
+        id: 'news-unk-1',
+        headline: 'Naval escort requested following maritime security advisory in Baltic Sea',
+        summary: 'Defense advisory notes navigation hazard and naval monitoring.',
+        source: 'Publisher Alpha News',
+        publishedAt: '2026-10-02T12:00:00Z'
+      },
+      {
+        id: 'news-unk-2',
+        headline: 'Baltic maritime security advisory prompts request for naval escort',
+        summary: 'Follow-up bulletin on Baltic shipping advisory.',
+        source: 'Publisher Beta Dispatch',
+        publishedAt: '2026-10-02T12:05:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => unknownPublishersItems;
+    await testGeoEngine.refreshAlerts();
+    const unkAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(
+      unkAlerts[0].status,
+      'DEVELOPING',
+      'Unknown Publisher Alpha + Unknown Publisher Beta must remain DEVELOPING'
+    );
+
+    // D) Unknown Publisher + Reuters => DEVELOPING
+    const unkAndReutersItems = [
+      {
+        id: 'news-unk-r1',
+        headline: 'Naval escort requested following maritime security advisory in Baltic Sea',
+        summary: 'Defense advisory notes navigation hazard and naval monitoring.',
+        source: 'Publisher Gamma Wire',
+        publishedAt: '2026-10-02T12:00:00Z'
+      },
+      {
+        id: 'news-unk-r2',
+        headline: 'Baltic maritime security advisory prompts request for naval escort',
+        summary: 'Follow-up bulletin on Baltic shipping advisory.',
+        source: 'Reuters',
+        publishedAt: '2026-10-02T12:05:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => unkAndReutersItems;
+    await testGeoEngine.refreshAlerts();
+    const unkReutersAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(
+      unkReutersAlerts[0].status,
+      'DEVELOPING',
+      'Unknown Publisher + Reuters must remain DEVELOPING (requires >= 2 eligible families)'
+    );
+
+    // E) Reuters + Associated Press for the same event => CONFIRMED
+    const independentSourceItems = [
+      {
+        id: 'news-indep-1',
+        headline: 'Missile attack strikes commercial tanker in southern Red Sea corridor',
+        summary: 'Naval forces report ballistic missile attack targeting cargo ship off Yemen coast near Bab el-Mandeb.',
+        source: 'Reuters',
+        publishedAt: '2026-10-02T12:00:00Z'
+      },
+      {
+        id: 'news-indep-2',
+        headline: 'Commercial vessel hit by missile strike in Red Sea transit lane',
+        summary: 'UK maritime trade operations confirms missile strike against merchant tanker near Yemen.',
+        source: 'Associated Press',
+        publishedAt: '2026-10-02T12:05:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => independentSourceItems;
+    await testGeoEngine.refreshAlerts();
+    const indepAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(
+      indepAlerts[0].status,
+      'CONFIRMED',
+      'Reuters + Associated Press for the same event must achieve CONFIRMED'
+    );
+
+    // F) Reuters + AP + syndicated duplicate => CONFIRMED based only on Reuters + AP (syndicated contributes zero weight)
+    const indepPlusSyndicatedItems = [
+      {
+        id: 'news-indep-f1',
+        headline: 'Missile attack strikes commercial tanker in southern Red Sea corridor',
+        summary: 'Naval forces report ballistic missile attack targeting cargo ship off Yemen coast near Bab el-Mandeb.',
+        source: 'Reuters',
+        publishedAt: '2026-10-02T12:00:00Z'
+      },
+      {
+        id: 'news-indep-f2',
+        headline: 'Commercial vessel hit by missile strike in Red Sea transit lane',
+        summary: 'UK maritime trade operations confirms missile strike against merchant tanker near Yemen.',
+        source: 'Associated Press',
+        publishedAt: '2026-10-02T12:05:00Z'
+      },
+      {
+        id: 'news-indep-f3',
+        headline: 'Commercial vessel damaged in Red Sea missile attack',
+        summary: 'Syndicated wire copy of maritime incident.',
+        source: 'GlobeNewswire Feed',
+        publishedAt: '2026-10-02T12:06:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => indepPlusSyndicatedItems;
+    await testGeoEngine.refreshAlerts();
+    const indepSynAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(
+      indepSynAlerts[0].status,
+      'CONFIRMED',
+      'Reuters + AP + syndicated duplicate must be CONFIRMED strictly from Reuters + AP'
+    );
+
+    // G) Two syndicated versions with different normalized strings => DEVELOPING
+    const twoDiffSyndicatedItems = [
+      {
+        id: 'news-syn-g1',
+        headline: 'Naval escort requested following maritime security advisory in Baltic Sea',
+        summary: 'Defense advisory notes navigation hazard and naval monitoring.',
+        source: 'PR Newswire Wire Service',
+        publishedAt: '2026-10-02T12:00:00Z'
+      },
+      {
+        id: 'news-syn-g2',
+        headline: 'Baltic maritime security advisory prompts request for naval escort',
+        summary: 'Follow-up bulletin on Baltic shipping advisory.',
+        source: 'GlobeNewswire Syndicate Feed',
+        publishedAt: '2026-10-02T12:05:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => twoDiffSyndicatedItems;
+    await testGeoEngine.refreshAlerts();
+    const twoDiffSynAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(
+      twoDiffSynAlerts[0].status,
+      'DEVELOPING',
+      'Two syndicated versions with different normalized strings must remain DEVELOPING'
+    );
+
+    // SUB-REQUIREMENT C: ASSET MAPPING REQUIRES EXPLICIT TRANSMISSION CHANNEL
+    // A) Taiwan live-fire drill with no gold/oil/FX transmission: affectedCommodities === []
+    const taiwanNoAssetItem = [
+      {
+        id: 'news-taiwan-drill',
+        headline: 'Naval deployment and live-fire drills surrounding Taiwan Strait reported',
+        summary: 'Defense ministry monitors carrier strike group deployed and air patrols near Taiwan.',
+        source: 'Bloomberg',
+        publishedAt: '2026-10-02T12:15:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => taiwanNoAssetItem;
+    await testGeoEngine.refreshAlerts();
+    const taiwanAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(taiwanAlerts.length, 1, 'Taiwan drill qualifies for geopolitical monitoring');
+    assert.deepStrictEqual(
+      taiwanAlerts[0].affectedCommodities,
+      [],
+      'Taiwan live-fire drill without stated transmission must have affectedCommodities: [] (no automatic XAUUSD)'
+    );
+    assert.strictEqual(
+      taiwanAlerts[0].marketImpactAssessment.includes('No direct asset transmission is established'),
+      true,
+      'Assessment must state no direct asset transmission is established'
+    );
+
+    // B) Red Sea missile attack on a generic commercial vessel with no stated energy cargo/transmission:
+    // No automatic XAUUSD, no automatic USOIL
+    const redSeaGenericVessel = [
+      {
+        id: 'news-redsea-generic',
+        headline: 'Missile attack strikes cargo ship in southern Red Sea corridor',
+        summary: 'Naval forces report ballistic missile attack targeting commercial container ship off Yemen coast near Bab el-Mandeb.',
+        source: 'Reuters',
+        publishedAt: '2026-10-02T12:20:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => redSeaGenericVessel;
+    await testGeoEngine.refreshAlerts();
+    const genericVesselAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(genericVesselAlerts.length, 1, 'Generic Red Sea attack qualifies');
+    assert.deepStrictEqual(
+      genericVesselAlerts[0].affectedCommodities,
+      [],
+      'Red Sea attack on generic cargo vessel must not automatically map USOIL or XAUUSD'
+    );
+
+    // C) Red Sea attack explicitly involving an oil tanker / energy shipping disruption:
+    // USOIL may be present, XAUUSD must still be absent unless gold/safe-haven is explicitly reported
+    const redSeaOilTanker = [
+      {
+        id: 'news-redsea-oil',
+        headline: 'Missile attack strikes crude oil tanker in Red Sea energy transit corridor',
+        summary: 'Naval forces report damage to oil tanker carrying petroleum, causing energy shipping disruption near Bab el-Mandeb.',
+        source: 'Reuters',
+        publishedAt: '2026-10-02T12:25:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => redSeaOilTanker;
+    await testGeoEngine.refreshAlerts();
+    const oilTankerAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(oilTankerAlerts.length, 1, 'Oil tanker event qualifies');
+    assert.strictEqual(oilTankerAlerts[0].affectedCommodities.includes('USOIL'), true, 'Explicit crude oil tanker attack must map USOIL');
+    assert.strictEqual(oilTankerAlerts[0].affectedCommodities.includes('XAUUSD'), false, 'XAUUSD must remain absent when only oil transmission is reported');
+    assert.strictEqual(
+      oilTankerAlerts[0].marketImpactAssessment.includes('energy/petroleum'),
+      true,
+      'Assessment must explicitly cite energy/petroleum transmission'
+    );
+
+    // D) Geopolitical report explicitly reporting gold safe-haven transmission:
+    // XAUUSD may be present
+    const goldTransmissionItem = [
+      {
+        id: 'news-gold-safehaven',
+        headline: 'Air strike reported in Middle East as spot gold rose on safe-haven demand',
+        summary: 'Military strike near regional border prompts safe-haven flows into gold as traders seek protection.',
+        source: 'Bloomberg',
+        publishedAt: '2026-10-02T12:30:00Z'
+      }
+    ];
+    globalNewsEngine.getLatestNews = async () => goldTransmissionItem;
+    await testGeoEngine.refreshAlerts();
+    const goldAlerts = testGeoEngine.getCachedAlerts();
+    assert.strictEqual(goldAlerts.length, 1, 'Gold transmission event qualifies');
+    assert.strictEqual(goldAlerts[0].affectedCommodities.includes('XAUUSD'), true, 'Explicit safe-haven gold demand must map XAUUSD');
+    assert.strictEqual(
+      goldAlerts[0].marketImpactAssessment.includes('gold/safe-haven'),
+      true,
+      'Assessment must explicitly cite gold/safe-haven transmission'
+    );
+
+    // SUB-REQUIREMENT D: CLUSTERING INTEGRITY
+    // 1. Same Red Sea tanker event with different wording => same cluster
+    const clusterTestEngine = new GeopoliticalEngine();
+    const cluster1 = clusterTestEngine.extractClusterKey(
+      'Missile attack strikes oil tanker in Red Sea',
+      'Yemen coastal strike against commercial vessel in Bab el-Mandeb',
+      'MIDDLE_EAST',
+      'KINETIC_MILITARY_ACTION'
+    );
+    const cluster2 = clusterTestEngine.extractClusterKey(
+      'Commercial tanker hit by missile near Bab el-Mandeb in Red Sea transit lane',
+      'Naval operations report missile damage to vessel',
+      'MIDDLE_EAST',
+      'KINETIC_MILITARY_ACTION'
+    );
+    assert.strictEqual(cluster1, cluster2, 'Same Red Sea tanker missile event with different phrasing must cluster identically');
+
+    // 2. Unrelated Middle East missile events in different locations/targets => separate clusters
+    const clusterLevant = clusterTestEngine.extractClusterKey(
+      'Airstrike barrage hits military airbase in Lebanon',
+      'Rocket attack against outpost',
+      'MIDDLE_EAST',
+      'KINETIC_MILITARY_ACTION'
+    );
+    assert.notStrictEqual(cluster1, clusterLevant, 'Red Sea vessel event and Lebanon airbase event must NOT be merged into same cluster');
+
+    // SUB-REQUIREMENT E: TIMESTAMP HARDENING & CLOCK SKEW TOLERANCE
+    const baseTimeMs = 1790940000000;
+    Date.now = () => baseTimeMs;
+
+    // 1. Missing timestamp => rejected
+    const missingDateItem = [{
+      id: 'news-missing',
+      headline: 'Airstrike reported near border outpost',
+      summary: 'Military strike reported in conflict zone.',
+      source: 'Reuters',
+      publishedAt: undefined
+    }];
+    globalNewsEngine.getLatestNews = async () => missingDateItem;
+    const timeEngine = new GeopoliticalEngine();
+    await timeEngine.refreshAlerts();
+    assert.strictEqual(timeEngine.getCachedAlerts().length, 0, 'Missing timestamp must fail-closed');
+
+    // 2. Invalid date string => rejected
+    const invalidDateItem = [{
+      id: 'news-invalid',
+      headline: 'Airstrike reported near border outpost',
+      summary: 'Military strike reported in conflict zone.',
+      source: 'Reuters',
+      publishedAt: 'not-a-valid-date-string'
+    }];
+    globalNewsEngine.getLatestNews = async () => invalidDateItem;
+    await timeEngine.refreshAlerts();
+    assert.strictEqual(timeEngine.getCachedAlerts().length, 0, 'Invalid date string must fail-closed');
+
+    // 3. >5 minutes future => rejected
+    const futureDateItem = [{
+      id: 'news-future',
+      headline: 'Airstrike reported near border outpost',
+      summary: 'Military strike reported in conflict zone.',
+      source: 'Reuters',
+      publishedAt: new Date(baseTimeMs + (10 * 60 * 1000)).toISOString() // +10 min
+    }];
+    globalNewsEngine.getLatestNews = async () => futureDateItem;
+    await timeEngine.refreshAlerts();
+    assert.strictEqual(timeEngine.getCachedAlerts().length, 0, 'Timestamp >5m in future must be rejected');
+
+    // 4. Within allowed clock skew (+3 minutes) => accepted
+    const acceptableSkewItem = [{
+      id: 'news-skew',
+      headline: 'Airstrike reported near border outpost',
+      summary: 'Military strike reported in conflict zone.',
+      source: 'Reuters',
+      publishedAt: new Date(baseTimeMs + (3 * 60 * 1000)).toISOString() // +3 min
+    }];
+    globalNewsEngine.getLatestNews = async () => acceptableSkewItem;
+    await timeEngine.refreshAlerts();
+    assert.strictEqual(timeEngine.getCachedAlerts().length, 1, 'Timestamp within 5m future clock skew must be accepted');
+
+    // 5. Older than 7 days => rejected
+    const oldDateItem = [{
+      id: 'news-old',
+      headline: 'Airstrike reported near border outpost',
+      summary: 'Military strike reported in conflict zone.',
+      source: 'Reuters',
+      publishedAt: new Date(baseTimeMs - (8 * 24 * 3600 * 1000)).toISOString() // 8 days old
+    }];
+    globalNewsEngine.getLatestNews = async () => oldDateItem;
+    await timeEngine.refreshAlerts();
+    assert.strictEqual(timeEngine.getCachedAlerts().length, 0, 'Timestamp older than 7 days must be rejected');
+
+    // 6. Cached alert crossing 7-day boundary => pruned dynamically by getCachedAlerts()
+    const alertCrossingBoundary = [{
+      id: 'news-boundary',
+      headline: 'Airstrike reported near border outpost',
+      summary: 'Military strike reported in conflict zone.',
+      source: 'Reuters',
+      publishedAt: new Date(baseTimeMs - (6.9 * 24 * 3600 * 1000)).toISOString() // 6.9 days old
+    }];
+    globalNewsEngine.getLatestNews = async () => alertCrossingBoundary;
+    await timeEngine.refreshAlerts();
+    assert.strictEqual(timeEngine.getCachedAlerts().length, 1, 'Freshly fetched alert within 7 days is returned');
+
+    // Advance time by 0.5 days so age becomes 7.4 days without calling refreshAlerts()
+    Date.now = () => baseTimeMs + (0.5 * 24 * 3600 * 1000);
+    assert.strictEqual(
+      timeEngine.getCachedAlerts().length,
+      0,
+      'Cached alert crossing 7-day age boundary must disappear dynamically without waiting for refresh'
+    );
+
+    // SUB-REQUIREMENT F: HEALTH / CACHE / EMPTY-RESULT TTL
+    let fetchCount = 0;
+    globalNewsEngine.getLatestNews = async () => {
+      fetchCount += 1;
+      return []; // Zero qualifying news
+    };
+
+    const cachingEngine = new GeopoliticalEngine();
+    let simTime = baseTimeMs;
+    Date.now = () => simTime;
+
+    // First call: triggers initial fetch
+    const firstCallAlerts = await cachingEngine.getGeopoliticalAlerts();
+    assert.strictEqual(firstCallAlerts.length, 0, 'First call with zero qualifying news returns empty array');
+    assert.strictEqual(fetchCount, 1, 'First call must invoke upstream fetch once');
+
+    // Second call 30s later (within 120s TTL): must NOT re-fetch even though alerts array is empty
+    simTime += 30_000;
+    const secondCallAlerts = await cachingEngine.getGeopoliticalAlerts();
+    assert.strictEqual(secondCallAlerts.length, 0, 'Second call returns empty array');
+    assert.strictEqual(fetchCount, 1, 'Second call within TTL must not re-fetch upstream news');
+
+    // Third call 150s later (TTL expired): must re-fetch
+    simTime += 120_000;
+    const thirdCallAlerts = await cachingEngine.getGeopoliticalAlerts();
+    assert.strictEqual(thirdCallAlerts.length, 0, 'Third call returns empty array');
+    assert.strictEqual(fetchCount, 2, 'Call after TTL expiration must refresh upstream news');
+
+    // Health reporting and latency truthfulness
+    globalNewsEngine.getHealth = async () => ({
+      providerId: 'global-news-engine',
+      name: 'Global News Wire Aggregator',
+      sourceType: 'FINANCIAL_NEWS',
+      status: 'HEALTHY',
+      latencyMs: 40,
+      lastChecked: new Date(simTime).toISOString(),
+      errorCount: 0,
+      rateLimit: { isThrottled: false },
+      isFreeTier: true
+    });
+
+    const health = await cachingEngine.getHealth();
+    assert.strictEqual(health.status, 'HEALTHY', 'Empty alerts with successful refresh must report HEALTHY status');
+    assert.strictEqual(typeof health.latencyMs, 'number', 'Latency must be numerical');
+    assert.strictEqual(health.latencyMs >= 0, true, 'Latency must be non-negative');
+    assert.strictEqual(health.errorCount, 0, 'Zero errors on successful empty refresh');
+
+    // Upstream degradation propagation
+    globalNewsEngine.getHealth = async () => ({
+      providerId: 'global-news-engine',
+      name: 'Global News Wire Aggregator',
+      sourceType: 'FINANCIAL_NEWS',
+      status: 'OFFLINE',
+      latencyMs: 0,
+      lastChecked: new Date(simTime).toISOString(),
+      errorCount: 5,
+      rateLimit: { isThrottled: false },
+      isFreeTier: true
+    });
+
+    const degradedHealth = await cachingEngine.getHealth();
+    assert.strictEqual(degradedHealth.status, 'OFFLINE', 'Upstream news offline state must propagate to geopolitical engine');
+    assert.strictEqual(degradedHealth.errorCount >= 5, true, 'Upstream error count must be reflected in health');
+
+  } finally {
+    // Restore mocks
+    globalNewsEngine.getLatestNews = originalGetLatestNews;
+    globalNewsEngine.getHealth = originalNewsGetHealth;
+    Date.now = originalDateNowGeo;
+  }
+
+  // Execution invariants strictly maintained
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+
+  pass('Geopolitical intelligence truthfulness, strict qualification, corridor mapping, and corroboration verified');
+
   console.log(`\n=================================================================`);
-  console.log(`ALL ${passedCount}/33 TRUTHFULNESS REGRESSION TESTS PASSED CLEANLY.`);
+  console.log(`ALL ${passedCount}/34 TRUTHFULNESS REGRESSION TESTS PASSED CLEANLY.`);
   console.log(`=================================================================`);
 })().catch((err) => {
-  console.error('Test 33 execution failed:', err);
+  console.error('Test execution failed:', err);
   process.exit(1);
 });
