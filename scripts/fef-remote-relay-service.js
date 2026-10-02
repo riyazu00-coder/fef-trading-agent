@@ -903,25 +903,21 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', () => {
+  const handleSocketTermination = () => {
     if (authenticatedDeviceId) {
-      const device = registeredDevices.get(authenticatedDeviceId);
-      if (device) {
-        device.connectionState = 'OFFLINE';
+      const currentWs = activeSockets.get(authenticatedDeviceId);
+      if (currentWs === ws) {
+        activeSockets.delete(authenticatedDeviceId);
+        const device = registeredDevices.get(authenticatedDeviceId);
+        if (device) {
+          device.connectionState = 'OFFLINE';
+        }
       }
-      activeSockets.delete(authenticatedDeviceId);
     }
-  });
+  };
 
-  ws.on('error', () => {
-    if (authenticatedDeviceId) {
-      const device = registeredDevices.get(authenticatedDeviceId);
-      if (device) {
-        device.connectionState = 'OFFLINE';
-      }
-      activeSockets.delete(authenticatedDeviceId);
-    }
-  });
+  ws.on('close', handleSocketTermination);
+  ws.on('error', handleSocketTermination);
 });
 
 if (require.main === module) {

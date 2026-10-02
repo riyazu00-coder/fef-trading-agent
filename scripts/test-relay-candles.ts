@@ -16,6 +16,7 @@
  * 12. Remote REST candle retrieval endpoint
  * 13. Fallback when relay unavailable
  * 14. Broker provenance preservation (Exness, LIVE_MT5)
+ * 15. Reconnect race & socket replacement identity safety
  */
 
 import WebSocket from 'ws';
@@ -26,6 +27,7 @@ const {
   registeredDevices,
   candleSnapshots,
   isCandleFresh,
+  activeSockets,
 } = require('./fef-remote-relay-service');
 
 const TEST_PORT = 5598;
@@ -91,6 +93,8 @@ async function runTests() {
   await startTestRelay();
 
   let wsClient: WebSocket | null = null;
+  let socketA: WebSocket | null = null;
+  let socketB: WebSocket | null = null;
 
   try {
     // -------------------------------------------------------------
@@ -337,13 +341,177 @@ async function runTests() {
     assert.strictEqual(missingData.count, 0);
     console.log('  ✅ PASS: Unstreamed symbols truthfully return UNAVAILABLE without synthetic fallbacks');
 
+    // -------------------------------------------------------------
+    // TEST 11: WebSocket Reconnect Race & Socket Replacement Identity Safety
+    // -------------------------------------------------------------
+    console.log('\n[TEST 11: WEBSOCKET RECONNECT RACE & SOCKET REPLACEMENT IDENTITY SAFETY]');
+
+    // First ensure earlier wsClient is closed so we start clean
+    if (wsClient && (wsClient as WebSocket).readyState === WebSocket.OPEN) {
+      await new Promise<void>((resolve) => {
+        (wsClient as WebSocket).once('close', () => resolve());
+        (wsClient as WebSocket).close();
+      });
+      wsClient = null;
+    }
+
+    // A. Authenticate socket A normally
+    socketA = new WebSocket(`ws://127.0.0.1:${TEST_PORT}/connector`);
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Timed out waiting for socket A AUTH_OK')), 3000);
+      socketA!.on('open', () => {
+        socketA!.send(JSON.stringify({
+          type: 'AUTH',
+          deviceId: TEST_DEVICE_ID,
+          keyId: TEST_KEY_ID,
+          authToken: TEST_SECRET,
+        }));
+      });
+      socketA!.on('message', (data: any) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'AUTH_OK') {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+      socketA!.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+
+    // B. Ensure A is the active authenticated connector
+    const serverWsA = activeSockets.get(TEST_DEVICE_ID);
+    assert.ok(serverWsA, 'Server-side socket for device must exist');
+    assert.strictEqual(serverWsA.readyState, 1, 'Server-side socket for device must be OPEN');
+
+    // C & D. Authenticate socket B using same credentials, expect AUTH_OK
+    socketB = new WebSocket(`ws://127.0.0.1:${TEST_PORT}/connector`);
+    const aClosedPromise = new Promise<void>((resolve, reject) => {
+      if (socketA!.readyState === WebSocket.CLOSED) {
+        return resolve();
+      }
+      const timer = setTimeout(() => reject(new Error('Timed out waiting for socket A to close after replacement')), 3000);
+      socketA!.once('close', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Timed out waiting for socket B AUTH_OK')), 3000);
+      socketB!.on('open', () => {
+        socketB!.send(JSON.stringify({
+          type: 'AUTH',
+          deviceId: TEST_DEVICE_ID,
+          keyId: TEST_KEY_ID,
+          authToken: TEST_SECRET,
+        }));
+      });
+      socketB!.on('message', (data: any) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'AUTH_OK') {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+      socketB!.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+
+    // E & F. Wait until A's close event has actually fired
+    await aClosedPromise;
+    assert.strictEqual(socketA!.readyState, WebSocket.CLOSED, 'Socket A must be closed');
+
+    // G & H. Send valid fresh TELEMETRY through B, wait for TELEMETRY_ACK
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Timed out waiting for TELEMETRY_ACK on socket B')), 3000);
+      const handler = (data: any) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'TELEMETRY_ACK') {
+          clearTimeout(timer);
+          socketB!.off('message', handler);
+          resolve();
+        }
+      };
+      socketB!.on('message', handler);
+      socketB!.send(JSON.stringify({
+        type: 'TELEMETRY',
+        snapshot: {
+          terminalConnected: true,
+          bridgeConnected: true,
+          heartbeatAgeMs: 120,
+          broker: 'Exness Technologies Ltd',
+          server: 'Exness-MT5Trial16',
+          maskedAccount: '26***84',
+          tradeMode: 'DEMO',
+          quotes: {
+            XAUUSD: { bid: 4350.50, ask: 4350.55, timestamp: Date.now() },
+          },
+        },
+      }));
+    });
+
+    // I. Query the real HTTP telemetry and status endpoints after A has closed
+    const statusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/device/${TEST_DEVICE_ID}/status`);
+    const statusData = await statusRes.json();
+    assert.strictEqual(statusData.success, true, 'Status response success must be true');
+    assert.strictEqual(statusData.connected, true, 'Status response connected must be true (socket B alive despite A close)');
+    assert.strictEqual(statusData.connectionState, 'ONLINE', 'Connection state must remain ONLINE');
+    assert.strictEqual(statusData.priceAuthority, 'MT5_BROKER', 'Price authority must remain MT5_BROKER');
+    assert.strictEqual(statusData.terminalConnected, true, 'Terminal connected must be true');
+    assert.strictEqual(statusData.operatingMode, 'READ_ONLY', 'Operating mode must be READ_ONLY');
+    assert.strictEqual(statusData.isExecutable, false, 'isExecutable must remain false');
+
+    const telemetryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/device/${TEST_DEVICE_ID}/telemetry`);
+    const telemetryData = await telemetryRes.json();
+    assert.strictEqual(telemetryData.success, true, 'Telemetry response success must be true');
+    assert.strictEqual(telemetryData.connected, true, 'Telemetry response connected must be true');
+    assert.strictEqual(telemetryData.connectionState, 'ONLINE', 'Telemetry connection state must be ONLINE');
+    assert.strictEqual(telemetryData.priceAuthority, 'MT5_BROKER', 'Telemetry price authority must be MT5_BROKER');
+    assert.strictEqual(telemetryData.terminalConnected, true, 'Telemetry terminal connected must be true');
+    if ('isExecutable' in telemetryData) {
+      assert.strictEqual(telemetryData.isExecutable, false, 'Telemetry isExecutable must remain false');
+    }
+    console.log('  ✅ PASS: Socket replacement preserved healthy socket B (A close did not delete B or mark OFFLINE)');
+
+    // J. Now close B, the CURRENT socket, and wait for B's close processing
+    await new Promise<void>((resolve, reject) => {
+      if (socketB!.readyState === WebSocket.CLOSED) {
+        return resolve();
+      }
+      const timer = setTimeout(() => reject(new Error('Timed out waiting for socket B close')), 3000);
+      socketB!.once('close', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      socketB!.close();
+    });
+
+    // Query status again and assert truthfully: OFFLINE / REFERENCE / connected: false
+    const finalRes = await fetch(`http://127.0.0.1:${TEST_PORT}/device/${TEST_DEVICE_ID}/status`);
+    const finalData = await finalRes.json();
+    assert.strictEqual(finalData.connected, false, 'Current socket close must mark connected false');
+    assert.strictEqual(finalData.connectionState, 'OFFLINE', 'Current socket close must transition state to OFFLINE');
+    assert.strictEqual(finalData.priceAuthority, 'REFERENCE', 'Current socket close must drop price authority to REFERENCE');
+    assert.strictEqual(finalData.isExecutable, false, 'isExecutable must remain false');
+    console.log('  ✅ PASS: Closing current socket B cleanly transitions relay to OFFLINE and REFERENCE');
+
     console.log('\n=================================================================');
-    console.log('ALL 10 V1.1.1 RELAY CANDLE TESTS PASSED CLEANLY');
+    console.log('ALL 11 V1.1.1 RELAY CANDLE TESTS PASSED CLEANLY');
     console.log('=================================================================\n');
 
   } finally {
     if (wsClient && (wsClient as WebSocket).readyState === WebSocket.OPEN) {
       (wsClient as WebSocket).close();
+    }
+    if (socketA && (socketA as WebSocket).readyState === WebSocket.OPEN) {
+      (socketA as WebSocket).close();
+    }
+    if (socketB && (socketB as WebSocket).readyState === WebSocket.OPEN) {
+      (socketB as WebSocket).close();
     }
     await stopTestRelay();
   }
