@@ -100,42 +100,40 @@ export const CurrentAiDecision: React.FC = () => {
           </div>
           <div>
             <div
-              className={`text-sm sm:text-base font-bold font-sans tracking-wide ${
+              className={`text-sm sm:text-base font-bold font-sans tracking-wide flex items-center space-x-2 ${
                 !assetProfile.tradeExecutable ? 'text-amber-300' : isBuy ? 'text-[#34D399]' : isSell ? 'text-[#FB7185]' : 'text-[#FBBF24]'
               }`}
             >
-              {assetProfile.setupDirection}
-            </div>
-            <div className="text-[9.5px] font-sans text-[#94A3B8] flex flex-wrap items-center gap-1.5">
-              <span>
-                Confidence:{' '}
-                {assetProfile.confidence === 0 ? (
-                  <strong className="text-amber-300 font-mono font-bold">INSUFFICIENT EVIDENCE</strong>
-                ) : (
-                  <strong className="text-[#F8FAFC] font-mono font-bold">{assetProfile.confidence}%</strong>
-                )}
+              <span>{assetProfile.setupDirection}</span>
+              <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-black/50 text-gray-400 border border-white/10 uppercase">
+                INTELLIGENCE ONLY • NOT AN ORDER
               </span>
-              {assetProfile.evidenceTrust !== undefined && (
-                <>
-                  <span className="text-gray-600">&bull;</span>
-                  <span>Trust: <strong className="text-cyan-300 font-mono font-bold">{assetProfile.evidenceTrust}%</strong></span>
-                </>
-              )}
-              {assetProfile.verifiedAgentCount !== undefined && (
-                <span className="text-[8.5px] font-mono px-1 py-0.2 rounded bg-white/5 text-gray-300 border border-white/10">
-                  Verified: {assetProfile.verifiedAgentCount}/15
-                </span>
-              )}
-              {!assetProfile.tradeExecutable && (
-                <span className="text-rose-400 font-mono font-bold text-[8.5px] border border-rose-500/30 px-1 rounded bg-rose-950/40">
-                  REFERENCE ONLY
-                </span>
-              )}
-              {assetProfile.tradeExecutable && assetProfile.actionabilityState === 'ANALYSIS ONLY' && (
-                <span className="text-cyan-400 font-mono font-bold text-[8.5px] border border-cyan-500/40 px-1 rounded bg-cyan-950/40">
-                  ANALYSIS ONLY
-                </span>
-              )}
+            </div>
+            <div className="text-[9.5px] font-sans text-[#94A3B8] flex flex-wrap items-center gap-1.5 mt-0.5">
+              <span>
+                Trust:{' '}
+                <strong className="text-cyan-300 font-mono font-bold">
+                  {assetProfile.confluence?.evidenceTrust ?? assetProfile.evidenceTrust ?? 0}%
+                </strong>
+              </span>
+              <span className="text-gray-600">&bull;</span>
+              <span>
+                Readiness:{' '}
+                <strong className="text-purple-300 font-mono font-bold">
+                  {assetProfile.confluence?.dataReadiness ?? 'PARTIAL'}
+                </strong>
+              </span>
+              <span className="text-gray-600">&bull;</span>
+              <span>
+                Agreement:{' '}
+                <strong className="text-white font-mono font-bold">
+                  {assetProfile.confluence?.agreementScore ?? 0}%
+                </strong>
+              </span>
+              <span className="text-gray-600">&bull;</span>
+              <span className="text-[8.5px] font-mono px-1 py-0.2 rounded bg-purple-950/40 text-purple-300 border border-purple-500/30">
+                EXEC: READ_ONLY
+              </span>
             </div>
           </div>
         </div>

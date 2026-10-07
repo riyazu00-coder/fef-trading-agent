@@ -120,5 +120,49 @@ export class MacroIntelligenceEngine {
       hasDxyProvider: false, // DXY strictly absent in FRED connector, represented truthfully as unavailable
     });
   }
+
+  /**
+   * Generate comprehensive macro intelligence bundle including individual sub-analyses.
+   * Leverages DataHub single-flight deduplication and memory cache to prevent duplicate requests.
+   */
+  public async getDetailedMacroIntelligence(limit: number = 20): Promise<{
+    xauusdMacro: XauusdMacroEvidence;
+    yieldCurve: YieldCurveIntelligence;
+    fedPolicy: FedPolicyIntelligence;
+    tenYearYield: MacroSeriesAnalysis;
+    twoYearYield: MacroSeriesAnalysis;
+    realYield: MacroSeriesAnalysis;
+    breakeven: MacroSeriesAnalysis;
+  }> {
+    const [realYieldAnalysis, nominal10YAnalysis, nominal2YAnalysis, breakevenAnalysis, yieldCurve, fedPolicy] =
+      await Promise.all([
+        this.analyzeSeries('DFII10', limit),
+        this.analyzeSeries('DGS10', limit),
+        this.analyzeSeries('DGS2', limit),
+        this.analyzeSeries('T10YIE', limit),
+        this.getYieldCurveIntelligence(limit),
+        this.getFedPolicyIntelligence(limit),
+      ]);
+
+    const xauusdMacro = assembleXauusdMacroEvidence({
+      realYieldAnalysis,
+      nominal10YAnalysis,
+      nominal2YAnalysis,
+      breakevenAnalysis,
+      yieldCurve,
+      fedPolicy,
+      hasDxyProvider: false,
+    });
+
+    return {
+      xauusdMacro,
+      yieldCurve,
+      fedPolicy,
+      tenYearYield: nominal10YAnalysis,
+      twoYearYield: nominal2YAnalysis,
+      realYield: realYieldAnalysis,
+      breakeven: breakevenAnalysis,
+    };
+  }
 }
 

@@ -17,7 +17,7 @@
  *    - dataReadiness: READY | PARTIAL | DATA_LIMITED | UNAVAILABLE
  */
 
-import { EvidenceDomainFamily, UnifiedAgentResponse } from '../agents/contracts/unified-agent-contract';
+import { EvidenceDomainFamily, EvidencePolarity, UnifiedAgentResponse } from '../agents/contracts/unified-agent-contract';
 
 export type ConfluenceDirection = 'BULLISH' | 'BEARISH' | 'MIXED' | 'NEUTRAL' | 'DATA_LIMITED';
 
@@ -83,11 +83,18 @@ export const DOMAIN_WEIGHTS: Record<EvidenceDomainFamily, number> = {
 };
 
 export class CortexConfluenceEngine {
+  public static evaluateConfluence(inputs: ConfluenceEngineInputs | UnifiedAgentResponse[]): ConfluenceOutput {
+    return new CortexConfluenceEngine().evaluateConfluence(inputs);
+  }
+
   /**
    * Deterministically synthesizes unified agent responses into a Confluence decision.
    */
-  public evaluateConfluence(inputs: ConfluenceEngineInputs): ConfluenceOutput {
-    const agents = inputs.agents || [];
+  public evaluateConfluence(inputs: ConfluenceEngineInputs | UnifiedAgentResponse[]): ConfluenceOutput {
+    const normInputs: ConfluenceEngineInputs = Array.isArray(inputs)
+      ? { instrument: 'XAUUSD', agents: inputs }
+      : inputs;
+    const agents = normInputs.agents || [];
     const missingEvidence: string[] = [];
     const criticalConflicts: string[] = [];
     const invalidationFactors: string[] = [];
@@ -110,24 +117,28 @@ export class CortexConfluenceEngine {
         continue;
       }
 
-      if (ag.direction === 'NEUTRAL') {
+      const dir = (ag.direction || (ag as any).stance || 'NEUTRAL') as EvidencePolarity;
+      const domain = (ag.domainFamily || (ag as any).primaryDomain || 'SYSTEM_INTEGRITY') as EvidenceDomainFamily;
+      const trust = typeof ag.evidenceTrust === 'number' ? ag.evidenceTrust : (ag as any).evidenceTrustScore || 0;
+
+      if (dir === 'NEUTRAL') {
         neutralAgents.push(ag.agentName);
-      } else if (ag.direction === 'BULLISH') {
+      } else if (dir === 'BULLISH') {
         supportingAgents.push(ag.agentName);
-      } else if (ag.direction === 'BEARISH') {
+      } else if (dir === 'BEARISH') {
         opposingAgents.push(ag.agentName);
       }
 
-      if (!domainMap.has(ag.domainFamily)) {
-        domainMap.set(ag.domainFamily, { bullishTrustSum: 0, bearishTrustSum: 0, agents: [] });
+      if (!domainMap.has(domain)) {
+        domainMap.set(domain, { bullishTrustSum: 0, bearishTrustSum: 0, agents: [] });
       }
-      const dEntry = domainMap.get(ag.domainFamily)!;
+      const dEntry = domainMap.get(domain)!;
       dEntry.agents.push(ag);
 
-      const effectiveTrust = (ag.evidenceTrust / 100) * (ag.confidence / 100);
-      if (ag.direction === 'BULLISH') {
+      const effectiveTrust = (trust / 100) * (ag.confidence / 100);
+      if (dir === 'BULLISH') {
         dEntry.bullishTrustSum += effectiveTrust;
-      } else if (ag.direction === 'BEARISH') {
+      } else if (dir === 'BEARISH') {
         dEntry.bearishTrustSum += effectiveTrust;
       }
 
@@ -148,14 +159,19 @@ export class CortexConfluenceEngine {
 
     for (const [family, dData] of Array.from(domainMap.entries())) {
       const familyBaseWeight = DOMAIN_WEIGHTS[family] || 0.05;
-      totalDomainWeight += familyBaseWeight;
+      const avgDomainQuality = dData.agents.length > 0
+        ? Math.min(1.0, (dData.bullishTrustSum + dData.bearishTrustSum) / dData.agents.length)
+        : 0.5;
+      // Scale domain weight by quality: high-trust verified domain carries full weight; weak/heuristic domain is appropriately discounted
+      const scaledFamilyWeight = familyBaseWeight * Math.max(0.15, avgDomainQuality);
+      totalDomainWeight += scaledFamilyWeight;
 
-      // Each domain family gets at most ONE aggregate vote weighted by its base weight
+      // Each domain family gets at most ONE aggregate vote weighted by its scaled weight
       if (dData.bullishTrustSum > dData.bearishTrustSum * 1.3) {
-        bullishDomainWeight += familyBaseWeight;
+        bullishDomainWeight += scaledFamilyWeight;
         supportingDomains.push(family);
       } else if (dData.bearishTrustSum > dData.bullishTrustSum * 1.3) {
-        bearishDomainWeight += familyBaseWeight;
+        bearishDomainWeight += scaledFamilyWeight;
         opposingDomains.push(family);
       } else if (dData.bullishTrustSum > 0 && dData.bearishTrustSum > 0) {
         criticalConflicts.push(`Internal conflict in domain ${family} (opposing agent assessments).`);
@@ -201,9 +217,9 @@ export class CortexConfluenceEngine {
       directionalThesis = 'DATA_LIMITED';
     } else if (conflictScore >= 35) {
       directionalThesis = 'MIXED';
-    } else if (bullishDomainWeight >= 0.25 && bullishDomainWeight > bearishDomainWeight * 1.5) {
+    } else if (bullishDomainWeight >= 0.10 && bullishDomainWeight > bearishDomainWeight * 1.5) {
       directionalThesis = 'BULLISH';
-    } else if (bearishDomainWeight >= 0.25 && bearishDomainWeight > bullishDomainWeight * 1.5) {
+    } else if (bearishDomainWeight >= 0.10 && bearishDomainWeight > bullishDomainWeight * 1.5) {
       directionalThesis = 'BEARISH';
     } else if (bullishDomainWeight > 0 || bearishDomainWeight > 0) {
       directionalThesis = 'MIXED';
@@ -247,7 +263,7 @@ export class CortexConfluenceEngine {
     if (conflictScore >= 40 || dataReadiness === 'DATA_LIMITED') {
       riskState = 'ELEVATED';
     }
-    if (inputs.riskCheckPassed === false) {
+    if (normInputs.riskCheckPassed === false) {
       riskState = 'CRITICAL';
     }
 
@@ -266,7 +282,7 @@ export class CortexConfluenceEngine {
     }
 
     return {
-      instrument: inputs.instrument,
+      instrument: normInputs.instrument,
       directionalThesis,
       presentationPosture,
       confidence,

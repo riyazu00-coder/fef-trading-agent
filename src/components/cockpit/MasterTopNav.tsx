@@ -235,7 +235,7 @@ export const MasterTopNav: React.FC = () => {
           {isMt5Connected ? (
             <Link
               href="/execution"
-              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.2)]"
+              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(160,240,255,0.2)]"
               title="MT5 Telemetry Connected (READ-ONLY)"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -252,7 +252,38 @@ export const MasterTopNav: React.FC = () => {
             </Link>
           )}
 
-          {/* 3. 24/7 Institutional Support Desk */}
+          {/* 3. Data Sentinel System Integrity Badge */}
+          <div
+            className={`hidden 2xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] border ${
+              isMt5Connected
+                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
+            }`}
+            title="Data Sentinel: Non-directional system integrity & feed auditor"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isMt5Connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+            <span className="font-bold tracking-wider">SENTINEL: {isMt5Connected ? 'HEALTHY' : 'DATA LIMITED'}</span>
+          </div>
+
+          {/* 4. Overall Data Readiness Badge */}
+          <div
+            className="hidden 2xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] bg-cyan-950/40 border border-cyan-500/40 text-cyan-300"
+            title="Cortex Data Readiness State"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+            <span className="font-bold tracking-wider">DATA: {assetProfile.confluence?.dataReadiness || 'PARTIAL'}</span>
+          </div>
+
+          {/* 5. Canonical READ_ONLY Execution Badge */}
+          <div
+            className="hidden lg:inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl font-mono text-[9px] bg-purple-950/40 border border-purple-500/40 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.15)]"
+            title="Canonical Execution Mode: READ_ONLY (Transport strictly disabled)"
+          >
+            <span>🔒</span>
+            <span className="font-bold tracking-wider">READ_ONLY</span>
+          </div>
+
+          {/* 6. 24/7 Institutional Support Desk */}
           <button
             onClick={() => setIsSupportOpen(true)}
             className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-cyan-950/40 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white transition-all cursor-pointer font-mono text-[9.5px] shadow-[0_0_10px_rgba(0,240,255,0.12)]"

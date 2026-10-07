@@ -53,6 +53,23 @@ import { globalMacroEngine } from '../macro/global-macro-engine';
 import { geopoliticalEngine } from '../geopolitical/geopolitical-engine';
 import { marketSentimentEngine } from '../sentiment/market-sentiment-engine';
 import { LiveIntelligenceFeeds } from '../intelligence/feed-types';
+import { CortexConfluenceEngine, ConfluenceOutput } from '../confluence/confluence-engine';
+import { MarketRegimeAssessment } from '../regime/market-regime-engine';
+import { CrossAssetMatrix } from '../cross-asset/cross-asset-engine';
+import { QuantMetricsResult, HistoricalAnalogueResult } from '../quant/quant-engine';
+import {
+  UnifiedAgentResponse,
+  UnifiedAgentEvidence,
+  EvidenceDomainFamily
+} from './contracts/unified-agent-contract';
+import {
+  evaluateRatesAgent,
+  evaluateInflationAgent,
+  evaluateVolatilityAgent,
+  evaluateCrossAssetAgent,
+  evaluateDataSentinelAgent,
+  evaluateQuantAgent
+} from './specialists/specialist-agents';
 
 export type DirectionalBias = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 export type DecisionPosture = 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)' | 'ANALYSIS ONLY' | 'DATA LIMITED';
@@ -102,6 +119,14 @@ export interface AssetIntelligenceProfile {
   // V1.1 Blueprint & Structure Additions
   blueprint?: TradeBlueprint | null;
   marketStructure?: MarketStructure | null;
+  // Terminal Expansion Additions
+  confluence?: ConfluenceOutput | null;
+  regimeAssessment?: MarketRegimeAssessment | null;
+  crossAssetMatrix?: CrossAssetMatrix | null;
+  quantMetrics?: QuantMetricsResult | null;
+  historicalAnalogue?: HistoricalAnalogueResult | null;
+  dataSentinel?: UnifiedAgentResponse | null;
+  specialistAgents?: UnifiedAgentResponse[];
 }
 
 /**
@@ -1409,7 +1434,139 @@ export function generateAssetIntelligence(
     });
   });
 
-  // 6. Compute Consensus Trust & Actionability Gate
+  const rgAgent = assembledAgents.find((a) => a.type === 'RISK_GUARDIAN');
+
+  // 6. Specialist Agents & Cortex Confluence Engine Integration
+  const ratesSpecialist = evaluateRatesAgent({
+    yieldCurve: feeds?.macroDetails?.yieldCurve,
+    fedPolicy: feeds?.macroDetails?.fedPolicy,
+    tenYearYield: feeds?.macroDetails?.tenYearYield,
+  });
+
+  const inflationSpecialist = evaluateInflationAgent({
+    breakevenAnalysis: feeds?.macroDetails?.breakeven,
+    realYieldAnalysis: feeds?.macroDetails?.realYield,
+  });
+
+  const volatilitySpecialist = evaluateVolatilityAgent({
+    regime: feeds?.regime || undefined,
+  });
+
+  const crossAssetSpecialist = evaluateCrossAssetAgent({
+    matrix: feeds?.crossAsset || undefined,
+  });
+
+  const rawSentinel = feeds?.sentinel || evaluateDataSentinelAgent({
+    isMt5Online: false,
+    activeProviders: [],
+    offlineProviders: [],
+    feedAgeMs: 0,
+  });
+
+  const dataSentinelSpecialist: UnifiedAgentResponse = {
+    ...rawSentinel,
+    instrument: normSymbol,
+  };
+
+  const quantSpecialist = evaluateQuantAgent({
+    metrics: feeds?.quant?.metrics || undefined,
+    analogue: feeds?.quant?.analogue || undefined,
+  });
+
+  const specialistsList: UnifiedAgentResponse[] = [
+    ratesSpecialist,
+    inflationSpecialist,
+    volatilitySpecialist,
+    crossAssetSpecialist,
+    dataSentinelSpecialist,
+    quantSpecialist,
+  ].map((spec) => ({
+    ...spec,
+    instrument: normSymbol,
+  }));
+
+  const domainMapping: Record<AgentType, EvidenceDomainFamily> = {
+    TECHNICAL: 'PRICE_TECHNICAL',
+    MACRO: 'MACRO_REGIME',
+    CORRELATION: 'CROSS_ASSET',
+    NEWS: 'NEWS_EVENT',
+    GEOPOLITICAL: 'GEOPOLITICAL_EVENT',
+    SENTIMENT: 'SENTIMENT',
+    INSTITUTIONAL: 'ORDER_FLOW',
+    RISK_GUARDIAN: 'RISK_GEOMETRY',
+    VISION: 'MARKET_STRUCTURE',
+    OPPORTUNITY: 'PRICE_TECHNICAL',
+    STRATEGY: 'PRICE_TECHNICAL',
+    ORDER_FLOW: 'ORDER_FLOW',
+    KILLZONE: 'LIQUIDITY',
+    LIQUIDITY_MAP: 'LIQUIDITY',
+    FINAL_DECISION: 'SYSTEM_INTEGRITY',
+  };
+
+  const councilUnifiedResponses: UnifiedAgentResponse[] = assembledAgents
+    .filter((a) => a.type !== 'FINAL_DECISION')
+    .map((a) => {
+      const family = domainMapping[a.type] || 'PRICE_TECHNICAL';
+      const dir: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'CAUTION' =
+        a.bias === 'BULLISH' ? 'BULLISH' :
+        a.bias === 'BEARISH' ? 'BEARISH' :
+        a.bias === 'CAUTION' ? 'CAUTION' : 'NEUTRAL';
+
+      const readinessState = (a.status === 'ONLINE' || a.status === 'ANALYZING' || a.status === 'PROCESSING')
+        ? (a.confidence >= 50 ? 'READY' : 'PARTIAL')
+        : 'DATA_LIMITED';
+
+      return {
+        agentId: a.type,
+        agentName: a.name,
+        role: a.role,
+        domainFamily: family,
+        instrument: normSymbol,
+        direction: dir,
+        confidence: a.confidence,
+        evidenceTrust: a.evidenceTrustScore || a.confidence,
+        readiness: readinessState,
+        primaryThesis: a.lastOpinion,
+        evidence: (a.evidenceRecords || []).map((ev) => ({
+          id: ev.id,
+          agentId: a.type,
+          domainFamily: family,
+          nature: 'DATA' as const,
+          classification: ev.classification,
+          polarity: dir,
+          strength: ev.decisionEligible ? 0.8 : 0.4,
+          confidence: ev.confidence,
+          claim: ev.claim,
+          source: ev.source,
+          provider: ev.source,
+          observedAt: ev.observedAt,
+          receivedAt: Date.now(),
+          freshnessMs: ev.freshnessMs,
+          isStale: ev.freshnessMs > 60_000,
+          instrument: normSymbol,
+        })),
+        conflicts: [],
+        missingEvidence: a.missingInputs || [],
+        invalidation: a.invalidation || 'Structural violation',
+        keyRisk: a.keyRisk || 'Market latency',
+        provenanceBadge: a.provenanceBadge || 'INDEPENDENT',
+        generatedAt: Date.now(),
+      };
+    });
+
+  const allUnifiedAgents: UnifiedAgentResponse[] = [
+    ...specialistsList,
+    ...councilUnifiedResponses,
+  ];
+
+  const confluenceEngine = new CortexConfluenceEngine();
+  const confluenceResult = confluenceEngine.evaluateConfluence({
+    instrument: normSymbol,
+    agents: allUnifiedAgents,
+    riskCheckPassed: !rgAgent || rgAgent.bias !== 'RESTRICTED',
+  });
+
+  // Compute Consensus Trust & Actionability Gate
   const consensusTrust = calculateConsensusTrust(assembledAgents);
   const actionability = evaluateActionabilityGate({
     evidenceTrust: consensusTrust.evidenceTrust,
@@ -1418,10 +1575,10 @@ export function generateAssetIntelligence(
     marketState: sessionState.marketState
   });
 
-  // 7. Directional Evidence Gating:
-  // WATCH FOR BUY requires eligible verified bullish directional evidence.
-  // WATCH FOR SELL requires eligible verified bearish directional evidence.
-  // Risk Guardian CAUTION alone must NEVER determine market direction.
+  // 7. Directional Evidence Gating & Confluence Integration:
+  // WATCH FOR BUY requires verified bullish confluence and setup alignment.
+  // WATCH FOR SELL requires verified bearish confluence and setup alignment.
+  // Confluence engine ensures 5 weak agents never beat 2 trusted independent sources.
   const eligibleBullishCount = assembledAgents.filter((a) => {
     if (a.bias !== 'BULLISH') return false;
     if (a.status === 'DATA LIMITED' || a.status === 'OFFLINE' || a.status === 'ERROR') return false;
@@ -1436,9 +1593,25 @@ export function generateAssetIntelligence(
 
   let effectiveSetupDirection: AssetIntelligenceProfile['setupDirection'] = 'WAIT';
 
-  if (blueprint && blueprint.state !== 'INVALIDATED' && blueprint.state !== 'EXPIRED' && blueprint.direction === 'BUY' && eligibleBullishCount > 0 && consensusTrust.evidenceTrust >= 40) {
+  if (
+    blueprint &&
+    blueprint.state !== 'INVALIDATED' &&
+    blueprint.state !== 'EXPIRED' &&
+    blueprint.direction === 'BUY' &&
+    eligibleBullishCount > 0 &&
+    consensusTrust.evidenceTrust >= 40 &&
+    confluenceResult.presentationPosture !== 'WATCH FOR SELL'
+  ) {
     effectiveSetupDirection = 'WATCH FOR BUY';
-  } else if (blueprint && blueprint.state !== 'INVALIDATED' && blueprint.state !== 'EXPIRED' && blueprint.direction === 'SELL' && eligibleBearishCount > 0 && consensusTrust.evidenceTrust >= 40) {
+  } else if (
+    blueprint &&
+    blueprint.state !== 'INVALIDATED' &&
+    blueprint.state !== 'EXPIRED' &&
+    blueprint.direction === 'SELL' &&
+    eligibleBearishCount > 0 &&
+    consensusTrust.evidenceTrust >= 40 &&
+    confluenceResult.presentationPosture !== 'WATCH FOR BUY'
+  ) {
     effectiveSetupDirection = 'WATCH FOR SELL';
   } else {
     // Insufficient evidence or no directional setup -> WAIT
@@ -1456,7 +1629,7 @@ export function generateAssetIntelligence(
     }
   }
 
-  // 8. Update Final Decision Agent
+  // 8. Update Final Decision Agent from Confluence consensus
   const finalAgent = assembledAgents.find((a) => a.type === 'FINAL_DECISION');
   if (finalAgent) {
     finalAgent.bias = effectiveSetupDirection.includes('BUY')
@@ -1464,10 +1637,16 @@ export function generateAssetIntelligence(
       : effectiveSetupDirection.includes('SELL')
       ? 'BEARISH'
       : 'NEUTRAL';
-    finalAgent.status = consensusTrust.verifiedAgentCount >= 3 ? 'ONLINE' : 'DATA LIMITED';
-    finalAgent.confidence = consensusTrust.evidenceTrust >= 40 ? Math.round(consensusTrust.evidenceTrust) : 0;
-    finalAgent.evidenceTrustScore = finalAgent.confidence;
-    finalAgent.lastOpinion = `Council consensus: ${effectiveSetupDirection}. Verified agents: ${consensusTrust.verifiedAgentCount}/15. Evidence trust: ${consensusTrust.evidenceTrust}%.`;
+    const isFinalOnline = confluenceResult.dataReadiness === 'READY' || consensusTrust.verifiedAgentCount >= 3;
+    finalAgent.status = isFinalOnline ? 'ONLINE' : 'DATA LIMITED';
+    if (!isFinalOnline) {
+      finalAgent.confidence = 0;
+      finalAgent.evidenceTrustScore = 0;
+    } else {
+      finalAgent.confidence = confluenceResult.evidenceTrust;
+      finalAgent.evidenceTrustScore = confluenceResult.evidenceTrust;
+    }
+    finalAgent.lastOpinion = `Cortex Confluence: ${effectiveSetupDirection}. Posture: ${confluenceResult.presentationPosture}. Agreement: ${confluenceResult.agreementScore}%, Conflict: ${confluenceResult.conflictScore}%. Evidence Trust: ${confluenceResult.evidenceTrust}%.`;
   }
 
   const directionalBias: DirectionalBias = effectiveSetupDirection.includes('BUY')
@@ -1475,7 +1654,6 @@ export function generateAssetIntelligence(
     : effectiveSetupDirection.includes('SELL')
       ? 'BEARISH'
       : 'NEUTRAL';
-  const rgAgent = assembledAgents.find((a) => a.type === 'RISK_GUARDIAN');
   const riskPosture: RiskPosture = !tradeExecutable
     ? 'RESTRICTED'
     : rgAgent?.bias === 'RESTRICTED'
@@ -1589,6 +1767,14 @@ export function generateAssetIntelligence(
     unavailableAgentCount: consensusTrust.unavailableAgentCount,
     actionabilityState: actionability.actionabilityState,
     blueprint,
-    marketStructure
+    marketStructure,
+    // Terminal Expansion Additions
+    confluence: confluenceResult,
+    regimeAssessment: feeds?.regime || null,
+    crossAssetMatrix: feeds?.crossAsset || null,
+    quantMetrics: feeds?.quant?.metrics || null,
+    historicalAnalogue: feeds?.quant?.analogue || null,
+    dataSentinel: dataSentinelSpecialist,
+    specialistAgents: specialistsList,
   };
 }

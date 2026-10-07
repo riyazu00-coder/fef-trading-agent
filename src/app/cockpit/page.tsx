@@ -10,6 +10,10 @@ import { EconomicEventsCard } from '@/components/cockpit/EconomicEventsCard';
 import { VulnerabilityAuditCard } from '@/components/cockpit/VulnerabilityAuditCard';
 import { MarketSessionLiquidityMap } from '@/components/cockpit/MarketSessionLiquidityMap';
 import { CentralIntelligenceHub } from '@/components/cockpit/CentralIntelligenceHub';
+import { ConfluenceConflictPanel } from '@/components/cockpit/ConfluenceConflictPanel';
+import { MacroCrossAssetPanel } from '@/components/cockpit/MacroCrossAssetPanel';
+import { RegimeQuantPanel } from '@/components/cockpit/RegimeQuantPanel';
+import { DataSentinelPanel } from '@/components/cockpit/DataSentinelPanel';
 import { AgentConsensusBarChart } from '@/components/cockpit/AgentConsensusBarChart';
 import { CouncilDebateStream } from '@/components/cockpit/CouncilDebateStream';
 import { EvolutionaryTracker } from '@/components/cockpit/EvolutionaryTracker';
@@ -58,11 +62,20 @@ export default function CockpitPage() {
             {/* Central Multi-Agent Intelligence Hub */}
             <CentralIntelligenceHub />
 
+            {/* Live Cortex Confluence & Conflict Engine */}
+            <ConfluenceConflictPanel />
+
+            {/* Official Macro & Cross-Asset Intelligence */}
+            <MacroCrossAssetPanel />
+
             {/* Sub-row: Agent Consensus Matrix & Council Debate Stream */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
               <AgentConsensusBarChart />
               <CouncilDebateStream />
             </div>
+
+            {/* Market Regime & Quant Intelligence */}
+            <RegimeQuantPanel />
 
             {/* Evolutionary Tracker ("What Changed?" Engine) */}
             <EvolutionaryTracker />
@@ -77,6 +90,8 @@ export default function CockpitPage() {
           {/* RIGHT COLUMN (3 cols on lg) */}
           <section className="lg:col-span-3 space-y-2.5 flex flex-col">
             <CurrentAiDecision />
+            {/* Data Sentinel & System Integrity Auditor */}
+            <DataSentinelPanel />
             <RiskGuardianPolicy />
             <ExecutionControlCard />
             <ChartVisionAnalyzerCard />

@@ -299,12 +299,25 @@ export function evaluateCrossAssetAgent(inputs: {
  * 5. DataSentinelAgent (Domain: SYSTEM_INTEGRITY)
  */
 export function evaluateDataSentinelAgent(inputs: {
-  isMt5Online: boolean;
-  activeProviders: string[];
-  offlineProviders: string[];
-  feedAgeMs: number;
+  isMt5Online?: boolean;
+  activeProviders?: string[];
+  offlineProviders?: string[];
+  feedAgeMs?: number;
+  fredHealth?: { status?: string; consecutiveFailures?: number };
+  mt5Health?: { isConnected?: boolean };
+  priceAuthorityStatus?: string;
 }): UnifiedAgentResponse {
-  const isHealthy = inputs.isMt5Online && inputs.offlineProviders.length === 0;
+  const isMt5Online = Boolean(inputs?.isMt5Online ?? inputs?.mt5Health?.isConnected ?? false);
+  const activeProviders = inputs?.activeProviders || [];
+  const offlineProviders = [
+    ...(inputs?.offlineProviders || []),
+    ...(inputs?.fredHealth?.status === 'ERROR' ? ['FRED'] : []),
+    ...(!isMt5Online ? ['MT5'] : []),
+  ];
+  const feedAgeMs = inputs?.feedAgeMs ?? 0;
+  const isDegraded = offlineProviders.length > 0 || !isMt5Online || inputs?.priceAuthorityStatus === 'ERROR';
+  const isHealthy = !isDegraded;
+  const evidenceTrust = isHealthy ? 100 : 30;
 
   return {
     agentId: 'DATA_SENTINEL',
@@ -314,34 +327,34 @@ export function evaluateDataSentinelAgent(inputs: {
     instrument: 'XAUUSD',
     direction: 'NEUTRAL',
     confidence: 95,
-    evidenceTrust: 100,
+    evidenceTrust,
     readiness: isHealthy ? 'READY' : 'DATA_LIMITED',
     primaryThesis: isHealthy
-      ? `All telemetry channels verified. MT5 broker socket online. Active providers: ${inputs.activeProviders.join(', ')}.`
-      : `Data Sentinel Alert: Degraded telemetry. Offline feeds: ${inputs.offlineProviders.join(', ') || 'MT5 Offline'}.`,
+      ? `All telemetry channels verified. MT5 broker socket online. Active providers: ${activeProviders.join(', ') || 'MT5, FRED'}.`
+      : `Data Sentinel Alert: Degraded telemetry. Offline feeds: ${offlineProviders.join(', ') || 'MT5 Offline'}.`,
     evidence: [{
       id: 'sentinel-status',
       agentId: 'DATA_SENTINEL',
       domainFamily: 'SYSTEM_INTEGRITY',
       nature: 'DATA',
-      classification: inputs.isMt5Online ? 'LIVE_MT5' : 'UNAVAILABLE',
+      classification: isMt5Online ? 'LIVE_MT5' : 'UNAVAILABLE',
       polarity: 'NEUTRAL',
       strength: 1.0,
       confidence: 100,
-      claim: `Heartbeat age: ${Math.round(inputs.feedAgeMs)}ms. Broker telemetry verified without payload corruption.`,
+      claim: `Heartbeat age: ${Math.round(feedAgeMs)}ms. Broker telemetry verified without payload corruption.`,
       source: 'DataHub Health Registry',
       provider: 'FEF_SYSTEM',
       observedAt: new Date().toISOString(),
       receivedAt: Date.now(),
-      freshnessMs: inputs.feedAgeMs,
-      isStale: inputs.feedAgeMs > 60_000,
+      freshnessMs: feedAgeMs,
+      isStale: feedAgeMs > 60_000,
       instrument: 'GLOBAL',
     }],
     conflicts: [],
-    missingEvidence: inputs.offlineProviders,
+    missingEvidence: offlineProviders,
     invalidation: 'Feed latency > 250ms or unhandled socket termination',
     keyRisk: 'Broker disconnection during active market hours',
-    provenanceBadge: inputs.isMt5Online ? 'LIVE' : 'UNAVAILABLE',
+    provenanceBadge: isMt5Online ? 'LIVE' : 'UNAVAILABLE',
     generatedAt: Date.now(),
   };
 }
