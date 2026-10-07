@@ -77,11 +77,11 @@ export const DataSentinelPanel: React.FC = () => {
                   ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
                   : 'bg-rose-950 text-rose-300 border border-rose-500/30'
               }`}>
-                {isMt5Connected ? 'ONLINE' : 'STANDBY'}
+                {isMt5Connected ? 'ONLINE' : 'UNAVAILABLE'}
               </span>
             </div>
             <span className="text-[8.5px] text-gray-400 block truncate">
-              {telemetry.account?.broker || 'Connect Terminal in Settings'}
+              {telemetry.account?.broker || 'Not Connected • Standby'}
             </span>
           </div>
 
@@ -89,8 +89,12 @@ export const DataSentinelPanel: React.FC = () => {
           <div className="bg-black/30 border border-white/5 rounded-xl p-2 space-y-0.5">
             <div className="flex items-center justify-between">
               <span className="font-bold text-white text-[10px]">FRED Macro Engine</span>
-              <span className="text-[8px] px-1 py-0.2 rounded font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/30">
-                ONLINE
+              <span className={`text-[8px] px-1 py-0.2 rounded font-mono font-bold ${
+                liveFeeds?.macro && liveFeeds.macro.length > 0
+                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
+                  : 'bg-amber-950 text-amber-300 border border-amber-500/30'
+              }`}>
+                {liveFeeds?.macro && liveFeeds.macro.length > 0 ? 'ONLINE' : 'DEGRADED'}
               </span>
             </div>
             <span className="text-[8.5px] text-gray-400 block truncate">
@@ -115,12 +119,16 @@ export const DataSentinelPanel: React.FC = () => {
           <div className="bg-black/30 border border-white/5 rounded-xl p-2 space-y-0.5">
             <div className="flex items-center justify-between">
               <span className="font-bold text-white text-[10px]">Economic Calendar</span>
-              <span className="text-[8px] px-1 py-0.2 rounded font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/30">
-                ONLINE
+              <span className={`text-[8px] px-1 py-0.2 rounded font-mono font-bold ${
+                liveFeeds?.events && liveFeeds.events.length > 0
+                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
+                  : 'bg-amber-950 text-amber-300 border border-amber-500/30'
+              }`}>
+                {liveFeeds?.events && liveFeeds.events.length > 0 ? 'ONLINE' : 'DEGRADED'}
               </span>
             </div>
             <span className="text-[8.5px] text-gray-400 block truncate">
-              Scheduled Releases • Risk Guardian Lock
+              Scheduled Releases • Risk Lock
             </span>
           </div>
 
@@ -128,8 +136,12 @@ export const DataSentinelPanel: React.FC = () => {
           <div className="bg-black/30 border border-white/5 rounded-xl p-2 space-y-0.5">
             <div className="flex items-center justify-between">
               <span className="font-bold text-white text-[10px]">News & Wire</span>
-              <span className="text-[8px] px-1 py-0.2 rounded font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/30">
-                ONLINE
+              <span className={`text-[8px] px-1 py-0.2 rounded font-mono font-bold ${
+                liveFeeds?.news && liveFeeds.news.length > 0
+                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
+                  : 'bg-amber-950 text-amber-300 border border-amber-500/30'
+              }`}>
+                {liveFeeds?.news && liveFeeds.news.length > 0 ? 'ONLINE' : 'DATA LIMITED'}
               </span>
             </div>
             <span className="text-[8.5px] text-gray-400 block truncate">
@@ -137,16 +149,16 @@ export const DataSentinelPanel: React.FC = () => {
             </span>
           </div>
 
-          {/* Market Sentiment */}
+          {/* Dollar Index (DXY) */}
           <div className="bg-black/30 border border-white/5 rounded-xl p-2 space-y-0.5">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-white text-[10px]">Sentiment Engine</span>
-              <span className="text-[8px] px-1 py-0.2 rounded font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/30">
-                ONLINE
+              <span className="font-bold text-white text-[10px]">Dollar Index (DXY)</span>
+              <span className="text-[8px] px-1 py-0.2 rounded font-mono font-bold bg-zinc-900 text-zinc-400 border border-zinc-700/40">
+                UNAVAILABLE
               </span>
             </div>
             <span className="text-[8.5px] text-gray-400 block truncate">
-              Retail Long/Short & Contrarian Skew
+              Awaiting Official Connector
             </span>
           </div>
         </div>

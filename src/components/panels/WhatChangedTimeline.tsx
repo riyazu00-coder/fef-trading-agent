@@ -40,63 +40,78 @@ export const WhatChangedTimeline: React.FC<WhatChangedTimelineProps> = ({
 
       {/* Delta History Feed (Pure Optical Glass Sub-Items) */}
       <div className="space-y-3 text-[10.5px]">
-        {HISTORICAL_CHANGES.map((chg) => (
-          <div
-            key={chg.id}
-            className="bg-black/20 backdrop-blur-md border border-white/15 rounded-xl p-3 space-y-2 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)]"
-          >
-            {/* Transition Header */}
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-1.5">
-              <div className="flex items-center space-x-2">
-                <span className="text-gray-200 text-[9.5px] drop-shadow">
-                  {chg.timePrevious} ➔ <span className="text-white font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">{chg.timeCurrent}</span>
-                </span>
-                <span className="text-gray-400">•</span>
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-white bg-white/10 px-1.5 py-0.2 rounded border border-white/15 text-[9px] drop-shadow">
-                    {chg.previousVerdict} ({chg.previousConsensus}%)
-                  </span>
-                  <span className="text-cyan-400 font-bold">➔</span>
-                  <span className="text-emerald-300 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-400/50 font-bold text-[9px] shadow-[0_0_8px_rgba(16,185,129,0.5)]">
-                    {chg.currentVerdict} ({chg.currentConsensus}%)
-                  </span>
-                </div>
-              </div>
-              <span className="text-[8.5px] text-cyan-300 drop-shadow">
-                Consensus Delta: +{chg.currentConsensus - chg.previousConsensus}%
-              </span>
+        {HISTORICAL_CHANGES.length === 0 ? (
+          <div className="bg-black/20 backdrop-blur-md border border-white/15 rounded-xl p-4 text-center text-gray-400 space-y-1.5">
+            <div className="text-[10px] text-amber-300 font-bold uppercase tracking-wider drop-shadow">
+              DATA LIMITED / NO VERIFIED CHANGE HISTORY
             </div>
-
-            {/* Catalysts */}
-            <div>
-              <span className="text-gray-200 text-[9px] block uppercase font-bold mb-1 drop-shadow">
-                Market Catalysts Detected:
-              </span>
-              <ul className="space-y-1 text-white">
-                {chg.marketCatalysts.map((cat, idx) => (
-                  <li key={idx} className="flex items-start space-x-1.5">
-                    <span className="text-cyan-400 font-bold">›</span>
-                    <span className="drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">{cat}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Agent Shifts Delta */}
-            <div className="border-t border-white/10 pt-1.5 flex flex-wrap gap-2 text-[9px]">
-              {chg.agentShifts.map((v, idx) => (
-                <div
-                  key={idx}
-                  className="bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded border border-white/15 text-gray-100"
-                >
-                  <span className="text-gray-300">{v.agent}: </span>
-                  <span className="text-gray-400">{v.from} ➔ </span>
-                  <span className="text-cyan-300 font-bold drop-shadow">{v.to}</span>
-                </div>
-              ))}
-            </div>
+            <p className="text-[9px] text-gray-300 max-w-sm mx-auto leading-relaxed drop-shadow">
+              Continuous surveillance active. No historical state transitions or consensus flips recorded in current session. Awaiting verified structural transitions.
+            </p>
           </div>
-        ))}
+        ) : (
+          HISTORICAL_CHANGES.map((chg) => (
+            <div
+              key={chg.id}
+              className="bg-black/20 backdrop-blur-md border border-white/15 rounded-xl p-3 space-y-2 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)]"
+            >
+              {/* Transition Header */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-1.5">
+                <div className="flex items-center space-x-2">
+                  <span className="text-gray-200 text-[9.5px] drop-shadow">
+                    {chg.timePrevious} ➔ <span className="text-white font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">{chg.timeCurrent}</span>
+                  </span>
+                  <span className="text-gray-400">•</span>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-white bg-white/10 px-1.5 py-0.2 rounded border border-white/15 text-[9px] drop-shadow">
+                      {chg.previousVerdict} ({chg.previousConsensus}%)
+                    </span>
+                    <span className="text-cyan-400 font-bold">➔</span>
+                    <span className="text-emerald-300 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-400/50 font-bold text-[9px] shadow-[0_0_8px_rgba(16,185,129,0.5)]">
+                      {chg.currentVerdict} ({chg.currentConsensus}%)
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[8.5px] text-cyan-300 drop-shadow">
+                  Consensus Delta: {chg.currentConsensus - chg.previousConsensus > 0 ? '+' : ''}{chg.currentConsensus - chg.previousConsensus}%
+                </span>
+              </div>
+
+              {/* Catalysts */}
+              {chg.marketCatalysts && chg.marketCatalysts.length > 0 && (
+                <div>
+                  <span className="text-gray-200 text-[9px] block uppercase font-bold mb-1 drop-shadow">
+                    Market Catalysts Detected:
+                  </span>
+                  <ul className="space-y-1 text-white">
+                    {chg.marketCatalysts.map((cat, idx) => (
+                      <li key={idx} className="flex items-start space-x-1.5">
+                        <span className="text-cyan-400 font-bold">›</span>
+                        <span className="drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">{cat}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Agent Shifts Delta */}
+              {chg.agentShifts && chg.agentShifts.length > 0 && (
+                <div className="border-t border-white/10 pt-1.5 flex flex-wrap gap-2 text-[9px]">
+                  {chg.agentShifts.map((v, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded border border-white/15 text-gray-100"
+                    >
+                      <span className="text-gray-300">{v.agent}: </span>
+                      <span className="text-gray-400">{v.from} ➔ </span>
+                      <span className="text-cyan-300 font-bold drop-shadow">{v.to}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

@@ -10,6 +10,11 @@ interface HubMiniFeedProps {
 
 export const HubMiniFeed: React.FC<HubMiniFeedProps> = ({ messages, activeSymbol }) => {
   const [visibleStartIndex, setVisibleStartIndex] = useState<number>(0);
+  const [mounted, setMounted] = useState<boolean>(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Soft auto-rotate through messages every 3.5 seconds
   useEffect(() => {
@@ -62,7 +67,9 @@ export const HubMiniFeed: React.FC<HubMiniFeedProps> = ({ messages, activeSymbol
               title={`[${msg.agentName}] ${msg.message}`}
               className="flex items-center space-x-1.5 text-[8.5px] min-w-0"
             >
-              <span className="text-gray-500 font-bold flex-shrink-0 text-[8px]">{msg.timestamp}</span>
+              <span suppressHydrationWarning className="text-gray-500 font-bold flex-shrink-0 text-[8px]">
+                {mounted ? msg.timestamp : '--:--:--'}
+              </span>
               <span
                 className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                 style={{ backgroundColor: msg.packetColor }}

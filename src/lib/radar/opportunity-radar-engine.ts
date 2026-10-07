@@ -291,16 +291,17 @@ export function calculateOpportunityScore(
         state = 'WATCH FOR SELL';
         riskLevel = 'MEDIUM';
       }
-    } else if (setupQuality >= 84) {
-      state = isBullishDominant ? 'STRONG BUY OPPORTUNITY' : 'STRONG SELL OPPORTUNITY';
-      riskLevel = 'LOW';
-    } else if (setupQuality >= 72) {
-      state = isBullishDominant ? 'BUY OPPORTUNITY' : 'SELL OPPORTUNITY';
-      if (riskLevel !== 'ELEVATED') riskLevel = 'LOW';
-    } else if (setupQuality >= 58) {
-      state = isBullishDominant ? 'WATCH FOR BUY' : 'WATCH FOR SELL';
+    } else if (
+      profile.setupDirection === 'WAIT' ||
+      profile.setupDirection === 'WAIT (MARKET CLOSED)' ||
+      profile.setupDirection === 'PRE-OPEN WATCH' ||
+      profile.setupDirection === 'MONITOR NEXT OPEN' ||
+      profile.setupDirection === 'DATA LIMITED' ||
+      profile.setupDirection === 'ANALYSIS ONLY'
+    ) {
+      state = profile.setupDirection as RadarOpportunityState;
       riskLevel = 'MEDIUM';
-    } else if (setupQuality < 40) {
+    } else if (profile.setupDirection === 'NO TRADE' || setupQuality < 40) {
       state = 'NO TRADE';
       riskLevel = 'HIGH';
     } else {
@@ -323,10 +324,14 @@ export function calculateOpportunityScore(
     timeframe = 'SWING';
   }
 
+  // tradeExecutable should NEVER be true if posture/state is WAIT, NO TRADE, or market is closed
+  const isActionableState = (state.includes('BUY') || state.includes('SELL')) && !state.includes('WAIT') && state !== 'NO TRADE';
+  const effectiveTradeExecutable = isSessionExecutable && isActionableState;
+
   return {
     score: setupQuality,
     setupQuality,
-    tradeExecutable: isSessionExecutable,
+    tradeExecutable: effectiveTradeExecutable,
     marketState,
     state,
     riskLevel,
@@ -443,7 +448,7 @@ export function generateGlobalRadarIntelligence(
       symbol: topOpportunity.symbol,
       urgency: isTopExecutable ? 'ACT NOW' : 'DEVELOPING',
       headline: isTopExecutable
-        ? `${topOpportunity.symbol} — Top Ranked Executable Opportunity`
+        ? `${topOpportunity.symbol} — Top Ranked Setup Opportunity`
         : `${topOpportunity.symbol} Setup Developing (${topOpportunity.marketState || 'CLOSED'})`,
       detail: isTopExecutable
         ? `Opportunity Score ${topOpportunity.opportunityScore}/100. R:R ${topOpportunity.rr || 'N/A'}. TP1: ${topOpportunity.tp1 ?? 'N/A'}.`
@@ -461,7 +466,7 @@ export function generateGlobalRadarIntelligence(
       urgency: opp.tradeExecutable ? 'DEVELOPING' : 'MONITORING',
       headline: `${opp.symbol} — Rank #${opp.rank} Setup (Score ${opp.opportunityScore}/100)`,
       detail: `State: ${opp.state}. Market: ${opp.marketState || 'UNKNOWN'}.${opp.rr ? ` R:R ${opp.rr}` : ''}`,
-      eta: opp.tradeExecutable ? 'Executable' : 'Session closed',
+      eta: opp.tradeExecutable ? 'Active Session' : 'Session closed',
       badgeColor: opp.tradeExecutable ? 'cyan' : 'slate',
     });
   });

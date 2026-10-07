@@ -227,9 +227,36 @@ export class CortexConfluenceEngine {
       directionalThesis = 'NEUTRAL';
     }
 
+    // Chart Vision Disagreement Check (Vision is an evidence input, NOT a competing council)
+    const visionAgent = agents.find((a) => a.agentId === 'VISION' || a.agentName?.toLowerCase().includes('vision'));
+    let hasStrongVisionConflict = false;
+    if (visionAgent && visionAgent.confidence >= 70 && visionAgent.readiness !== 'UNAVAILABLE') {
+      const vDir = (visionAgent.direction === 'BULLISH' || (visionAgent.direction as string) === 'BUY' || (visionAgent as any).stance === 'BULLISH') ? 'BULLISH' :
+                   (visionAgent.direction === 'BEARISH' || (visionAgent.direction as string) === 'SELL' || (visionAgent as any).stance === 'BEARISH') ? 'BEARISH' : 'NEUTRAL';
+
+      const nonVisionAgents = agents.filter((a) => a !== visionAgent && a.readiness !== 'UNAVAILABLE');
+      const nonVisionBullish = nonVisionAgents.filter((a) => a.direction === 'BULLISH' || (a.direction as string) === 'BUY' || (a as any).stance === 'BULLISH').length;
+      const nonVisionBearish = nonVisionAgents.filter((a) => a.direction === 'BEARISH' || (a.direction as string) === 'SELL' || (a as any).stance === 'BEARISH').length;
+
+      const opposesDirection =
+        (directionalThesis === 'BULLISH' && vDir === 'BEARISH') ||
+        (directionalThesis === 'BEARISH' && vDir === 'BULLISH') ||
+        (vDir === 'BEARISH' && nonVisionBullish > nonVisionBearish) ||
+        (vDir === 'BULLISH' && nonVisionBearish > nonVisionBullish);
+
+      if (opposesDirection) {
+        hasStrongVisionConflict = true;
+        criticalConflicts.push(`Chart Vision opposes directional thesis (${vDir} ${visionAgent.confidence}% vs prevailing thesis).`);
+        agreementScore = Math.max(0, agreementScore - 20);
+        conflictScore = Math.min(100, conflictScore + 20);
+      }
+    }
+
     // 7. Presentation Posture (WAIT, WATCH FOR BUY, WATCH FOR SELL — strictly non-executable)
     let presentationPosture: PresentationPosture = 'WAIT';
-    if (directionalThesis === 'BULLISH' && conflictScore < 25 && dataReadiness !== 'DATA_LIMITED') {
+    if (hasStrongVisionConflict) {
+      presentationPosture = 'WAIT';
+    } else if (directionalThesis === 'BULLISH' && conflictScore < 25 && dataReadiness !== 'DATA_LIMITED') {
       presentationPosture = 'WATCH FOR BUY';
     } else if (directionalThesis === 'BEARISH' && conflictScore < 25 && dataReadiness !== 'DATA_LIMITED') {
       presentationPosture = 'WATCH FOR SELL';
@@ -246,6 +273,9 @@ export class CortexConfluenceEngine {
       // Conflict penalty
       if (conflictScore > 0) {
         confidence = Math.max(10, confidence - Math.round(conflictScore * 0.5));
+      }
+      if (hasStrongVisionConflict) {
+        confidence = Math.max(10, confidence - 25);
       }
       confidence = Math.min(95, Math.max(0, confidence));
 

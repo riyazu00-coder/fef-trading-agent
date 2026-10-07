@@ -1,12 +1,17 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 
 export const RiskGuardianPolicy: React.FC = () => {
   const { assetProfile } = useActiveAsset();
   const { telemetry, isMt5Connected } = useMT5Telemetry();
+  const [mounted, setMounted] = useState<boolean>(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const isSessionClosed = !assetProfile.tradeExecutable;
   const sessionState = assetProfile.sessionState;
@@ -51,7 +56,7 @@ export const RiskGuardianPolicy: React.FC = () => {
               {isSessionClosed
                 ? `${sessionState?.statusLabel || 'CLOSED'}`
                 : sessionState?.marketState === 'CLOSING_SOON'
-                ? `CLOSES IN ${sessionState?.nextCloseCountdown || '15m'}`
+                ? (mounted && sessionState?.nextCloseCountdown ? `CLOSES IN ${sessionState.nextCloseCountdown}` : 'CLOSING SOON')
                 : 'OPEN & CLEAR'}
             </span>
           </div>
@@ -104,7 +109,9 @@ export const RiskGuardianPolicy: React.FC = () => {
 
       <div suppressHydrationWarning className={`text-[8.5px] pt-1 text-center font-mono ${isSessionClosed ? 'text-amber-300' : 'text-emerald-400/90'}`}>
         {isSessionClosed
-          ? `Execution locked by Session Gate • Next Open in ${sessionState?.nextOpenCountdown || 'scheduled'}`
+          ? (mounted && sessionState?.nextOpenCountdown
+            ? `Execution locked by Session Gate • Next Open in ${sessionState.nextOpenCountdown}`
+            : 'Execution locked by Session Gate • Next Open: Scheduled')
           : 'All execution parameters mathematically bounded'}
       </div>
     </div>

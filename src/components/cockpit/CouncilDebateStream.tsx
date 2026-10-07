@@ -1,10 +1,15 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 
 export const CouncilDebateStream: React.FC = () => {
   const { activeSymbol, assetProfile } = useActiveAsset();
+  const [mounted, setMounted] = useState<boolean>(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -40,7 +45,7 @@ export const CouncilDebateStream: React.FC = () => {
         {assetProfile.debateMessages.map((item, idx) => (
           <div key={idx} className="flex items-center justify-between p-1.5 rounded-lg bg-black/30 border border-white/5">
             <div className="flex items-center space-x-1.5 truncate">
-              <span className="text-gray-400 text-[8.5px]">{item.time}</span>
+              <span suppressHydrationWarning className="text-gray-400 text-[8.5px]">{mounted ? item.time : '--:--:--'}</span>
               <span className="text-cyan-300 font-bold text-[9px]">{item.agent}:</span>
               <span className="text-gray-300 text-[9px] truncate max-w-[130px] sm:max-w-[170px]">{item.text}</span>
             </div>

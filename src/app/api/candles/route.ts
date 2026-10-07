@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
   const isBundle = searchParams.get('bundle') === 'true' || timeframe === 'BUNDLE';
 
   if (isBundle) {
-    const bundleTimeframes = ['M5', 'M15', 'H1', 'H4', 'D1'];
+    const bundleTimeframes = ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
     const results = await Promise.allSettled(
       bundleTimeframes.map((tf) => resolveCandlesForTimeframe(symbol, tf))
     );

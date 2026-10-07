@@ -25,9 +25,11 @@ export const CentralIntelligenceHub: React.FC = () => {
   const [elapsedSec, setElapsedSec] = useState<number>(0);
   const [isTabHidden, setIsTabHidden] = useState<boolean>(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(false);
+  const [mounted, setMounted] = useState<boolean>(false);
 
   // Monitor visibility & reduced motion
   useEffect(() => {
+    setMounted(true);
     const handleVisibility = () => {
       setIsTabHidden(document.hidden);
     };
@@ -119,7 +121,9 @@ export const CentralIntelligenceHub: React.FC = () => {
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${assetProfile.tradeExecutable ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                   <span suppressHydrationWarning>
-                    {assetProfile.tradeExecutable ? 'SESSION OPEN' : `${assetProfile.sessionState.statusLabel} (${assetProfile.sessionState.nextOpenCountdown})`}
+                    {assetProfile.tradeExecutable
+                      ? 'SESSION OPEN'
+                      : `${assetProfile.sessionState.statusLabel}${mounted && assetProfile.sessionState.nextOpenCountdown ? ` (${assetProfile.sessionState.nextOpenCountdown})` : ''}`}
                   </span>
                 </span>
               )}

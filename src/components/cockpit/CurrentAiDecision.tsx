@@ -1,11 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 
 export const CurrentAiDecision: React.FC = () => {
   const { activeSymbol, assetProfile } = useActiveAsset();
   const [status, setStatus] = useState<'IDLE' | 'APPROVED' | 'REJECTED'>('IDLE');
+  const [mounted, setMounted] = useState<boolean>(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const isBuy = assetProfile.setupDirection.includes('BUY');
   const isSell = assetProfile.setupDirection.includes('SELL');
@@ -184,7 +189,9 @@ export const CurrentAiDecision: React.FC = () => {
           <span className={`font-mono font-bold ${assetProfile.tradeExecutable ? 'text-emerald-300' : 'text-rose-300'}`}>
             {assetProfile.sessionState?.statusLabel || 'OPEN'}
             {!assetProfile.tradeExecutable && assetProfile.sessionState?.nextOpenCountdown && (
-              <span suppressHydrationWarning className="text-gray-400 font-normal ml-1">({assetProfile.sessionState.nextOpenCountdown})</span>
+              <span suppressHydrationWarning className="text-gray-400 font-normal ml-1">
+                {mounted ? `(${assetProfile.sessionState.nextOpenCountdown})` : ''}
+              </span>
             )}
           </span>
         </div>
@@ -207,6 +214,67 @@ export const CurrentAiDecision: React.FC = () => {
       <div className="text-[8px] text-gray-400 bg-black/30 p-1.5 rounded-lg border border-white/5">
         <span className="text-rose-400 font-bold">Invalidation: </span>
         <span>{assetProfile.invalidation}</span>
+      </div>
+
+      {/* Section 14: Multi-Timeframe Trigger & Lifecycle Matrix */}
+      <div className="bg-black/50 p-2 rounded-xl border border-white/10 space-y-1.5 text-[9px] font-mono">
+        <div className="flex items-center justify-between border-b border-white/5 pb-1">
+          <span className="text-cyan-400 font-bold uppercase tracking-wider text-[8px] flex items-center space-x-1">
+            <span>⚡</span>
+            <span>M15/M30 OPPORTUNITY & TRIGGER MATRIX</span>
+          </span>
+          <span className={`px-1.5 py-0.2 rounded text-[7.5px] font-bold ${
+            assetProfile.setupLifecycle?.state === 'TRIGGERED' || assetProfile.triggerEvidence?.isConfirmed
+              ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
+              : assetProfile.setupLifecycle?.state === 'ARMED'
+              ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-500/40'
+              : assetProfile.setupLifecycle?.state === 'INVALIDATED'
+              ? 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
+              : 'bg-amber-950/60 text-amber-300 border border-amber-500/40'
+          }`}>
+            STATE: {assetProfile.setupLifecycle?.state || (assetProfile.blueprint ? 'ARMED' : 'FORMING')}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5 text-[8.5px]">
+          <div>
+            <span className="text-gray-400">HTF Context (H1): </span>
+            <span className={`font-bold ${assetProfile.multiTimeframeContext?.h1?.trend === 'BULLISH' ? 'text-emerald-400' : assetProfile.multiTimeframeContext?.h1?.trend === 'BEARISH' ? 'text-rose-400' : 'text-gray-300'}`}>
+              {assetProfile.multiTimeframeContext?.h1?.trend || 'NEUTRAL'} {assetProfile.multiTimeframeContext?.h1?.available ? `(${assetProfile.multiTimeframeContext.h1.candleCount}b)` : '(DATA LTD)'}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-400">Setup (M30): </span>
+            <span className={`font-bold ${assetProfile.multiTimeframeContext?.m30?.trend === 'BULLISH' ? 'text-emerald-400' : assetProfile.multiTimeframeContext?.m30?.trend === 'BEARISH' ? 'text-rose-400' : 'text-gray-300'}`}>
+              {assetProfile.multiTimeframeContext?.m30?.trend || 'NEUTRAL'} {assetProfile.multiTimeframeContext?.m30?.swingsIdentified ? '• Swings OK' : '• Scanning'}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-400">Trigger (M15): </span>
+            <span className={`font-bold ${assetProfile.triggerEvidence?.isConfirmed ? 'text-emerald-300' : 'text-amber-300'}`}>
+              {assetProfile.triggerEvidence?.isConfirmed ? `CONFIRMED (${assetProfile.triggerEvidence.triggerType})` : 'AWAITING CLOSE'}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-400">Precision (M5): </span>
+            <span className="text-gray-300 font-bold">
+              {assetProfile.multiTimeframeContext?.m5?.momentum || 'NEUTRAL'} {assetProfile.multiTimeframeContext?.m5?.available ? `(${assetProfile.multiTimeframeContext.m5.candleCount}b)` : ''}
+            </span>
+          </div>
+        </div>
+
+        <div className="pt-1 border-t border-white/5 space-y-0.5 text-[8px] text-gray-400">
+          <div>
+            <span className="text-cyan-400 font-semibold">Next Confirmation: </span>
+            <span>{assetProfile.triggerEvidence?.isConfirmed ? `M15 close confirmed at ${assetProfile.triggerEvidence.confirmationClose}` : (assetProfile.multiTimeframeContext?.nextConfirmationRequirement || 'Awaiting qualifying closed candle')}</span>
+          </div>
+          {assetProfile.confluence?.criticalConflicts && assetProfile.confluence.criticalConflicts.length > 0 && (
+            <div className="text-amber-400/90 truncate">
+              <span className="font-semibold">Conflict: </span>
+              <span>{assetProfile.confluence.criticalConflicts[0]}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Action Buttons */}

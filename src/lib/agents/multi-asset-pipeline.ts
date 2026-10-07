@@ -70,6 +70,11 @@ import {
   evaluateDataSentinelAgent,
   evaluateQuantAgent
 } from './specialists/specialist-agents';
+import { MultiTimeframeContext, CandleCloseTriggerEvidence } from '../triggers/trigger-types';
+import { CandleCloseTriggerEngine } from '../triggers/candle-close-trigger-engine';
+import { SetupLifecycleEngine } from '../trading/setup-lifecycle-engine';
+import { SetupLifecycleRecord } from '../trading/setup-lifecycle-types';
+import { FastOpportunityEngine } from '../radar/fast-opportunity-engine';
 
 export type DirectionalBias = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 export type DecisionPosture = 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)' | 'ANALYSIS ONLY' | 'DATA LIMITED';
@@ -127,6 +132,10 @@ export interface AssetIntelligenceProfile {
   historicalAnalogue?: HistoricalAnalogueResult | null;
   dataSentinel?: UnifiedAgentResponse | null;
   specialistAgents?: UnifiedAgentResponse[];
+  // M15/M30 Opportunity Recovery & Decision Consistency Additions
+  multiTimeframeContext?: MultiTimeframeContext | null;
+  triggerEvidence?: CandleCloseTriggerEvidence | null;
+  setupLifecycle?: SetupLifecycleRecord | null;
 }
 
 /**
@@ -281,11 +290,20 @@ export function generateAssetIntelligence(
   }
 
   // Canonical multi-timeframe resolution:
-  // Structure (SMC, Strategy, Liquidity): prefer H1 or H4 from bundle
-  const structureCandles = (candleBundle && (candleBundle['H1'] || candleBundle['H4'] || candleBundle['M15']))
-    ? (candleBundle['H1'] || candleBundle['H4'] || candleBundle['M15'])
-    : activeCandles;
-  const structureTf = (candleBundle && candleBundle['H1']) ? 'H1' : (candleBundle && candleBundle['H4']) ? 'H4' : normTf;
+  const h1Candles = candleBundle?.['H1'] || (normTf === 'H1' ? activeCandles : undefined);
+  const m30Candles = candleBundle?.['M30'] || (normTf === 'M30' ? activeCandles : undefined);
+  const m15Candles = candleBundle?.['M15'] || (normTf === 'M15' ? activeCandles : undefined);
+  const m5Candles = candleBundle?.['M5'] || (normTf === 'M5' ? activeCandles : undefined);
+
+  // Structure setup: prefer M30 from bundle, then H1, then H4
+  const structureCandles = (m30Candles && m30Candles.length >= 10)
+    ? m30Candles
+    : (candleBundle && (candleBundle['H1'] || candleBundle['H4'] || candleBundle['M15']))
+      ? (candleBundle['H1'] || candleBundle['H4'] || candleBundle['M15'])
+      : activeCandles;
+  const structureTf = (m30Candles && m30Candles.length >= 10)
+    ? 'M30'
+    : (candleBundle && candleBundle['H1']) ? 'H1' : (candleBundle && candleBundle['H4']) ? 'H4' : normTf;
 
   // Micro-momentum (Scalper / Order Flow): prefer M5 or M15 from bundle
   const microCandles = (candleBundle && (candleBundle['M5'] || candleBundle['M15']))
@@ -312,6 +330,7 @@ export function generateAssetIntelligence(
   const meta = symbolMeta[normSymbol] || { name: normSymbol, category: 'FOREX' };
 
   // 1. Evaluate Session & Trading Temporal Window
+  const evalTimeMs = evaluationTime ? evaluationTime.getTime() : Date.now();
   const quoteTimestampMs = liveAsset?.lastUpdated && !isNaN(new Date(liveAsset.lastUpdated).getTime())
     ? new Date(liveAsset.lastUpdated).getTime()
     : undefined;
@@ -373,28 +392,126 @@ export function generateAssetIntelligence(
     ? analyzeMarketStructure(analysisCandles, normSymbol, structureTf, blueprintCandleSource)
     : null;
 
+  // Multi-Timeframe Context Construction
+  const h1Structure = (h1Candles && h1Candles.length >= 10 && structureTf !== 'H1')
+    ? analyzeMarketStructure(h1Candles, normSymbol, 'H1', blueprintCandleSource)
+    : (structureTf === 'H1' ? marketStructure : null);
+
+  const m15Structure = (m15Candles && m15Candles.length >= 10 && structureTf !== 'M15')
+    ? analyzeMarketStructure(m15Candles, normSymbol, 'M15', blueprintCandleSource)
+    : (structureTf === 'M15' ? marketStructure : null);
+
+  let m5Momentum: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+  if (microCandles && microCandles.length >= 3) {
+    const last3 = microCandles.slice(-3);
+    const lastClose = last3[last3.length - 1].close;
+    const firstOpen = last3[0].open;
+    if (lastClose > firstOpen) m5Momentum = 'BULLISH';
+    else if (lastClose < firstOpen) m5Momentum = 'BEARISH';
+  }
+
+  const htfBias = (h1Structure?.trend === 'BULLISH' || h1Structure?.trend === 'BEARISH') ? h1Structure.trend : 'NEUTRAL';
+  const setupStructureTrend = (marketStructure?.trend === 'BULLISH' || marketStructure?.trend === 'BEARISH') ? marketStructure.trend : 'NEUTRAL';
+
+  // Evaluate M15 Candle-Close Trigger Evidence
+  const triggerEvidence = CandleCloseTriggerEngine.evaluateTrigger({
+    symbol: normSymbol,
+    candlesM15: m15Candles,
+    candlesM30: m30Candles || (structureTf === 'M30' ? analysisCandles : undefined),
+    currentPrice: p,
+    structure: marketStructure,
+    htfBias,
+    provenance: effectiveCandleProvenance,
+    currentTimeMs: evalTimeMs,
+  });
+
+  const multiTimeframeContext: MultiTimeframeContext = {
+    symbol: normSymbol,
+    contextTimeframe: 'H1',
+    setupTimeframe: 'M30',
+    triggerTimeframe: 'M15',
+    precisionTimeframe: 'M5',
+    htfBias,
+    setupStructure: setupStructureTrend,
+    triggerState: triggerEvidence.isConfirmed ? 'CONFIRMED' : 'WAITING',
+    htfCandleCount: h1Candles?.length || (structureTf === 'H1' ? analysisCandles.length : 0),
+    m30CandleCount: m30Candles?.length || (structureTf === 'M30' ? analysisCandles.length : 0),
+    m15CandleCount: m15Candles?.length || 0,
+    m5CandleCount: microCandles?.length || 0,
+    isTriggerConfirmed: triggerEvidence.isConfirmed,
+    triggerConfirmationDetails: triggerEvidence.reason,
+    nextConfirmationRequirement: triggerEvidence.isConfirmed
+      ? 'Confirmed closed candle breakout'
+      : (triggerEvidence.rejectionReason || 'Awaiting confirmed closed M15 candle breakout'),
+    h1: {
+      available: Boolean(h1Candles && h1Candles.length >= 10),
+      trend: htfBias,
+      candleCount: h1Candles?.length || (structureTf === 'H1' ? analysisCandles.length : 0),
+      provenance: effectiveCandleProvenance,
+    },
+    m30: {
+      available: Boolean((m30Candles && m30Candles.length >= 10) || structureTf === 'M30'),
+      trend: setupStructureTrend,
+      candleCount: m30Candles?.length || (structureTf === 'M30' ? analysisCandles.length : 0),
+      swingsIdentified: Boolean(marketStructure && ((marketStructure.swingHighs?.length || 0) > 0 || (marketStructure.swingLows?.length || 0) > 0)),
+      structureVersion: SetupLifecycleEngine.computeStructureVersion(marketStructure),
+    },
+    m15: {
+      available: Boolean(m15Candles && m15Candles.length >= 10),
+      trend: (m15Structure?.trend === 'BULLISH' || m15Structure?.trend === 'BEARISH') ? m15Structure.trend : 'NEUTRAL',
+      candleCount: m15Candles?.length || 0,
+      latestClosedTimestamp: m15Candles && m15Candles.length > 0 ? m15Candles[m15Candles.length - 1].timestamp : 0,
+    },
+    m5: {
+      available: Boolean(microCandles && microCandles.length >= 3),
+      candleCount: microCandles?.length || 0,
+      momentum: m5Momentum,
+    },
+  };
+
   const bpKey = `${normSymbol}:${structureTf}`;
-  const cachedBp = activeBlueprintCache.get(bpKey);
+  let cachedBp = activeBlueprintCache.get(bpKey);
+
+  // Fail-closed cached blueprint check: if already permanently invalidated, remove from cache
+  if (cachedBp && SetupLifecycleEngine.isSetupInvalidated(cachedBp.setupId)) {
+    activeBlueprintCache.delete(bpKey);
+    cachedBp = undefined;
+  }
 
   const isStructureValid = isMarketStructureCompatibleWithContext(marketStructure, normSymbol, structureTf, blueprintCandleSource);
 
   if (isStructureValid && marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
     let freshBlueprint: TradeBlueprint | null = null;
-    if (marketStructure.trend === 'BULLISH') {
-      freshBlueprint = buildBuyBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
-    } else if (marketStructure.trend === 'BEARISH') {
-      freshBlueprint = buildSellBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
+    const candidateDir = marketStructure.trend === 'BULLISH' ? 'BUY' : 'SELL';
+
+    // Anti-flip-flop guard: Require genuinely new structural evidence before regenerating same-direction setup
+    const evidenceCheck = SetupLifecycleEngine.hasNewStructuralEvidence(
+      normSymbol,
+      candidateDir,
+      marketStructure,
+      analysisCandles
+    );
+
+    if (evidenceCheck.hasNewEvidence) {
+      if (candidateDir === 'BUY') {
+        freshBlueprint = buildBuyBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
+      } else if (candidateDir === 'SELL') {
+        freshBlueprint = buildSellBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
+      }
+
+      if (freshBlueprint) {
+        if (isBlueprintCompatibleWithContext(freshBlueprint, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
+          activeBlueprintCache.set(bpKey, freshBlueprint);
+          blueprint = freshBlueprint;
+          SetupLifecycleEngine.registerActiveSetup(freshBlueprint, marketStructure, 'ARMED');
+        } else {
+          activeBlueprintCache.delete(bpKey);
+          blueprint = null;
+        }
+      }
     }
 
-    if (freshBlueprint) {
-      if (isBlueprintCompatibleWithContext(freshBlueprint, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
-        activeBlueprintCache.set(bpKey, freshBlueprint);
-        blueprint = freshBlueprint;
-      } else {
-        activeBlueprintCache.delete(bpKey);
-        blueprint = null;
-      }
-    } else if (cachedBp) {
+    if (!freshBlueprint && cachedBp) {
       // Fail-closed cached blueprint integrity and market compatibility validation
       if (!isBlueprintCompatibleWithContext(cachedBp, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
         activeBlueprintCache.delete(bpKey);
@@ -413,6 +530,7 @@ export function generateAssetIntelligence(
           } else if (isBlueprintCompatibleWithContext(updatedBp, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
             activeBlueprintCache.set(bpKey, updatedBp);
             blueprint = updatedBp;
+            SetupLifecycleEngine.registerActiveSetup(updatedBp, marketStructure, updatedBp.state as any);
           } else {
             activeBlueprintCache.delete(bpKey);
             blueprint = null;
@@ -424,6 +542,8 @@ export function generateAssetIntelligence(
     activeBlueprintCache.delete(bpKey);
     blueprint = null;
   }
+
+  const setupLifecycleRecord = SetupLifecycleEngine.getActiveSetup(normSymbol);
 
   // 3b. Specialist Market Diagnostics: Volume Profile & Order Flow
   const isExchangeVol = (normSymbol === 'BTCUSD' || normSymbol === 'ETHUSD' || normSymbol === 'SOLUSD');
@@ -1172,7 +1292,6 @@ export function generateAssetIntelligence(
   });
 
   // 5. Attach Canonical Machine-Readable Evidence & Trust Scores
-  const evalTimeMs = evaluationTime ? evaluationTime.getTime() : Date.now();
   const latestCandle = analysisCandles.length > 0 ? analysisCandles[analysisCandles.length - 1] : undefined;
   const tfInterval = TIMEFRAME_INTERVAL_MS[structureTf] || 3600_000;
   const candleCloseTs = latestCandle && typeof latestCandle.timestamp === 'number'
@@ -1593,28 +1712,34 @@ export function generateAssetIntelligence(
 
   let effectiveSetupDirection: AssetIntelligenceProfile['setupDirection'] = 'WAIT';
 
-  if (
+  // Single Authoritative Final Decision: CortexConfluenceEngine is the canonical presentation authority.
+  // If Confluence presentationPosture === 'WAIT', effectiveSetupDirection MUST be 'WAIT'!
+  if (confluenceResult.presentationPosture === 'WAIT') {
+    effectiveSetupDirection = 'WAIT';
+  } else if (
+    confluenceResult.presentationPosture === 'WATCH FOR BUY' &&
     blueprint &&
     blueprint.state !== 'INVALIDATED' &&
     blueprint.state !== 'EXPIRED' &&
     blueprint.direction === 'BUY' &&
     eligibleBullishCount > 0 &&
     consensusTrust.evidenceTrust >= 40 &&
-    confluenceResult.presentationPosture !== 'WATCH FOR SELL'
+    setupLifecycleRecord?.state !== 'INVALIDATED'
   ) {
     effectiveSetupDirection = 'WATCH FOR BUY';
   } else if (
+    confluenceResult.presentationPosture === 'WATCH FOR SELL' &&
     blueprint &&
     blueprint.state !== 'INVALIDATED' &&
     blueprint.state !== 'EXPIRED' &&
     blueprint.direction === 'SELL' &&
     eligibleBearishCount > 0 &&
     consensusTrust.evidenceTrust >= 40 &&
-    confluenceResult.presentationPosture !== 'WATCH FOR BUY'
+    setupLifecycleRecord?.state !== 'INVALIDATED'
   ) {
     effectiveSetupDirection = 'WATCH FOR SELL';
   } else {
-    // Insufficient evidence or no directional setup -> WAIT
+    // Insufficient evidence, waiting posture, or no directional setup -> WAIT
     effectiveSetupDirection = 'WAIT';
   }
 
@@ -1776,5 +1901,9 @@ export function generateAssetIntelligence(
     historicalAnalogue: feeds?.quant?.analogue || null,
     dataSentinel: dataSentinelSpecialist,
     specialistAgents: specialistsList,
+    // M15/M30 Opportunity Recovery & Decision Consistency Additions
+    multiTimeframeContext,
+    triggerEvidence,
+    setupLifecycle: setupLifecycleRecord,
   };
 }

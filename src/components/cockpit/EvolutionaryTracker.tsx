@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { HISTORICAL_CHANGES } from '@/lib/agents/what-changed-engine';
 
 export const EvolutionaryTracker: React.FC = () => {
   return (
@@ -25,76 +26,62 @@ export const EvolutionaryTracker: React.FC = () => {
         </span>
       </div>
 
-      {/* Timeline Entry 1 */}
-      <div className="bg-black/30 p-2.5 rounded-xl border border-white/5 space-y-2 text-[9.5px]">
-        <div className="flex flex-wrap items-center justify-between gap-1 text-gray-300">
-          <div className="flex items-center space-x-1.5">
-            <span className="text-gray-400 font-bold">17:10:00 &rarr; 18:15:00</span>
-            <span>&bull;</span>
-            <span className="bg-amber-950/50 text-amber-300 px-1 py-0.2 rounded border border-amber-500/30 text-[8px]">
-              WAIT (51%)
-            </span>
-            <span>&rarr;</span>
-            <span className="bg-emerald-950/50 text-emerald-300 px-1 py-0.2 rounded border border-emerald-500/30 text-[8px] font-bold">
-              WATCH BUY (74%)
-            </span>
+      {/* Delta History Feed */}
+      {HISTORICAL_CHANGES.length === 0 ? (
+        <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-2 text-center text-gray-400">
+          <div className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
+            DATA LIMITED / NO VERIFIED CHANGE HISTORY
           </div>
-          <span className="text-emerald-400 font-bold">Consensus &Delta;: +23%</span>
-        </div>
-
-        <div className="space-y-0.5 text-gray-400 text-[8.5px] pl-2 border-l-2 border-cyan-500/40">
-          <div className="text-gray-300 font-bold text-[8px] uppercase">MARKET CATALYSTS DETECTED:</div>
-          <div>&bull; XAUUSD swept sell-side liquidity at $2,341.20 and formed M15 CHOCH</div>
-          <div>&bull; DXY rejected 104.40 resistance ceiling and fell -0.26%</div>
-          <div>&bull; US 10-year yield dropped 6 bps from 4.27% to 4.214%</div>
-          <div>&bull; Silver (XAGUSD) broke intraday high (+1.42%) confirming SMT divergence</div>
-        </div>
-
-        <div className="flex flex-wrap gap-1 text-[7.5px]">
-          <span className="px-1.5 py-0.5 rounded bg-black/40 border border-cyan-500/30 text-cyan-300">
-            Technical: NEUTRAL &rarr; BULLISH (+0.62)
-          </span>
-          <span className="px-1.5 py-0.5 rounded bg-black/40 border border-cyan-500/30 text-cyan-300">
-            Correlation: NEUTRAL &rarr; BULLISH (+0.77)
-          </span>
-          <span className="px-1.5 py-0.5 rounded bg-black/40 border border-cyan-500/30 text-cyan-300">
-            Macro: NEUTRAL &rarr; BULLISH (+0.61)
-          </span>
-          <span className="px-1.5 py-0.5 rounded bg-black/40 border border-amber-500/30 text-amber-300">
-            Risk: STANDBY &rarr; RESTRICTED
-          </span>
-        </div>
-      </div>
-
-      {/* Timeline Entry 2 */}
-      <div className="bg-black/30 p-2.5 rounded-xl border border-white/5 space-y-2 text-[9.5px]">
-        <div className="flex flex-wrap items-center justify-between gap-1 text-gray-300">
-          <div className="flex items-center space-x-1.5">
-            <span className="text-gray-400 font-bold">15:30:00 &rarr; 17:10:00</span>
-            <span>&bull;</span>
-            <span className="bg-rose-950/50 text-rose-300 px-1 py-0.2 rounded border border-rose-500/30 text-[8px]">
-              NO TRADE (38%)
-            </span>
-            <span>&rarr;</span>
-            <span className="bg-amber-950/50 text-amber-300 px-1 py-0.2 rounded border border-amber-500/30 text-[8px]">
-              WAIT (51%)
-            </span>
+          <p className="text-[8.5px] text-gray-400 max-w-sm mx-auto leading-relaxed">
+            Continuous surveillance active. No historical state transitions or consensus flips recorded in current session. Awaiting verified structural transitions.
+          </p>
+          <div className="text-[7.5px] font-mono text-gray-500 pt-1">
+            Status: STABLE SURVEILLANCE • DELTA RECORDING ACTIVE
           </div>
-          <span className="text-cyan-400 font-bold">Consensus &Delta;: +13%</span>
         </div>
+      ) : (
+        <div className="space-y-2.5">
+          {HISTORICAL_CHANGES.map((chg) => (
+            <div key={chg.id} className="bg-black/30 p-2.5 rounded-xl border border-white/5 space-y-2 text-[9.5px]">
+              <div className="flex flex-wrap items-center justify-between gap-1 text-gray-300">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-gray-400 font-bold">{chg.timePrevious} &rarr; {chg.timeCurrent}</span>
+                  <span>&bull;</span>
+                  <span className="bg-white/10 text-gray-300 px-1 py-0.2 rounded border border-white/10 text-[8px]">
+                    {chg.previousVerdict} ({chg.previousConsensus}%)
+                  </span>
+                  <span>&rarr;</span>
+                  <span className="bg-emerald-950/50 text-emerald-300 px-1 py-0.2 rounded border border-emerald-500/30 text-[8px] font-bold">
+                    {chg.currentVerdict} ({chg.currentConsensus}%)
+                  </span>
+                </div>
+                <span className="text-cyan-400 font-bold">
+                  Consensus &Delta;: {chg.currentConsensus - chg.previousConsensus > 0 ? '+' : ''}{chg.currentConsensus - chg.previousConsensus}%
+                </span>
+              </div>
 
-        <div className="space-y-0.5 text-gray-400 text-[8.5px] pl-2 border-l-2 border-blue-500/40">
-          <div className="text-gray-300 font-bold text-[8px] uppercase">MARKET CATALYSTS DETECTED:</div>
-          <div>&bull; Asian session compression held without direction</div>
-          <div>&bull; London session open injected volatility and tested session lows</div>
-        </div>
+              {chg.marketCatalysts && chg.marketCatalysts.length > 0 && (
+                <div className="space-y-0.5 text-gray-400 text-[8.5px] pl-2 border-l-2 border-cyan-500/40">
+                  <div className="text-gray-300 font-bold text-[8px] uppercase">MARKET CATALYSTS DETECTED:</div>
+                  {chg.marketCatalysts.map((cat, idx) => (
+                    <div key={idx}>&bull; {cat}</div>
+                  ))}
+                </div>
+              )}
 
-        <div className="flex flex-wrap gap-1 text-[7.5px]">
-          <span className="px-1.5 py-0.5 rounded bg-black/40 border border-cyan-500/30 text-cyan-300">
-            Technical: BEARISH (-0.35) &rarr; NEUTRAL (0.00)
-          </span>
+              {chg.agentShifts && chg.agentShifts.length > 0 && (
+                <div className="flex flex-wrap gap-1 text-[7.5px]">
+                  {chg.agentShifts.map((s, idx) => (
+                    <span key={idx} className="px-1.5 py-0.5 rounded bg-black/40 border border-cyan-500/30 text-cyan-300">
+                      {s.agent}: {s.from} &rarr; {s.to}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
-      </div>
+      )}
     </div>
   );
 };

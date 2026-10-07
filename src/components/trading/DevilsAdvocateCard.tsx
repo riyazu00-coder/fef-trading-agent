@@ -45,14 +45,14 @@ export function DevilsAdvocateCard({
     {
       title: 'Retail Positioning Herd Effect',
       severity: 'MEDIUM',
-      description: 'Retail long sentiment has crept up to 58%. If retail longs accelerate >65%, broker liquidity sweeps usually follow.',
+      description: 'Retail positioning data unverified / data limited. Crowding extremes (>65%) monitored; broker liquidity sweeps usually punish retail herd positions.',
       mitigation: 'Wait for M15 candle close confirmation before triggering limit execution.'
     },
     {
       title: 'Cross-Asset Divergence Vulnerability',
-      severity: 'LOW',
-      description: 'DXY 104.20 level is a historical bounce zone; sudden safe-haven USD flows could temporarily decouple assets.',
-      mitigation: 'Watch USDJPY and US Treasury Yields as cross-asset validation.'
+      severity: 'MEDIUM',
+      description: 'Dollar Index (DXY) live feed is currently UNAVAILABLE. Benchmark beta correlation unverified pending connector.',
+      mitigation: 'Cross-asset correlation discounted from decision-eligible evidence.'
     }
   ];
 

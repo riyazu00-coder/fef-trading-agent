@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
@@ -13,6 +13,11 @@ export const MarketOverviewCard: React.FC = () => {
   const { activeAsset, timeframe, setTimeframe, assetProfile } = useActiveAsset();
   const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
   const [chartMode, setChartMode] = useState<'MINI' | 'TRADINGVIEW'>('TRADINGVIEW');
+  const [mounted, setMounted] = useState<boolean>(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
 
   const isPos = activeAsset.change24h >= 0;
@@ -292,7 +297,9 @@ export const MarketOverviewCard: React.FC = () => {
           <span className="text-gray-200 text-right truncate max-w-[150px]">
             {assetProfile.sessionState?.sessionName || assetProfile.session}
             {!assetProfile.sessionState?.isOpen && assetProfile.sessionState?.nextOpenCountdown && (
-              <span suppressHydrationWarning className="text-amber-300 ml-1 text-[9px]">({assetProfile.sessionState.nextOpenCountdown})</span>
+              <span suppressHydrationWarning className="text-amber-300 ml-1 text-[9px]">
+                {mounted ? `(${assetProfile.sessionState.nextOpenCountdown})` : ''}
+              </span>
             )}
           </span>
         </div>

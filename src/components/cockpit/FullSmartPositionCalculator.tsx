@@ -45,9 +45,11 @@ export const FullSmartPositionCalculator: React.FC = () => {
 
   // Notification / Flash Feedback
   const [flashNotice, setFlashNotice] = useState<string | null>(null);
+  const [mounted, setMounted] = useState<boolean>(false);
 
   // Load preferences from localStorage on mount
   useEffect(() => {
+    setMounted(true);
     if (typeof window === 'undefined') return;
     try {
       const saved = window.localStorage.getItem(STORAGE_KEY);
@@ -344,7 +346,7 @@ export const FullSmartPositionCalculator: React.FC = () => {
               Institutional Contract Sizing • Risk-First Floor Rounding
               {!assetProfile.tradeExecutable && (
                 <span suppressHydrationWarning className="text-rose-400 font-mono ml-2">
-                  (Execution locked until session opens in {assetProfile.sessionState?.nextOpenCountdown || 'scheduled'})
+                  (Execution locked until session opens{mounted && assetProfile.sessionState?.nextOpenCountdown ? ` in ${assetProfile.sessionState.nextOpenCountdown}` : ''})
                 </span>
               )}
             </p>

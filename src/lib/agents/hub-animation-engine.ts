@@ -294,7 +294,7 @@ export function getTruthfulLiveMessages(profile: AssetIntelligenceProfile): HubL
     const packetColor = getPacketColor(msg.status as BiasType, 'ONLINE', agentType);
 
     return {
-      id: `${profile.symbol}-msg-${i}-${msg.time}`,
+      id: `${profile.symbol}-msg-${i}`,
       timestamp: msg.time,
       agentName: cleanName,
       agentType,

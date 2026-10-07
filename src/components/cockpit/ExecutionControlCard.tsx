@@ -11,6 +11,11 @@ export const ExecutionControlCard: React.FC = () => {
   const [riskPercent, setRiskPercent] = useState('0.50%');
   const [isExecuting, setIsExecuting] = useState(false);
   const [executed, setExecuted] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const direction: 'BUY' | 'SELL' = assetProfile.setupDirection.includes('SELL') ? 'SELL' : 'BUY';
   const brokerQuote = activeTelemetry?.quote || telemetry.allQuotes[activeSymbol] || telemetry.allQuotes[activeSymbol.toUpperCase()];
@@ -188,8 +193,12 @@ export const ExecutionControlCard: React.FC = () => {
             ? isAnalysisOnly
               ? 'ANALYSIS ONLY — EXECUTION LOCKED'
               : sessionState?.marketState === 'PRE_OPEN'
-              ? `PRE-OPEN WATCH (OPENS IN ${sessionState?.nextOpenCountdown || '15m'})`
-              : `MARKET CLOSED (OPENS IN ${sessionState?.nextOpenCountdown || 'SESSION REOPEN'})`
+              ? (mounted && sessionState?.nextOpenCountdown
+                ? `PRE-OPEN WATCH (OPENS IN ${sessionState.nextOpenCountdown})`
+                : 'PRE-OPEN WATCH (EXECUTION LOCKED)')
+              : (mounted && sessionState?.nextOpenCountdown
+                ? `MARKET CLOSED (OPENS IN ${sessionState.nextOpenCountdown})`
+                : 'MARKET CLOSED (EXECUTION LOCKED)')
             : executed
             ? 'ORDER ARCHIVED TO TRADE JOURNAL'
             : isExecuting

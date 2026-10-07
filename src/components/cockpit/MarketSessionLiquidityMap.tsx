@@ -217,7 +217,7 @@ export const MarketSessionLiquidityMap: React.FC = () => {
           </div>
           {assetProfile?.sessionState && !assetProfile.tradeExecutable && (
             <div suppressHydrationWarning className="text-[8px] text-amber-400 font-mono mt-1">
-              Market Closed &bull; Opens in {assetProfile.sessionState.nextOpenCountdown}
+              Market Closed &bull; {mounted && assetProfile.sessionState.nextOpenCountdown ? `Opens in ${assetProfile.sessionState.nextOpenCountdown}` : 'Opens: Scheduled'}
             </div>
           )}
         </div>
