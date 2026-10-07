@@ -13,21 +13,31 @@ import { globalMacroEngine } from '@/lib/macro/global-macro-engine';
 import { economicCalendarEngine } from '@/lib/calendar/economic-calendar-engine';
 import { geopoliticalEngine } from '@/lib/geopolitical/geopolitical-engine';
 import { marketSentimentEngine } from '@/lib/sentiment/market-sentiment-engine';
+import { MacroIntelligenceEngine } from '@/lib/macro/intelligence/macro-intelligence-engine';
 import { LiveIntelligenceFeeds } from '@/lib/intelligence/feed-types';
 
 export const dynamic = 'force-dynamic';
+
+const macroIntelligenceEngine = new MacroIntelligenceEngine();
 
 export async function GET() {
   try {
     ensureProvidersRegistered();
 
-    // Concurrently refresh specialist intelligence engines
+    let xauusdMacroResult: any = null;
+
+    // Concurrently refresh specialist intelligence engines including official MacroIntelligenceEngine
     await Promise.allSettled([
       globalNewsEngine.getLatestNews(),
       globalMacroEngine.getMacroIndicators(),
       economicCalendarEngine.getUpcomingEvents(48),
       marketSentimentEngine.refreshSentiments(),
       geopoliticalEngine.getGeopoliticalAlerts(),
+      macroIntelligenceEngine.getXauusdMacroEvidence(20).then((res) => {
+        xauusdMacroResult = res;
+      }).catch(() => {
+        xauusdMacroResult = null;
+      }),
     ]);
 
     const news = globalNewsEngine.getCachedNews();
@@ -48,6 +58,7 @@ export async function GET() {
       events,
       alerts,
       sentiment,
+      xauusdMacro: xauusdMacroResult,
     };
 
     return NextResponse.json({

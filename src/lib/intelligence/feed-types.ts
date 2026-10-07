@@ -12,6 +12,7 @@ import {
   GeopoliticalEventRecord,
   SentimentRecord,
 } from '@/lib/providers/types';
+import { XauusdMacroEvidence } from '@/lib/macro/intelligence/types';
 
 export interface LiveIntelligenceFeeds {
   timestamp: string;
@@ -20,4 +21,6 @@ export interface LiveIntelligenceFeeds {
   events: NormalizedCalendarEvent[];
   alerts: GeopoliticalEventRecord[];
   sentiment: Record<string, SentimentRecord | null>;
+  xauusdMacro?: XauusdMacroEvidence | null;
 }
+

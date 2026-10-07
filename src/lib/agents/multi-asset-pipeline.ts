@@ -429,6 +429,9 @@ export function generateAssetIntelligence(
   const cachedSentiment = (feeds?.sentiment && feeds.sentiment[normSymbol] !== undefined)
     ? feeds.sentiment[normSymbol]
     : marketSentimentEngine.getCachedSentiment(normSymbol);
+  const cachedXauusdMacro = (normSymbol === 'XAUUSD' && feeds?.xauusdMacro)
+    ? feeds.xauusdMacro
+    : null;
 
   // 4. Assemble the Canonical 15 Agents deterministically
   const assembledAgents: AgentState[] = getBaseAgentRegistry(normSymbol).map((base) => {
@@ -689,6 +692,63 @@ export function generateAssetIntelligence(
 
       // Specialist feeds: consume genuine cached records or truthfully report DATA LIMITED
       case 'MACRO': {
+        // If official XAUUSD Macro Intelligence exists from Sprint 1C engine
+        if (cachedXauusdMacro && cachedXauusdMacro.dataReadiness !== 'UNAVAILABLE') {
+          let mappedBias: BiasType = 'NEUTRAL';
+          if (cachedXauusdMacro.macroBias === 'BULLISH') mappedBias = 'BULLISH';
+          else if (cachedXauusdMacro.macroBias === 'BEARISH') mappedBias = 'BEARISH';
+          else if (cachedXauusdMacro.macroBias === 'MIXED') mappedBias = 'CAUTION';
+          else mappedBias = 'NEUTRAL';
+
+          const evidenceLines: string[] = [];
+          for (const ev of cachedXauusdMacro.bullishEvidence) {
+            evidenceLines.push(`[BULLISH] ${ev.factor}: ${ev.claim} (${ev.observationDate})`);
+          }
+          for (const ev of cachedXauusdMacro.bearishEvidence) {
+            evidenceLines.push(`[BEARISH] ${ev.factor}: ${ev.claim} (${ev.observationDate})`);
+          }
+          for (const ev of cachedXauusdMacro.neutralEvidence) {
+            evidenceLines.push(`[NEUTRAL] ${ev.factor}: ${ev.claim} (${ev.observationDate})`);
+          }
+          for (const c of cachedXauusdMacro.conflictingEvidence) {
+            evidenceLines.push(`[CONFLICT] ${c}`);
+          }
+          for (const m of cachedXauusdMacro.missingEvidence) {
+            evidenceLines.push(`[MISSING] ${m}`);
+          }
+
+          const status: AgentNodeStatus = cachedXauusdMacro.dataReadiness === 'DATA_LIMITED'
+            ? 'DATA LIMITED'
+            : 'ONLINE';
+
+          const freshnessStr: 'REALTIME' | 'CURRENT' | 'DELAYED' | 'STALE' | 'OFFLINE' =
+            cachedXauusdMacro.freshness === 'CURRENT'
+              ? 'CURRENT'
+              : cachedXauusdMacro.freshness === 'AGING'
+              ? 'DELAYED'
+              : cachedXauusdMacro.freshness === 'STALE'
+              ? 'STALE'
+              : 'OFFLINE';
+
+          return {
+            ...base,
+            bias: mappedBias,
+            confidence: cachedXauusdMacro.confidence,
+            status,
+            lastOpinion: cachedXauusdMacro.reasoningSummary,
+            evidence: evidenceLines.length > 0 ? evidenceLines : ['Awaiting official macro series'],
+            keyRisk: cachedXauusdMacro.conflictingEvidence.length > 0 ? 'Macro factor divergence' : 'Central bank rate shock',
+            invalidation: 'Reversal in Treasury/Real Yield momentum',
+            requiredInputs: ['US 10Y Yield', 'US 2Y Yield', '10Y Real Yield', 'Breakeven Inflation', 'Fed Policy'],
+            availableInputs: cachedXauusdMacro.seriesCoverage,
+            missingInputs: cachedXauusdMacro.missingEvidence,
+            lastRun: new Date(cachedXauusdMacro.assembledAt).toISOString(),
+            freshness: freshnessStr,
+            evidenceTrustScore: cachedXauusdMacro.evidenceTrust,
+            provenanceBadge: 'INDEPENDENT',
+          };
+        }
+
         const relevantMacro = cachedMacro.filter((m) =>
           !m.affectedAssets || m.affectedAssets.length === 0 || m.affectedAssets.includes(normSymbol)
         );
@@ -1217,6 +1277,12 @@ export function generateAssetIntelligence(
         sourceName = 'Computer Vision Technical Detection';
         sourceType = 'MODEL_INFERENCE';
         sourceTimestampMs = candleTimestampMs;
+        structuralGate = false;
+      } else if (ag.type === 'MACRO' && cachedXauusdMacro && cachedXauusdMacro.dataReadiness !== 'UNAVAILABLE') {
+        classification = 'INDEPENDENT_VERIFIED';
+        sourceName = 'Official Federal Reserve Economic Data (FRED)';
+        sourceType = 'MACROECONOMIC_ENGINE';
+        sourceTimestampMs = cachedXauusdMacro.assembledAt;
         structuralGate = false;
       } else if (ag.type === 'MACRO' && cachedMacro.length > 0) {
         const relevantMacro = cachedMacro.filter((m) =>

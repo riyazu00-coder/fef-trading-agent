@@ -513,16 +513,47 @@ export default function AgentsDirectoryPage() {
               {/* Evidence Items */}
               {selectedAgent.evidence && selectedAgent.evidence.length > 0 && (
                 <div className="space-y-1.5">
-                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                    VERIFIED EVIDENCE CITATIONS
+                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center justify-between">
+                    <span>VERIFIED EVIDENCE CITATIONS</span>
+                    <span className="text-[10px] text-gray-400 font-mono font-normal">
+                      Count: {selectedAgent.evidence.length}
+                    </span>
                   </h4>
-                  <ul className="space-y-1 bg-black/40 border border-white/5 p-3 rounded-xl text-xs text-gray-300">
-                    {selectedAgent.evidence.map((item, idx) => (
-                      <li key={idx} className="flex items-start space-x-2">
-                        <span className="text-emerald-400">&bull;</span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
+                  <ul className="space-y-1.5 bg-black/40 border border-white/5 p-3 rounded-xl text-xs text-gray-300">
+                    {selectedAgent.evidence.map((item, idx) => {
+                      const isBullish = item.startsWith('[BULLISH]');
+                      const isBearish = item.startsWith('[BEARISH]');
+                      const isConflict = item.startsWith('[CONFLICT]');
+                      const isMissing = item.startsWith('[MISSING]');
+                      const isNeutral = item.startsWith('[NEUTRAL]');
+
+                      let badge = null;
+                      let text = item;
+
+                      if (isBullish) {
+                        badge = <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">BULLISH</span>;
+                        text = item.replace('[BULLISH]', '').trim();
+                      } else if (isBearish) {
+                        badge = <span className="bg-rose-950/80 text-rose-300 border border-rose-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">BEARISH</span>;
+                        text = item.replace('[BEARISH]', '').trim();
+                      } else if (isConflict) {
+                        badge = <span className="bg-amber-950/80 text-amber-300 border border-amber-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">CONFLICT</span>;
+                        text = item.replace('[CONFLICT]', '').trim();
+                      } else if (isMissing) {
+                        badge = <span className="bg-gray-800 text-gray-300 border border-gray-600 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">MISSING</span>;
+                        text = item.replace('[MISSING]', '').trim();
+                      } else if (isNeutral) {
+                        badge = <span className="bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">NEUTRAL</span>;
+                        text = item.replace('[NEUTRAL]', '').trim();
+                      }
+
+                      return (
+                        <li key={idx} className="flex items-start space-x-2">
+                          {badge ? badge : <span className="text-emerald-400">&bull;</span>}
+                          <span className="leading-snug">{text}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
