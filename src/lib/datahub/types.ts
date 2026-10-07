@@ -1,7 +1,7 @@
 /**
  * FEF TRADING SOLUTIONS — CANONICAL DATAHUB TYPES & CONTRACTS
  * 
- * Foundational Clean-Room Contracts for FEF DataHub (Sprint 1A)
+ * Foundational Clean-Room Contracts for FEF DataHub (Sprint 1A + Sprint 1B)
  * 
  * Core Architectural Invariants:
  * 1. ONE FETCH -> NORMALIZE ONCE -> PRESERVE PROVENANCE -> MANY CONSUMERS
@@ -30,6 +30,15 @@ export type ProviderHealthStatus =
   | 'DEGRADED'
   | 'STALE'
   | 'OFFLINE'
+  | 'UNKNOWN';
+
+export type ProviderErrorCategory =
+  | 'AUTHENTICATION'
+  | 'RATE_LIMIT'
+  | 'NETWORK'
+  | 'PROVIDER_ERROR'
+  | 'MALFORMED_RESPONSE'
+  | 'INVALID_DATA'
   | 'UNKNOWN';
 
 /**
@@ -105,6 +114,7 @@ export interface DataHubEnvelope<T = unknown> {
     code: string;
     message: string;
     timestamp: number;
+    category?: ProviderErrorCategory;
   };
 }
 
@@ -124,6 +134,7 @@ export interface DataHubProviderHealth {
   lastError?: {
     message: string;
     timestamp: number;
+    category?: ProviderErrorCategory;
   };
 }
 

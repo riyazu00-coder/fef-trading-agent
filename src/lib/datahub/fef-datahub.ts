@@ -1,7 +1,7 @@
 /**
  * FEF TRADING SOLUTIONS — CANONICAL DATAHUB FOUNDATION
  * 
- * Clean-Room Implementation (Sprint 1A)
+ * Clean-Room Implementation (Sprint 1A + Sprint 1B Hardened)
  * 
  * Core Design:
  * - In-process pub/sub topic coordinator.
@@ -11,6 +11,8 @@
  * - Immutable provenance preservation.
  * - ZERO EXECUTION AUTHORITY: DataHub NEVER creates, promotes, grants, or advertises
  *   executable authority. Execution decisions belong exclusively to PriceAuthority & ExecutionPolicy.
+ * - Context Validation: Verifies that fetcher output strictly matches requested topic, symbol,
+ *   timeframe, and provider before caching or broadcasting.
  * - Fail-closed error handling: returns unavailable envelopes instead of inventing fallbacks.
  */
 
@@ -69,7 +71,9 @@ export class FEFDataHub {
    */
   public publish<T>(envelope: DataHubEnvelope<T>): DataHubEnvelope<T> {
     const currentNow = this.now();
-    const formattedKey = envelope.key || formatDataHubKey({
+    
+    // Canonical key derived strictly from envelope metadata
+    const formattedKey = formatDataHubKey({
       topic: envelope.topic,
       symbol: envelope.symbol,
       timeframe: envelope.timeframe,
@@ -106,7 +110,7 @@ export class FEFDataHub {
     if (envelope.isAvailable && !envelope.error) {
       this.health.recordSuccess(envelope.provider);
     } else if (envelope.error) {
-      this.health.recordFailure(envelope.provider, envelope.error.message);
+      this.health.recordFailure(envelope.provider, envelope.error.message, envelope.error.category);
     }
 
     // Broadcast to Pub/Sub Subscribers
@@ -121,7 +125,7 @@ export class FEFDataHub {
    * 2. If fetcher is provided and no fresh entry exists:
    *    - Checks if an in-flight fetch already exists for this exact key.
    *    - If yes: joins and awaits the in-flight Promise.
-   *    - If no: initiates the fetcher, stores the Promise, resolves, publishes, and cleans up.
+   *    - If no: initiates the fetcher, validates context match, publishes, and cleans up.
    */
   public async fetch<T>(
     keySpec: DataHubTopicKey,
@@ -151,12 +155,39 @@ export class FEFDataHub {
     const fetchPromise = (async () => {
       try {
         const rawEnvelope = await fetcher();
+
+        // CONTEXT MISMATCH GUARD:
+        // Validate that returned envelope strictly matches requested topic, symbol, timeframe, and provider.
+        // A response for DGS2 must NEVER be returned or cached for a DGS10 request.
+        const reqTopic = (keySpec.topic || '').trim().toLowerCase();
+        const resTopic = (rawEnvelope.topic || '').trim().toLowerCase();
+
+        const reqSymbol = keySpec.symbol ? keySpec.symbol.trim().toUpperCase() : undefined;
+        const resSymbol = rawEnvelope.symbol ? rawEnvelope.symbol.trim().toUpperCase() : undefined;
+
+        const reqTf = keySpec.timeframe ? keySpec.timeframe.trim().toUpperCase() : undefined;
+        const resTf = rawEnvelope.timeframe ? rawEnvelope.timeframe.trim().toUpperCase() : undefined;
+
+        const reqProv = keySpec.provider ? keySpec.provider.trim().toLowerCase() : undefined;
+        const resProv = rawEnvelope.provider ? rawEnvelope.provider.trim().toLowerCase() : undefined;
+
+        const isTopicMatch = reqTopic === resTopic;
+        const isSymbolMatch = !reqSymbol || reqSymbol === resSymbol;
+        const isTfMatch = !reqTf || reqTf === resTf;
+        const isProvMatch = !reqProv || reqProv === resProv;
+
+        if (!isTopicMatch || !isSymbolMatch || !isTfMatch || !isProvMatch) {
+          throw new Error(
+            `CONTEXT_MISMATCH: Fetcher returned context (topic=${rawEnvelope.topic}, symbol=${rawEnvelope.symbol}, provider=${rawEnvelope.provider}) that does not match requested key (${formattedKey})`
+          );
+        }
+
         const published = this.publish<T>(rawEnvelope);
         return published;
       } catch (err: any) {
         // Record provider failure if provider specified
         if (keySpec.provider) {
-          this.health.recordFailure(keySpec.provider, err?.message || String(err));
+          this.health.recordFailure(keySpec.provider, err?.message || String(err), 'PROVIDER_ERROR');
         }
 
         // Build fail-closed error envelope (ZERO execution metadata)
@@ -180,6 +211,7 @@ export class FEFDataHub {
             code: 'FETCH_FAILED',
             message: err?.message || String(err),
             timestamp: this.now(),
+            category: err?.message?.includes('CONTEXT_MISMATCH') ? 'INVALID_DATA' : 'PROVIDER_ERROR',
           },
         };
 

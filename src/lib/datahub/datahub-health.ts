@@ -1,16 +1,17 @@
 /**
  * FEF TRADING SOLUTIONS — DATAHUB PROVIDER HEALTH MONITOR
  * 
- * Foundational Clean-Room Implementation (Sprint 1A)
+ * Foundational Clean-Room Implementation (Sprint 1A + Sprint 1B)
  * 
  * Rules:
  * 1. Tracks factual success/failure metrics only.
  * 2. Does NOT mark providers healthy merely because the runtime process is alive.
  * 3. Transitions to DEGRADED after consecutive failures, OFFLINE after prolonged failure.
  * 4. Resets failure counters upon authentic verified success.
+ * 5. Supports structured error categories without exposing credentials or secret tokens.
  */
 
-import { DataHubProviderHealth, DataHubSourceType, ProviderHealthStatus } from './types';
+import { DataHubProviderHealth, DataHubSourceType, ProviderErrorCategory, ProviderHealthStatus } from './types';
 
 export interface HealthTrackerOptions {
   degradedFailureThreshold?: number;
@@ -79,9 +80,9 @@ export class DataHubHealthRegistry {
   }
 
   /**
-   * Record a failed response
+   * Record a failed response with optional category
    */
-  public recordFailure(providerId: string, errorMessage: string): DataHubProviderHealth {
+  public recordFailure(providerId: string, errorMessage: string, category: ProviderErrorCategory = 'UNKNOWN'): DataHubProviderHealth {
     const normId = providerId.trim().toLowerCase();
     const record = this.providers.get(normId) || {
       providerId: normId,
@@ -99,6 +100,7 @@ export class DataHubHealthRegistry {
     record.lastError = {
       message: errorMessage,
       timestamp: currentNow,
+      category,
     };
 
     if (record.consecutiveFailures >= this.offlineThreshold) {
