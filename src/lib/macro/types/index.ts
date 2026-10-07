@@ -64,8 +64,24 @@ export interface NormalizedMacroObservation {
   metadata?: Record<string, unknown>;
 }
 
+export interface HistoricalMacroObservations {
+  seriesId: string;
+  name: string;
+  category: MacroCategory;
+  unit: string;
+  provider: string;
+  source: string;
+  provenance: EvidenceClassification;
+  observations: NormalizedMacroObservation[];
+  totalSamples: number;
+  startDate?: string;
+  endDate?: string;
+  receivedAt: number;
+}
+
 export interface MacroObservationFetchOptions {
   apiKey?: string;
   forceRefresh?: boolean;
   allowStale?: boolean;
+  limit?: number; // Bounded history sample limit (default 20, max 100)
 }
