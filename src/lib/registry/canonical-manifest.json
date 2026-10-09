@@ -1,0 +1,216 @@
+{
+  "version": "1.2.2",
+  "generatedAt": "2026-10-07T22:00:00.000Z",
+  "totalAssets": 26,
+  "instruments": [
+    {
+      "symbol": "XAUUSD",
+      "category": "METALS",
+      "displayName": "Gold Spot / US Dollar",
+      "is24x7": false,
+      "sessionModel": "METALS_24_5",
+      "discoveryAliases": ["XAUUSD", "GOLD", "XAU", "GOLDUSD", "SPOTGOLD", "XAUUSDm", "XAUUSD.a", "XAUUSD.r", "XAUUSDc", "XAUUSD.pro", "XAUUSD.ecn", "XAUUSD+", "XAUUSD.raw", "GOLD.pro", "GOLD.ecn", "XAU/USD"]
+    },
+    {
+      "symbol": "XAGUSD",
+      "category": "METALS",
+      "displayName": "Silver Spot / US Dollar",
+      "is24x7": false,
+      "sessionModel": "METALS_24_5",
+      "discoveryAliases": ["XAGUSD", "SILVER", "XAG", "SILVERUSD", "SPOTSILVER", "XAGUSDm", "XAGUSD.a", "XAGUSD.r", "XAGUSDc", "XAGUSD.pro", "XAGUSD.ecn", "XAGUSD+", "XAGUSD.raw", "SILVER.pro", "SILVER.ecn", "XAG/USD"]
+    },
+    {
+      "symbol": "EURUSD",
+      "category": "FOREX",
+      "displayName": "Euro / US Dollar",
+      "is24x7": false,
+      "sessionModel": "FOREX_24_5",
+      "discoveryAliases": ["EURUSD", "EURUSDm", "EURUSD.a", "EURUSD.r", "EURUSDc", "EURUSD_i", "EURUSD.pro", "EURUSD.ecn", "EURUSD+", "EURUSD.raw", "EUR/USD"]
+    },
+    {
+      "symbol": "GBPUSD",
+      "category": "FOREX",
+      "displayName": "British Pound / US Dollar",
+      "is24x7": false,
+      "sessionModel": "FOREX_24_5",
+      "discoveryAliases": ["GBPUSD", "GBPUSDm", "GBPUSD.a", "GBPUSD.r", "GBPUSDc", "GBPUSD_i", "GBPUSD.pro", "GBPUSD.ecn", "GBPUSD+", "GBPUSD.raw", "GBP/USD"]
+    },
+    {
+      "symbol": "USDJPY",
+      "category": "FOREX",
+      "displayName": "US Dollar / Japanese Yen",
+      "is24x7": false,
+      "sessionModel": "FOREX_24_5",
+      "discoveryAliases": ["USDJPY", "USDJPYm", "USDJPY.a", "USDJPY.r", "USDJPYc", "USDJPY_i", "USDJPY.pro", "USDJPY.ecn", "USDJPY+", "USDJPY.raw", "USD/JPY"]
+    },
+    {
+      "symbol": "USDCHF",
+      "category": "FOREX",
+      "displayName": "US Dollar / Swiss Franc",
+      "is24x7": false,
+      "sessionModel": "FOREX_24_5",
+      "discoveryAliases": ["USDCHF", "USDCHFm", "USDCHF.a", "USDCHF.r", "USDCHFc", "USDCHF.pro", "USDCHF.ecn", "USDCHF+", "USDCHF.raw", "USD/CHF"]
+    },
+    {
+      "symbol": "AUDUSD",
+      "category": "FOREX",
+      "displayName": "Australian Dollar / US Dollar",
+      "is24x7": false,
+      "sessionModel": "FOREX_24_5",
+      "discoveryAliases": ["AUDUSD", "AUDUSDm", "AUDUSD.a", "AUDUSD.r", "AUDUSDc", "AUDUSD.pro", "AUDUSD.ecn", "AUDUSD+", "AUDUSD.raw", "AUD/USD"]
+    },
+    {
+      "symbol": "USDCAD",
+      "category": "FOREX",
+      "displayName": "US Dollar / Canadian Dollar",
+      "is24x7": false,
+      "sessionModel": "FOREX_24_5",
+      "discoveryAliases": ["USDCAD", "USDCADm", "USDCAD.a", "USDCAD.r", "USDCADc", "USDCAD.pro", "USDCAD.ecn", "USDCAD+", "USDCAD.raw", "USD/CAD"]
+    },
+    {
+      "symbol": "NZDUSD",
+      "category": "FOREX",
+      "displayName": "New Zealand Dollar / US Dollar",
+      "is24x7": false,
+      "sessionModel": "FOREX_24_5",
+      "discoveryAliases": ["NZDUSD", "NZDUSDm", "NZDUSD.a", "NZDUSD.r", "NZDUSDc", "NZDUSD.pro", "NZDUSD.ecn", "NZDUSD+", "NZDUSD.raw", "NZD/USD"]
+    },
+    {
+      "symbol": "EURJPY",
+      "category": "FOREX",
+      "displayName": "Euro / Japanese Yen",
+      "is24x7": false,
+      "sessionModel": "FOREX_24_5",
+      "discoveryAliases": ["EURJPY", "EURJPYm", "EURJPY.a", "EURJPY.r", "EURJPYc", "EURJPY.pro", "EURJPY.ecn", "EURJPY+", "EURJPY.raw", "EUR/JPY"]
+    },
+    {
+      "symbol": "GBPJPY",
+      "category": "FOREX",
+      "displayName": "British Pound / Japanese Yen",
+      "is24x7": false,
+      "sessionModel": "FOREX_24_5",
+      "discoveryAliases": ["GBPJPY", "GBPJPYm", "GBPJPY.a", "GBPJPY.r", "GBPJPYc", "GBPJPY.pro", "GBPJPY.ecn", "GBPJPY+", "GBPJPY.raw", "GBP/JPY"]
+    },
+    {
+      "symbol": "EURGBP",
+      "category": "FOREX",
+      "displayName": "Euro / British Pound",
+      "is24x7": false,
+      "sessionModel": "FOREX_24_5",
+      "discoveryAliases": ["EURGBP", "EURGBPm", "EURGBP.a", "EURGBP.r", "EURGBPc", "EURGBP.pro", "EURGBP.ecn", "EURGBP+", "EURGBP.raw", "EUR/GBP"]
+    },
+    {
+      "symbol": "US30",
+      "category": "INDICES",
+      "displayName": "Wall Street 30 / Dow Jones",
+      "is24x7": false,
+      "sessionModel": "CME_EQUITY_INDEX",
+      "discoveryAliases": ["US30", "US30m", "US30.a", "US30.r", "DJ30", "WS30", "YM", "US30.pro", "US30.ecn", "US30Cash", "DJ30.pro"]
+    },
+    {
+      "symbol": "US100",
+      "category": "INDICES",
+      "displayName": "Nasdaq 100",
+      "is24x7": false,
+      "sessionModel": "CME_EQUITY_INDEX",
+      "discoveryAliases": ["US100", "US100m", "USTEC", "USTECm", "USTEC.a", "NAS100", "NAS100m", "NQ", "US100.pro", "US100.ecn", "US100Cash", "USTEC.pro", "NAS100.pro"]
+    },
+    {
+      "symbol": "US500",
+      "category": "INDICES",
+      "displayName": "S&P 500",
+      "is24x7": false,
+      "sessionModel": "CME_EQUITY_INDEX",
+      "discoveryAliases": ["US500", "US500m", "US500.a", "US500.r", "SPX500", "SP500", "ES", "US500.pro", "US500.ecn", "US500Cash", "SPX500.pro"]
+    },
+    {
+      "symbol": "GER40",
+      "category": "INDICES",
+      "displayName": "DAX 40",
+      "is24x7": false,
+      "sessionModel": "EUREX_INDEX",
+      "discoveryAliases": ["GER40", "GER40m", "DE40", "DE40m", "DAX40", "DAX", "GER40Cash", "DE40Cash", "GER40.pro"]
+    },
+    {
+      "symbol": "UK100",
+      "category": "INDICES",
+      "displayName": "FTSE 100",
+      "is24x7": false,
+      "sessionModel": "LSE_INDEX",
+      "discoveryAliases": ["UK100", "UK100m", "FTSE100", "FTSE", "UK100Cash", "UK100.pro"]
+    },
+    {
+      "symbol": "JP225",
+      "category": "INDICES",
+      "displayName": "Nikkei 225",
+      "is24x7": false,
+      "sessionModel": "TSE_INDEX",
+      "discoveryAliases": ["JP225", "JP225m", "N225", "NIKKEI", "JP225Cash", "JP225.pro"]
+    },
+    {
+      "symbol": "USOIL",
+      "category": "COMMODITIES",
+      "displayName": "WTI Crude Oil",
+      "is24x7": false,
+      "sessionModel": "NYMEX_ENERGY",
+      "discoveryAliases": ["USOIL", "USOILm", "USOIL.a", "USOIL.r", "USOILc", "WTI", "WTICRUDE", "CRUDE", "USOIL.pro", "USOIL.ecn", "WTI.pro", "CL", "XTIUSD"]
+    },
+    {
+      "symbol": "UKOIL",
+      "category": "COMMODITIES",
+      "displayName": "Brent Crude Oil",
+      "is24x7": false,
+      "sessionModel": "ICE_BRENT",
+      "discoveryAliases": ["UKOIL", "UKOILm", "UKOIL.a", "UKOIL.r", "BRENT", "BRENTCRUDE", "UKOIL.pro", "CO", "XBRUSD"]
+    },
+    {
+      "symbol": "NATGAS",
+      "category": "COMMODITIES",
+      "displayName": "Natural Gas",
+      "is24x7": false,
+      "sessionModel": "NYMEX_ENERGY",
+      "discoveryAliases": ["NATGAS", "NATGASm", "XNGUSD", "NG", "NATURALGAS", "NATGAS.pro"]
+    },
+    {
+      "symbol": "BTCUSD",
+      "category": "CRYPTO",
+      "displayName": "Bitcoin / US Dollar",
+      "is24x7": true,
+      "sessionModel": "CRYPTO_24_7",
+      "discoveryAliases": ["BTCUSD", "BTCUSDm", "BTCUSDT", "BTCUSD.r", "BTCUSD.a", "BTCUSDc", "BTCUSD.pro", "BTCUSD.ecn", "BTC/USD", "BTCUSD+"]
+    },
+    {
+      "symbol": "ETHUSD",
+      "category": "CRYPTO",
+      "displayName": "Ethereum / US Dollar",
+      "is24x7": true,
+      "sessionModel": "CRYPTO_24_7",
+      "discoveryAliases": ["ETHUSD", "ETHUSDm", "ETHUSDT", "ETHUSD.r", "ETHUSD.a", "ETHUSDc", "ETHUSD.pro", "ETHUSD.ecn", "ETH/USD", "ETHUSD+"]
+    },
+    {
+      "symbol": "SOLUSD",
+      "category": "CRYPTO",
+      "displayName": "Solana / US Dollar",
+      "is24x7": true,
+      "sessionModel": "CRYPTO_24_7",
+      "discoveryAliases": ["SOLUSD", "SOLUSDm", "SOLUSDT", "SOLUSD.r", "SOLUSD.a", "SOLUSDc", "SOLUSD.pro", "SOLUSD.ecn", "SOL/USD", "SOLUSD+"]
+    },
+    {
+      "symbol": "XRPUSD",
+      "category": "CRYPTO",
+      "displayName": "Ripple / US Dollar",
+      "is24x7": true,
+      "sessionModel": "CRYPTO_24_7",
+      "discoveryAliases": ["XRPUSD", "XRPUSDm", "XRPUSDT", "XRPUSD.r", "XRPUSD.a", "XRPUSDc", "XRPUSD.pro", "XRPUSD.ecn", "XRP/USD", "XRPUSD+"]
+    },
+    {
+      "symbol": "BNBUSD",
+      "category": "CRYPTO",
+      "displayName": "Binance Coin / US Dollar",
+      "is24x7": true,
+      "sessionModel": "CRYPTO_24_7",
+      "discoveryAliases": ["BNBUSD", "BNBUSDm", "BNBUSDT", "BNBUSD.r", "BNBUSD.a", "BNBUSDc", "BNBUSD.pro", "BNBUSD.ecn", "BNB/USD", "BNBUSD+"]
+    }
+  ]
+}
+

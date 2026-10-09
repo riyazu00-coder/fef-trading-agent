@@ -1,16 +1,23 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { resolvePriceForPurpose } from '@/lib/price/price-authority';
 
-export const ExecutionControlCard: React.FC = () => {
-  const router = useRouter();
+/**
+ * LiveExecutionTelemetryPanel (formerly ExecutionControlCard)
+ * 
+ * Master Consolidation V2:
+ * Single Cockpit Execution Authority is strictly enforced.
+ * FullSmartPositionCalculator is the SOLE component allowed to initiate execution requests in Cockpit.
+ * This panel is strictly a real-time monitor for bridge connectivity, account execution mode,
+ * quote freshness, active positions, execution latency, and broker fill/rejection telemetry.
+ */
+export const LiveExecutionTelemetryPanel: React.FC = () => {
   const { activeSymbol, assetProfile, activeAsset } = useActiveAsset();
   const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
-  const [riskPercent, setRiskPercent] = useState('0.50%');
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [executed, setExecuted] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -40,174 +47,215 @@ export const ExecutionControlCard: React.FC = () => {
     brokerServer: telemetry.terminal?.brokerServer
   });
 
-  const sessionState = assetProfile?.sessionState;
-  const isAnalysisOnly = assetProfile?.actionabilityState === 'ANALYSIS ONLY';
-  const isTradeExecutable = assetProfile?.tradeExecutable !== false && (sessionState ? sessionState.tradeExecutable : true) && !isAnalysisOnly;
+  const isRemoteRelay = Boolean(telemetry.isRemote || (telemetry as any).transport?.includes('RELAY'));
+  const pingMs = telemetry.terminal?.pingToBrokerMs ?? (telemetry.account as any)?.ping ?? null;
+  const quoteAgeMs = brokerQuote?.timestamp ? Math.max(0, Date.now() - brokerQuote.timestamp) : null;
+  const spreadPips = brokerQuote && brokerQuote.ask && brokerQuote.bid
+    ? ((brokerQuote.ask - brokerQuote.bid) / ((brokerQuote as any).pipSize || 0.0001)).toFixed(1)
+    : null;
 
-  const handleDeploy = () => {
-    if (!isTradeExecutable) return; // Strict frontend gate
-    setIsExecuting(true);
+  // Authoritative execution mode determination
+  const accountMode = isMt5Connected && telemetry.account
+    ? telemetry.account.tradeMode === 'REAL'
+      ? 'LIVE (HARD-LOCKED 🔒)'
+      : 'DEMO ARMED ⚡'
+    : 'STANDBY / PAPER GATE';
 
-    if (isMt5Connected) {
-      // Direct user to execution gateway
-      setTimeout(() => {
-        setIsExecuting(false);
-        router.push('/execution');
-      }, 500);
-      return;
-    }
+  const positions = telemetry.allPositions || [];
 
-    // Paper simulation execution
-    setTimeout(() => {
-      setIsExecuting(false);
-      setExecuted(true);
-      if (typeof window !== 'undefined') {
-        const paperTrade = {
-          id: `sim-${Date.now()}`,
-          ticket: Math.floor(90000000 + Math.random() * 9000000),
-          symbol: activeSymbol,
-          type: direction,
-          openPrice: (execResolution.executable && execResolution.price > 0) ? execResolution.price : (activeAsset?.price || 0),
-          lots: 0.5,
-          sl: assetProfile?.stopLoss || 0,
-          tp: assetProfile?.tp1 || 0,
-          openTime: new Date().toISOString(),
-          status: 'SIMULATED_DEMO',
-          comment: 'FEF PAPER GATE'
-        };
-        try {
-          const existing = JSON.parse(window.localStorage.getItem('fef_paper_positions') || '[]');
-          existing.unshift(paperTrade);
-          window.localStorage.setItem('fef_paper_positions', JSON.stringify(existing.slice(0, 50)));
-        } catch {}
-      }
-      setTimeout(() => setExecuted(false), 3000);
-    }, 800);
-  };
-
-  const entryDisplay = execResolution.executable && execResolution.price > 0
-    ? `$${execResolution.price.toFixed(execResolution.canonical?.digits || 2)}`
-    : assetProfile?.entryZone ? `$${assetProfile.entryZone[0]}` : (activeAsset?.price ? `$${activeAsset.price}` : '--');
-  const slDisplay = assetProfile?.stopLoss ? `$${assetProfile.stopLoss}` : '--';
-  const tp1Display = assetProfile?.tp1 ? `${assetProfile.tp1}` : '--';
-  const tp2Display = assetProfile?.tp2 ? `${assetProfile.tp2}` : '--';
-  const tp3Display = assetProfile?.tp3 ? `${assetProfile.tp3}` : '--';
+  // Verified Capital & Platform Metrics
+  const totalLots = telemetry.allPositions?.reduce((acc, p) => acc + (p.lots || (p as any).volume || 0), 0) ?? 0;
+  const balanceStr = telemetry.account
+    ? `$${telemetry.account.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : '$10,000.00 (Paper)';
+  const equityStr = telemetry.account
+    ? `$${telemetry.account.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : '$10,000.00 (Paper)';
+  const freeMarginStr = telemetry.account?.freeMargin !== undefined
+    ? `$${telemetry.account.freeMargin.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : isMt5Connected ? 'DATA LIMITED' : 'Internal Simulated';
+  const marginLevelStr = telemetry.account?.marginLevel !== undefined && telemetry.account.marginLevel > 0
+    ? `${telemetry.account.marginLevel.toLocaleString('en-US', { maximumFractionDigits: 0 })}%`
+    : telemetry.account ? 'SAFE (0%)' : 'N/A';
+  const floatingPnl = telemetry.account?.floatingPnl ?? 0;
+  const floatingPnlPct = telemetry.account?.floatingPnlPct ?? 0;
+  const floatingPnlStr = `${floatingPnl >= 0 ? '+' : ''}$${floatingPnl.toFixed(2)}`;
+  const marginStress = telemetry.account?.marginStressLevel || 'SAFE';
 
   return (
-    <div className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-3">
+    <div id="execution-telemetry-panel" className="ghost-glass-panel rounded-2xl p-3.5 sm:p-4 font-mono space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 pb-2">
         <div className="flex items-center space-x-2">
-          <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          <h3 className="text-xs font-bold text-[#F8FAFC] tracking-[0.06em] font-sans uppercase">
-            EXECUTION CONTROL ({activeSymbol})
-          </h3>
+          <div>
+            <h3 className="text-xs font-bold text-[#F8FAFC] tracking-[0.06em] font-sans uppercase">
+              LIVE EXECUTION TELEMETRY &amp; TRANSPORT
+            </h3>
+            <p className="text-[8px] font-sans text-gray-400">
+              Authority: Smart Position Calculator &bull; Transport Monitor
+            </p>
+          </div>
         </div>
         <div className="flex items-center space-x-1.5">
-          {sessionState && !isTradeExecutable && (
-            <span className="text-[7.5px] bg-rose-950/60 text-rose-300 border border-rose-500/40 px-1.5 py-0.2 rounded font-mono font-bold">
-              {isAnalysisOnly ? 'ANALYSIS ONLY' : sessionState.statusLabel}
+          <Link
+            href="/how-to-use#execution"
+            className="text-[8.5px] font-mono font-bold text-gray-400 hover:text-cyan-300 px-1.5 py-0.5 rounded border border-white/10 hover:border-cyan-400/40 bg-black/40 transition-colors"
+            title="Learn about Execution Telemetry & Order Transport"
+          >
+            ?
+          </Link>
+          <span className={`text-[7.5px] px-1.5 py-0.5 rounded font-bold uppercase font-mono border ${
+            isMt5Connected
+              ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40'
+              : 'bg-amber-950/60 text-amber-300 border-amber-500/40'
+          }`}>
+            {accountMode}
+          </span>
+        </div>
+      </div>
+
+      {/* Consolidated Gateway & Capital Telemetry Grid (6 Metrics) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+        {/* 1. Terminal Gateway */}
+        <div className="bg-black/40 border border-white/5 rounded-xl p-2 space-y-0.5">
+          <span className="text-[8px] text-gray-400 uppercase block font-bold">Broker Terminal</span>
+          <div className="text-[10px] font-bold text-white truncate">
+            {telemetry.account?.broker || telemetry.terminal?.brokerName || 'MT5 Standby'}
+          </div>
+          <span className="text-[7.5px] text-gray-500 block truncate">
+            {telemetry.terminal?.brokerServer || 'Local Bridge :5560'}
+          </span>
+        </div>
+
+        {/* 2. Bridge Transport */}
+        <div className="bg-black/40 border border-white/5 rounded-xl p-2 space-y-0.5">
+          <span className="text-[8px] text-gray-400 uppercase block font-bold">Bridge Transport</span>
+          <div className={`text-[10px] font-bold truncate ${isMt5Connected ? 'text-emerald-300' : 'text-rose-400'}`}>
+            {isMt5Connected ? (isRemoteRelay ? 'Remote Relay Online' : 'Bridge V2 Live ⚡') : 'Bridge Offline'}
+          </div>
+          <span className="text-[7.5px] text-gray-500 block">
+            {pingMs != null ? `Broker Ping: ${pingMs}ms` : 'Latency: Synchronized'}
+          </span>
+        </div>
+
+        {/* 3. Quote Authority */}
+        <div className="bg-black/40 border border-white/5 rounded-xl p-2 space-y-0.5">
+          <span className="text-[8px] text-gray-400 uppercase block font-bold">Quote Authority</span>
+          <div className="text-[10px] font-bold text-cyan-300 truncate">
+            {brokerQuote ? (direction === 'BUY' ? `ASK $${brokerQuote.ask}` : `BID $${brokerQuote.bid}`) : 'Awaiting Quote'}
+          </div>
+          <span className="text-[7.5px] text-gray-500 block truncate">
+            {quoteAgeMs != null ? `Age: ${quoteAgeMs}ms • Spr: ${spreadPips || '0'} pips` : 'Fail-Closed Active'}
+          </span>
+        </div>
+
+        {/* 4. Balance & Equity */}
+        <div className="bg-black/40 border border-white/5 rounded-xl p-2 space-y-0.5">
+          <div className="flex items-center justify-between text-[8px] text-gray-400 uppercase font-bold">
+            <span>Balance &amp; Equity</span>
+            <span className="text-cyan-300 text-[7.5px]">USD</span>
+          </div>
+          <div className="text-[10.5px] font-black text-white truncate">
+            {equityStr}
+          </div>
+          <span className="text-[7.5px] text-gray-400 block truncate">
+            Bal: <strong className="text-gray-200">{balanceStr}</strong>
+          </span>
+        </div>
+
+        {/* 5. Free Margin & Level */}
+        <div className="bg-black/40 border border-white/5 rounded-xl p-2 space-y-0.5">
+          <div className="flex items-center justify-between text-[8px] text-gray-400 uppercase font-bold">
+            <span>Free Margin &amp; Lvl</span>
+            <span className={`text-[7.5px] font-bold ${marginStress === 'SAFE' ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {marginStress}
             </span>
-          )}
-          {isMt5Connected ? (
-            <span className="text-[8px] bg-emerald-950/60 text-[#34D399] border border-emerald-500/40 px-1.5 py-0.2 rounded flex items-center space-x-1 font-mono font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>{`${telemetry.account?.broker && telemetry.account.broker !== 'UNKNOWN BROKER' ? telemetry.account.broker : 'MT5'} (${telemetry.account?.maskedLogin ? telemetry.account.maskedLogin + ' • ' : ''}BRIDGE READY)`}</span>
-            </span>
-          ) : (
-            <span className="text-[8px] bg-amber-950/60 text-[#FBBF24] border border-amber-500/40 px-1.5 py-0.2 rounded flex items-center space-x-1 font-mono font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-              <span>MT5 STANDBY</span>
-            </span>
-          )}
+          </div>
+          <div className="text-[10px] font-bold text-white truncate">
+            {freeMarginStr}
+          </div>
+          <span className="text-[7.5px] text-gray-400 block truncate">
+            Margin Level: <strong className="text-gray-200">{marginLevelStr}</strong>
+          </span>
+        </div>
+
+        {/* 6. Floating P/L & Open Exposure */}
+        <div className="bg-black/40 border border-white/5 rounded-xl p-2 space-y-0.5">
+          <div className="flex items-center justify-between text-[8px] text-gray-400 uppercase font-bold">
+            <span>Floating P/L &amp; Lots</span>
+            <span className="text-gray-400 text-[7.5px]">{positions.length} Orders</span>
+          </div>
+          <div className={`text-[10.5px] font-black truncate ${floatingPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {floatingPnlStr} {floatingPnlPct !== 0 ? `(${floatingPnlPct >= 0 ? '+' : ''}${floatingPnlPct.toFixed(2)}%)` : ''}
+          </div>
+          <span className="text-[7.5px] text-gray-400 block truncate">
+            Exposure: <strong className="text-gray-200">{totalLots.toFixed(2)} Lots</strong>
+          </span>
         </div>
       </div>
 
-      {/* Risk Budget Slider */}
-      <div className="space-y-1">
-        <div className="flex items-center justify-between text-[9.5px]">
-          <span className="text-gray-400">Account Risk Budget</span>
-          <span className="text-cyan-300 font-bold">0.50% equity (Max Policy Cap)</span>
+      {/* Active MT5 Positions Live Telemetry */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-[9px] font-bold text-gray-400 uppercase">
+          <span>Active MT5 Positions ({positions.length})</span>
+          <span className="text-gray-500 font-mono">Live Broker Ticket Sync</span>
         </div>
-        <div className="flex items-center justify-between gap-1 text-[8.5px]">
-          {['0.25%', '0.50%', '1.00%', '1.50%'].map((rp) => (
-            <button
-              key={rp}
-              onClick={() => setRiskPercent(rp)}
-              className={`flex-1 py-0.5 rounded border transition-all ${
-                riskPercent === rp
-                  ? 'bg-cyan-500/30 text-cyan-300 border-cyan-400 font-bold shadow-[0_0_8px_rgba(0,240,255,0.4)]'
-                  : 'bg-black/30 text-gray-400 border-white/5 hover:text-white'
-              }`}
-            >
-              {rp}
-            </button>
-          ))}
-        </div>
+
+        {positions.length === 0 ? (
+          <div className="bg-black/30 border border-white/5 rounded-xl p-2.5 text-center text-[9px] text-gray-500">
+            Zero active open positions on connected broker terminal.
+          </div>
+        ) : (
+          <div className="max-h-28 overflow-y-auto space-y-1 pr-1 font-mono text-[8.5px]">
+            {positions.map((pos) => (
+              <div key={pos.ticket} className="flex items-center justify-between bg-black/40 px-2 py-1 rounded-lg border border-white/5">
+                <div className="flex items-center space-x-1.5">
+                  <span className={`font-bold px-1 py-0.2 rounded text-[7.5px] ${pos.type === 'BUY' ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}`}>
+                    {pos.type}
+                  </span>
+                  <span className="text-white font-bold">{pos.symbol}</span>
+                  <span className="text-gray-400">#{pos.ticket}</span>
+                  <span className="text-gray-400">({pos.lots || (pos as any).volume} lots @ {pos.openPrice || (pos as any).priceOpen})</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className={(pos.pnl || (pos as any).profit) >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                    {(pos.pnl || (pos as any).profit) >= 0 ? '+' : ''}${(pos.pnl || (pos as any).profit || 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Blueprint Visual Summary */}
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="bg-black/40 p-1.5 rounded-xl border border-white/5">
-          <div className="text-[7.5px] text-gray-400">Entry Reference</div>
-          <div className="text-[9.5px] font-bold text-white mt-0.5">{entryDisplay}</div>
+      {/* Single Cockpit Execution Authority Redirect Strip */}
+      <div className="pt-2 border-t border-white/5 flex flex-wrap items-center justify-between gap-2 text-[8.5px]">
+        <div className="flex items-center space-x-1 text-gray-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          <span>Single Execution Authority:</span>
+          <strong className="text-cyan-300">Smart Position Calculator</strong>
         </div>
-        <div className="bg-black/40 p-1.5 rounded-xl border border-white/5">
-          <div className="text-[7.5px] text-gray-400">Stop Loss</div>
-          <div className="text-[9.5px] font-bold text-rose-400 mt-0.5">{slDisplay}</div>
-        </div>
-        <div className="bg-black/40 p-1.5 rounded-xl border border-white/5">
-          <div className="text-[7.5px] text-gray-400">Est. Reward</div>
-          <div className="text-[9.5px] font-bold text-emerald-400 mt-0.5">+$1,459.91</div>
-        </div>
+        <button
+          onClick={() => {
+            const calcElem = document.getElementById('smart-position-calculator') || document.querySelector('[data-card="position-calculator"]');
+            if (calcElem) {
+              calcElem.scrollIntoView({ behavior: 'smooth' });
+            } else {
+              window.location.hash = '#smart-position-calculator';
+            }
+          }}
+          className="px-2.5 py-1 rounded-lg bg-cyan-950/60 text-cyan-300 hover:text-white border border-cyan-500/40 hover:border-cyan-400 font-bold transition-all cursor-pointer flex items-center space-x-1"
+        >
+          <span>Calculate &amp; Execute Order</span>
+          <span>&uarr;</span>
+        </button>
       </div>
-
-      {/* Target Brackets */}
-      <div className="text-[8.5px] text-gray-400 flex items-center justify-between px-1">
-        <span>TP1 (50%): <strong className="text-gray-200">{tp1Display}</strong></span>
-        <span>&bull;</span>
-        <span>TP2 (30%): <strong className="text-gray-200">{tp2Display}</strong></span>
-        <span>&bull;</span>
-        <span>TP3 (20%): <strong className="text-gray-200">{tp3Display}</strong></span>
-      </div>
-
-      {/* 1-Click Deploy Button */}
-      <button
-        onClick={handleDeploy}
-        disabled={!isTradeExecutable || isExecuting}
-        className={`w-full py-2.5 rounded-xl font-mono text-xs font-black transition-all flex items-center justify-center space-x-2 border ${
-          !isTradeExecutable
-            ? 'bg-rose-950/40 border-rose-500/40 text-rose-300/80 cursor-not-allowed shadow-none'
-            : executed
-            ? 'bg-cyan-600 text-white shadow-[0_0_20px_rgba(0,240,255,0.7)] border-white/10'
-            : isExecuting
-            ? 'bg-emerald-700 text-white animate-pulse border-white/10'
-            : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.5)] border-white/10'
-        }`}
-      >
-        <span>{!isTradeExecutable ? '🔒' : '⚡'}</span>
-        <span suppressHydrationWarning>
-          {!isTradeExecutable
-            ? isAnalysisOnly
-              ? 'ANALYSIS ONLY — EXECUTION LOCKED'
-              : sessionState?.marketState === 'PRE_OPEN'
-              ? (mounted && sessionState?.nextOpenCountdown
-                ? `PRE-OPEN WATCH (OPENS IN ${sessionState.nextOpenCountdown})`
-                : 'PRE-OPEN WATCH (EXECUTION LOCKED)')
-              : (mounted && sessionState?.nextOpenCountdown
-                ? `MARKET CLOSED (OPENS IN ${sessionState.nextOpenCountdown})`
-                : 'MARKET CLOSED (EXECUTION LOCKED)')
-            : executed
-            ? 'ORDER ARCHIVED TO TRADE JOURNAL'
-            : isExecuting
-            ? 'ROUTING TO MT5 GATEWAY...'
-            : isMt5Connected
-            ? `REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡`
-            : 'SIMULATE ORDER (PAPER GATE)'}
-        </span>
-      </button>
     </div>
   );
 };
+
+// Backward-compatible alias for existing imports in Cockpit
+export const ExecutionControlCard = LiveExecutionTelemetryPanel;

@@ -23,6 +23,11 @@
 
 import { MT5QuoteData } from '../bridge/mt5-bridge-protocol';
 import { LiveMarketAsset } from '../providers/real-market-api';
+import {
+  QUOTE_DISPLAY_FRESH_THRESHOLD_MS,
+  QUOTE_DISPLAY_STALE_THRESHOLD_MS,
+  QUOTE_EXECUTION_STRICT_THRESHOLD_MS
+} from '../bridge/connectivity-policy';
 
 export type PriceClass =
   | 'EXECUTABLE_BROKER'
@@ -79,6 +84,8 @@ export interface CanonicalPrice {
   spread?: number;
   digits: number;
   point: number;
+  isDisplayLive?: boolean;
+  isDisplayEligible?: boolean;
 }
 
 export interface PriceResolutionContext {
@@ -181,7 +188,9 @@ export function buildCanonicalFromBrokerQuote(
   const quoteTime = quote.timestamp || (quote.time ? new Date(quote.time).getTime() : nowMs);
   const calculatedAge = Math.max(0, nowMs - (isNaN(quoteTime) ? nowMs : quoteTime));
   const ageMs = typeof quote.ageMs === 'number' ? quote.ageMs : calculatedAge;
-  const isFresh = (quote.freshness === 'FRESH' || (!quote.freshness && !quote.isStale)) && !quote.isStale && ageMs < 5000;
+  const isFresh = (quote.freshness === 'FRESH' || (!quote.freshness && !quote.isStale)) && !quote.isStale && ageMs < QUOTE_EXECUTION_STRICT_THRESHOLD_MS;
+  const isDisplayLive = ageMs <= QUOTE_DISPLAY_FRESH_THRESHOLD_MS;
+  const isDisplayEligible = ageMs <= QUOTE_DISPLAY_STALE_THRESHOLD_MS;
   const bid = Number(quote.bid || 0);
   const ask = Number(quote.ask || 0);
   const mid = Number(((bid + ask) / 2).toFixed(quote.digits || 2));
@@ -213,7 +222,9 @@ export function buildCanonicalFromBrokerQuote(
     sourcePriority: isRemote ? 90 : 100,
     spread: Number(quote.spread || (ask - bid)),
     digits: Number(quote.digits || 2),
-    point: Number(quote.point || 0.01)
+    point: Number(quote.point || 0.01),
+    isDisplayLive,
+    isDisplayEligible
   };
 }
 
@@ -698,9 +709,9 @@ export function resolvePriceForPurpose(
   }
 
   // 7. DISPLAY_REFERENCE (Default UI Overview)
-  const mt5HealthDisplay = isMt5PathHealthy(context, brokerCanonical);
+  const isDisplayOk = brokerCanonical && (brokerCanonical.isDisplayEligible ?? (brokerCanonical.ageMs <= QUOTE_DISPLAY_STALE_THRESHOLD_MS));
   const isRemoteDisplayAllowed = context.isRemoteMt5 && brokerCanonical && (brokerCanonical.freshness !== 'UNAVAILABLE');
-  const isLocalDisplayAllowed = !context.isRemoteMt5 && brokerCanonical && mt5HealthDisplay.healthy && !isProd;
+  const isLocalDisplayAllowed = !context.isRemoteMt5 && isDisplayOk && context.isMt5Connected && !isProd;
 
   if (isRemoteDisplayAllowed || isLocalDisplayAllowed) {
     return {

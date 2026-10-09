@@ -29,6 +29,7 @@ export interface ConfluenceEngineInputs {
   instrument: string;
   agents: UnifiedAgentResponse[];
   riskCheckPassed?: boolean;
+  hasBlueprint?: boolean;
 }
 
 export interface ConfluenceOutput {
@@ -80,6 +81,10 @@ export const DOMAIN_WEIGHTS: Record<EvidenceDomainFamily, number> = {
   PORTFOLIO_EXPOSURE: 0.02,
   RISK_GEOMETRY: 0.05,
   SYSTEM_INTEGRITY: 0.05,
+  CURRENCY_STRENGTH: 0.08,
+  INSTITUTIONAL: 0.08,
+  RISK_GUARDIAN: 0.08,
+  NEWS_WIRE: 0.05,
 };
 
 export class CortexConfluenceEngine {
@@ -254,7 +259,7 @@ export class CortexConfluenceEngine {
 
     // 7. Presentation Posture (WAIT, WATCH FOR BUY, WATCH FOR SELL — strictly non-executable)
     let presentationPosture: PresentationPosture = 'WAIT';
-    if (hasStrongVisionConflict) {
+    if (hasStrongVisionConflict || normInputs.hasBlueprint === false) {
       presentationPosture = 'WAIT';
     } else if (directionalThesis === 'BULLISH' && conflictScore < 25 && dataReadiness !== 'DATA_LIMITED') {
       presentationPosture = 'WATCH FOR BUY';

@@ -1,7 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 
 export const MARKET_CATEGORIES = [
   'ALL',
@@ -14,7 +17,31 @@ export const MARKET_CATEGORIES = [
 ] as const;
 
 export const MarketCategoryFilterBar: React.FC = () => {
+  const pathname = usePathname();
   const { categoryFilter, setCategoryFilter } = useActiveAsset();
+  const { telemetry, isMt5Connected } = useMT5Telemetry();
+  const activeTabRef = useRef<HTMLAnchorElement | null>(null);
+
+  useEffect(() => {
+    if (activeTabRef.current) {
+      activeTabRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'nearest',
+      });
+    }
+  }, [pathname]);
+
+  const navTabs = [
+    { name: 'Cockpit', path: '/cockpit' },
+    { name: 'Agents', path: '/agents' },
+    { name: 'Markets', path: '/markets' },
+    { name: 'TradingView', path: '/tradingview' },
+    { name: 'Chart Analyzer', path: '/chart-analyzer' },
+    { name: 'Execution', path: '/execution' },
+    { name: 'Journal', path: '/journal' },
+    { name: 'Settings', path: '/settings' },
+  ];
 
   const handleShortcutClick = (shortcutId: string) => {
     switch (shortcutId) {
@@ -53,6 +80,7 @@ export const MarketCategoryFilterBar: React.FC = () => {
         }
         break;
       case 'SIGNALS':
+      case 'RADAR':
         // Scroll smoothly to Global Opportunity Radar
         const radarElem = document.getElementById('opportunity-radar-card') || document.querySelector('[data-card="opportunity-radar"]');
         if (radarElem) {
@@ -65,11 +93,10 @@ export const MarketCategoryFilterBar: React.FC = () => {
   };
 
   return (
-    <div className="flex items-center justify-between overflow-x-auto scrollbar-none w-full py-0.5 gap-2">
-      <div
-        className="inline-flex items-center space-x-1 bg-[#081224]/90 p-1 rounded-xl border border-white/10 text-[9.5px] font-mono overflow-x-auto scrollbar-none flex-shrink-0"
-        role="tablist"
-        aria-label="Market category filter"
+    <div className="w-full overflow-x-auto scrollbar-none py-1 text-center">
+      <nav
+        className="inline-flex items-center gap-[3px] bg-[#081224]/90 p-1 rounded-xl border border-white/10 text-[10px] font-sans uppercase tracking-[-0.025em] whitespace-nowrap min-w-max text-left"
+        aria-label="Unified market filters and workspace navigation"
       >
         {/* Category Filters */}
         {MARKET_CATEGORIES.map((cat) => {
@@ -81,32 +108,32 @@ export const MarketCategoryFilterBar: React.FC = () => {
               role="tab"
               aria-selected={isSelected}
               onClick={() => setCategoryFilter(cat)}
-              className={`px-2.5 py-1 rounded-lg transition-all font-bold whitespace-nowrap cursor-pointer flex items-center space-x-1.5 ${
+              className={`px-1.5 py-0.5 rounded-lg transition-all font-semibold whitespace-nowrap cursor-pointer inline-flex items-center gap-1 text-[10px] uppercase ${
                 isSelected
                   ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/60 shadow-[0_0_8px_rgba(0,240,255,0.3)]'
-                  : 'text-gray-400 hover:text-white border border-transparent'
+                  : 'text-gray-300 hover:text-white border border-transparent hover:bg-white/5'
               }`}
             >
-              {cat === 'METALS' && <span className="text-amber-400 text-[10px]">▲</span>}
-              {cat === 'FOREX' && <span className="text-cyan-400 text-[10px]">🌐</span>}
-              {cat === 'INDICES' && <span className="text-blue-400 text-[10px]">📊</span>}
-              {cat === 'COMMODITIES' && <span className="text-amber-500 text-[10px]">💧</span>}
-              {cat === 'CRYPTO' && <span className="text-yellow-400 text-[10px]">₿</span>}
-              {cat === 'BROKER FEED' && <span className="text-emerald-400 text-[10px]">📡</span>}
+              {cat === 'METALS' && <span className="text-amber-400 text-[11px] leading-none">▲</span>}
+              {cat === 'FOREX' && <span className="text-cyan-400 text-[11px] leading-none">🌐</span>}
+              {cat === 'INDICES' && <span className="text-blue-400 text-[11px] leading-none">📊</span>}
+              {cat === 'COMMODITIES' && <span className="text-amber-500 text-[11px] leading-none">💧</span>}
+              {cat === 'CRYPTO' && <span className="text-yellow-400 text-[11px] leading-none">₿</span>}
+              {cat === 'BROKER FEED' && <span className="text-emerald-400 text-[11px] leading-none">📡</span>}
               <span>{cat}</span>
             </button>
           );
         })}
 
         {/* Subtle Vertical Divider */}
-        <div className="h-4 w-[1px] bg-white/15 mx-1 flex-shrink-0" aria-hidden="true" />
+        <div className="h-4 w-[1px] bg-white/15 mx-0.5 flex-shrink-0" aria-hidden="true" />
 
         {/* Operational Shortcuts */}
         {/* 1. Watchlist (Star icon) */}
         <button
           type="button"
           onClick={() => handleShortcutClick('WATCHLIST')}
-          className="px-2.5 py-1 rounded-lg transition-all text-gray-300 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 font-bold whitespace-nowrap cursor-pointer flex items-center space-x-1.5"
+          className="px-1.5 py-0.5 rounded-lg transition-all text-gray-300 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 font-semibold whitespace-nowrap cursor-pointer inline-flex items-center gap-1 text-[10px] uppercase"
           title="Monitored Symbols & Watchlist"
         >
           <svg className="w-3 h-3 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -119,7 +146,7 @@ export const MarketCategoryFilterBar: React.FC = () => {
         <button
           type="button"
           onClick={() => handleShortcutClick('CALENDAR')}
-          className="px-2.5 py-1 rounded-lg transition-all text-gray-300 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 font-bold whitespace-nowrap cursor-pointer flex items-center space-x-1.5"
+          className="px-1.5 py-0.5 rounded-lg transition-all text-gray-300 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 font-semibold whitespace-nowrap cursor-pointer inline-flex items-center gap-1 text-[10px] uppercase"
           title="Economic Calendar & Scheduled Event Buffers"
         >
           <svg className="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -132,7 +159,7 @@ export const MarketCategoryFilterBar: React.FC = () => {
         <button
           type="button"
           onClick={() => handleShortcutClick('NEWS')}
-          className="px-2.5 py-1 rounded-lg transition-all text-gray-300 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 font-bold whitespace-nowrap cursor-pointer flex items-center space-x-1.5"
+          className="px-1.5 py-0.5 rounded-lg transition-all text-gray-300 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 font-semibold whitespace-nowrap cursor-pointer inline-flex items-center gap-1 text-[10px] uppercase"
           title="Continuous Market News & Inter-Agent Council Debates"
         >
           <svg className="w-3 h-3 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -145,7 +172,7 @@ export const MarketCategoryFilterBar: React.FC = () => {
         <button
           type="button"
           onClick={() => handleShortcutClick('HEATMAP')}
-          className="px-2.5 py-1 rounded-lg transition-all text-gray-300 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 font-bold whitespace-nowrap cursor-pointer flex items-center space-x-1.5"
+          className="px-1.5 py-0.5 rounded-lg transition-all text-gray-300 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 font-semibold whitespace-nowrap cursor-pointer inline-flex items-center gap-1 text-[10px] uppercase"
           title="Market Session Liquidity Map & Cross-Asset Heatmap"
         >
           <svg className="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -154,19 +181,57 @@ export const MarketCategoryFilterBar: React.FC = () => {
           <span>Heatmap</span>
         </button>
 
-        {/* 5. Signals (Signal/radar icon) */}
+        {/* 5. Signals / Radar (Signal/radar icon) */}
         <button
           type="button"
-          onClick={() => handleShortcutClick('SIGNALS')}
-          className="px-2.5 py-1 rounded-lg transition-all text-gray-300 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 font-bold whitespace-nowrap cursor-pointer flex items-center space-x-1.5"
-          title="Institutional Trade Signals & Global Opportunity Radar"
+          onClick={() => handleShortcutClick('RADAR')}
+          className="px-1.5 py-0.5 rounded-lg transition-all text-cyan-300 hover:text-white bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-500/30 font-semibold whitespace-nowrap cursor-pointer inline-flex items-center gap-1 text-[10px] uppercase shadow-[0_0_8px_rgba(6,182,212,0.2)]"
+          title="Jump directly to Global Opportunity Radar"
         >
-          <svg className="w-3 h-3 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3 h-3 text-cyan-300 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          <span>Signals</span>
+          <span>Radar</span>
         </button>
-      </div>
+
+        {/* Subtle Visual Hierarchy Divider: RADAR | COCKPIT */}
+        <div className="h-4.5 w-[1px] bg-cyan-400/30 mx-1 flex-shrink-0 shadow-[0_0_6px_rgba(34,211,238,0.3)]" aria-hidden="true" />
+
+        {/* Workspace Navigation: Cockpit, Agents, Markets, TradingView, Chart Analyzer, Execution, Journal, Settings */}
+        {navTabs.map((tab) => {
+          const isRoot = pathname === '/' && tab.path === '/cockpit';
+          const isActive = pathname === tab.path || (tab.path !== '/cockpit' && pathname?.startsWith(tab.path + '/')) || isRoot;
+
+          return (
+            <Link
+              key={tab.name}
+              href={tab.path}
+              ref={isActive ? activeTabRef : undefined}
+              className={`px-1.5 py-0.5 rounded-lg transition-all whitespace-nowrap inline-flex items-center gap-1 flex-shrink-0 font-semibold text-[10px] uppercase ${
+                isActive
+                  ? 'bg-cyan-500/25 text-[#F8FAFC] border border-[#22D3EE]/60 shadow-[0_0_10px_rgba(34,211,238,0.3)]'
+                  : 'text-[#94A3B8] hover:text-[#CBD5E1] hover:bg-white/5 border border-transparent'
+              }`}
+            >
+              <span>{tab.name}</span>
+              {tab.path === '/execution' && (
+                <span
+                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    isMt5Connected
+                      ? 'bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(16,185,129,0.8)]'
+                      : 'bg-slate-500'
+                  }`}
+                  title={
+                    isMt5Connected
+                      ? `MT5 Connected (${telemetry.account?.broker || 'Ready'})`
+                      : 'MT5 Standby'
+                  }
+                />
+              )}
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 };

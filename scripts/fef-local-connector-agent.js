@@ -154,9 +154,29 @@ async function syncCandlesForTimeframe(symbol = 'XAUUSD', timeframe = 'H1', forc
   }
 }
 
+function getCanonicalUniverse() {
+  try {
+    const manifestPath = path.resolve(__dirname, '../src/lib/registry/canonical-manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      if (Array.isArray(parsed.instruments) && parsed.instruments.length > 0) {
+        return parsed.instruments.map(i => i.symbol);
+      }
+    }
+  } catch {}
+  return [
+    'XAUUSD', 'XAGUSD',
+    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURJPY', 'GBPJPY', 'EURGBP',
+    'US30', 'US100', 'US500', 'GER40', 'UK100', 'JP225',
+    'USOIL', 'UKOIL', 'NATGAS',
+    'BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'BNBUSD'
+  ];
+}
+
 async function syncAllCandles(force = false) {
-  const symbols = ['XAUUSD', 'EURUSD', 'BTCUSD', 'US100', 'USOIL'];
-  const tfs = ['M5', 'M15', 'H1', 'H4', 'D1'];
+  const envSymbols = process.env.FEF_SYNC_SYMBOLS ? process.env.FEF_SYNC_SYMBOLS.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : null;
+  const symbols = (envSymbols && envSymbols.length > 0) ? envSymbols : getCanonicalUniverse();
+  const tfs = ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
   for (const sym of symbols) {
     for (const tf of tfs) {
       await syncCandlesForTimeframe(sym, tf, force);
@@ -553,6 +573,7 @@ function startTelemetryStream() {
       positions: localStatus.positions || [],
       pendingOrders: localStatus.orders || [],
       sessions: localStatus.sessions || {},
+      assetDiagnostics: localStatus.assetDiagnostics || {},
     };
 
     ws.send(JSON.stringify({
@@ -560,17 +581,23 @@ function startTelemetryStream() {
       snapshot,
     }));
 
-    // Timeframe-aware periodic candle synchronization across priority symbols
+    // Timeframe-aware periodic candle synchronization across active supported symbols
     candleTickCount++;
-    const prioritySymbols = ['XAUUSD', 'EURUSD', 'BTCUSD', 'US100', 'USOIL'];
+    const discoveredSymbols = Array.from(new Set([
+      ...Object.keys(localStatus.quotes || {}),
+      ...Object.keys(localStatus.specsBySymbol || {})
+    ])).filter(s => !s.endsWith('m') && !s.includes('.')); // Canonical symbols preferred
+    const syncTargetSymbols = discoveredSymbols.length > 0 ? discoveredSymbols : ['XAUUSD', 'EURUSD', 'BTCUSD', 'US100', 'USOIL'];
+
     if (candleTickCount % 4 === 0) {
-      for (const sym of prioritySymbols) {
+      for (const sym of syncTargetSymbols) {
         syncCandlesForTimeframe(sym, 'M5', false).catch(() => {});
         syncCandlesForTimeframe(sym, 'M15', false).catch(() => {});
+        syncCandlesForTimeframe(sym, 'M30', false).catch(() => {});
       }
     }
     if (candleTickCount % 16 === 0) {
-      for (const sym of prioritySymbols) {
+      for (const sym of syncTargetSymbols) {
         syncCandlesForTimeframe(sym, 'H1', false).catch(() => {});
         syncCandlesForTimeframe(sym, 'H4', false).catch(() => {});
         syncCandlesForTimeframe(sym, 'D1', false).catch(() => {});

@@ -19,7 +19,7 @@
 
 import { LiveMarketAsset } from '../providers/real-market-api';
 import { AgentNodeStatus, AgentState, AgentType, BiasType } from './agent-types';
-import { getMarketDefinition, MarketCategory } from '../registry/market-registry';
+import { getMarketDefinition, MarketCategory, getCrossAssetBenchmark, getExpectedBenchmarkCorrelation } from '../registry/market-registry';
 import { evaluateMarketSession, MarketSessionState } from '../session/market-session-engine';
 import {
   calculateAgentEvidenceTrust,
@@ -68,10 +68,22 @@ import {
   evaluateVolatilityAgent,
   evaluateCrossAssetAgent,
   evaluateDataSentinelAgent,
-  evaluateQuantAgent
+  evaluateQuantAgent,
+  evaluateMacroCorrelatorAgent,
+  evaluateCrossAssetLeadLagAgent,
+  evaluateVolatilitySqueezeAgent,
+  evaluateCurrencyStrengthAgent,
+  evaluateAnchoredVWAPAgent,
+  evaluateMarketRegimeClassifierAgent,
+  evaluateOrderFlowDeltaAgent,
+  evaluateCotPositioningAgent,
+  evaluateCentralBankPolicyAgent,
+  evaluateQuantMonteCarloAgent,
+  evaluateEconomicNewsMomentumAgent,
 } from './specialists/specialist-agents';
 import { MultiTimeframeContext, CandleCloseTriggerEvidence } from '../triggers/trigger-types';
 import { CandleCloseTriggerEngine } from '../triggers/candle-close-trigger-engine';
+import { evaluateAndRecordTransition } from './what-changed-engine';
 import { SetupLifecycleEngine } from '../trading/setup-lifecycle-engine';
 import { SetupLifecycleRecord } from '../trading/setup-lifecycle-types';
 import { FastOpportunityEngine } from '../radar/fast-opportunity-engine';
@@ -110,6 +122,9 @@ export interface AssetIntelligenceProfile {
   tradeExecutable: boolean;
   setupQuality: number;
   debateMessages: {
+    round?: 1 | 2 | 3;
+    roundLabel?: 'ROUND 1: PROPOSAL' | 'ROUND 2: CHALLENGE' | 'ROUND 3: RESOLUTION' | string;
+    role?: string;
     time: string;
     agent: string;
     text: string;
@@ -262,6 +277,51 @@ export function isBlueprintCompatibleWithContext(
 export type CandleBundle = Record<string, OHLCCandle[]>;
 
 /**
+ * Evaluates whether a macro record genuinely applies to a given asset.
+ * Truthful scoping prevents XAUUSD or USD macro indicators from leaking into unrelated crosses.
+ */
+export function isMacroRecordApplicable(
+  m: { name?: string; region?: string; affectedAssets?: string[] },
+  symbol: string,
+  category?: string
+): boolean {
+  if (m.affectedAssets && m.affectedAssets.length > 0) {
+    if (m.affectedAssets.includes(symbol) || m.affectedAssets.includes('GLOBAL')) {
+      return true;
+    }
+  }
+  if (m.region === 'GLOBAL') {
+    return true;
+  }
+  const isUsdPair = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD'].includes(symbol);
+  const isUsIndex = ['US30', 'US100', 'US500'].includes(symbol);
+  const isEnergy = ['USOIL', 'UKOIL', 'NATGAS'].includes(symbol);
+  const isJpyCross = ['GBPJPY', 'EURJPY'].includes(symbol);
+  const isGbpCross = ['GBPJPY', 'EURGBP'].includes(symbol);
+  const isEurCross = ['EURJPY', 'EURGBP'].includes(symbol);
+
+  if ((isUsdPair || isUsIndex) && (m.region === 'US' || (m.name && (m.name.includes('US') || m.name.includes('Treasury') || m.name.includes('DXY'))))) {
+    return true;
+  }
+  if (isEnergy && (m.name && (m.name.includes('Oil') || m.name.includes('Crude') || m.name.includes('Gas') || m.name.includes('Energy')))) {
+    return true;
+  }
+  if (isJpyCross && (m.region === 'JAPAN' || m.region === 'JP' || (m.name && (m.name.includes('BoJ') || m.name.includes('Yen'))))) {
+    return true;
+  }
+  if (isGbpCross && (m.region === 'UK' || (m.name && (m.name.includes('BoE') || m.name.includes('Gilt') || m.name.includes('Pound'))))) {
+    return true;
+  }
+  if (isEurCross && (m.region === 'EU' || m.region === 'EUROPE' || (m.name && (m.name.includes('ECB') || m.name.includes('Bund'))))) {
+    return true;
+  }
+  if (category === 'CRYPTO' && (m.name && (m.name.includes('Liquidity') || m.name.includes('Risk Regime')))) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Canonical 15-Agent Swarm Pipeline Engine
  */
 export function generateAssetIntelligence(
@@ -310,24 +370,11 @@ export function generateAssetIntelligence(
     ? (candleBundle['M5'] || candleBundle['M15'])
     : activeCandles;
 
-  const symbolMeta: Record<string, { name: string; category: string }> = {
-    XAUUSD: { name: 'Gold Spot / USD', category: 'METALS' },
-    XAGUSD: { name: 'Silver Spot / USD', category: 'METALS' },
-    USOIL:  { name: 'WTI Crude Oil / USD', category: 'COMMODITY' },
-    EURUSD: { name: 'Euro / US Dollar', category: 'FOREX' },
-    USDJPY: { name: 'US Dollar / Japanese Yen', category: 'FOREX' },
-    BTCUSD: { name: 'Bitcoin / US Dollar', category: 'CRYPTO' },
-    ETHUSD: { name: 'Ethereum / US Dollar', category: 'CRYPTO' },
-    US100:  { name: 'Nasdaq 100 Index Cash', category: 'INDICES' },
-    US30:   { name: 'Dow Jones Industrial 30', category: 'INDICES' },
-    US500:  { name: 'S&P 500 Index Cash', category: 'INDICES' },
-    GBPUSD: { name: 'Pound / US Dollar', category: 'FOREX' },
-    GBPJPY: { name: 'Pound / Japanese Yen', category: 'FOREX' },
-    AUDUSD: { name: 'Australian Dollar / USD', category: 'FOREX' },
-    XRPUSD: { name: 'XRP / US Dollar', category: 'CRYPTO' },
-  };
-
-  const meta = symbolMeta[normSymbol] || { name: normSymbol, category: 'FOREX' };
+  // Canonical Market Metadata Derivation
+  const marketDef = getMarketDefinition(normSymbol);
+  const meta: { name: string; category: string } = marketDef
+    ? { name: marketDef.displayName, category: marketDef.category }
+    : { name: normSymbol, category: 'UNKNOWN' };
 
   // 1. Evaluate Session & Trading Temporal Window
   const evalTimeMs = evaluationTime ? evaluationTime.getTime() : Date.now();
@@ -335,7 +382,14 @@ export function generateAssetIntelligence(
     ? new Date(liveAsset.lastUpdated).getTime()
     : undefined;
   const sessionState = evaluateMarketSession(normSymbol, evaluationTime, quoteTimestampMs);
-  const tradeExecutable = sessionState.tradeExecutable;
+  const isTradeModeDisabled = Boolean(
+    liveAsset && (
+      (liveAsset as any).tradeMode === 0 ||
+      (liveAsset as any).tradeMode === 'DISABLED' ||
+      (liveAsset as any).isTradeDisabled === true
+    )
+  );
+  const tradeExecutable = sessionState.tradeExecutable && !isTradeModeDisabled;
   const setupQuality = sessionState.setupQuality;
 
   // 2. Market Structure Analysis if verified candles are provided
@@ -350,29 +404,23 @@ export function generateAssetIntelligence(
   if (hasCandles) {
     if (candleProvenance) {
       const rawProv = candleProvenance as string;
-      if (rawProv === 'INDEPENDENT_VERIFIED_OHLC') {
+      if (rawProv === 'INDEPENDENT_VERIFIED_OHLC' || rawProv === 'INDEPENDENT_VERIFIED') {
         effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
-      } else if (rawProv === 'INDEPENDENT_REFERENCE_OHLC') {
+        effectiveCandleProvider = candleProvider || 'Independent Verified Provider';
+      } else if (rawProv === 'INDEPENDENT_REFERENCE_OHLC' || rawProv === 'INDEPENDENT_REFERENCE') {
         effectiveCandleProvenance = 'INDEPENDENT_REFERENCE';
+        effectiveCandleProvider = candleProvider || 'Reference Proxy Provider';
+      } else if (rawProv === 'LIVE_MT5') {
+        effectiveCandleProvenance = 'LIVE_MT5';
+        effectiveCandleProvider = candleProvider || 'MT5 Broker';
       } else {
         effectiveCandleProvenance = candleProvenance;
+        effectiveCandleProvider = candleProvider || 'Provider';
       }
-      effectiveCandleProvider = candleProvider || 'Verified Provider';
-    } else if (normSymbol === 'BTCUSD' || normSymbol === 'ETHUSD' || normSymbol === 'SOLUSD') {
-      effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
-      effectiveCandleProvider = 'Binance Public Spot';
-    } else if (normSymbol === 'EURUSD' || normSymbol === 'GBPUSD' || normSymbol === 'USDJPY' || normSymbol === 'USDCHF') {
-      effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
-      effectiveCandleProvider = 'Yahoo Finance Spot FX';
-    } else if (normSymbol === 'US100' || normSymbol === 'US500' || normSymbol === 'US30' || normSymbol === 'USOIL') {
-      effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
-      effectiveCandleProvider = 'Yahoo Finance Public Chart';
-    } else if (normSymbol === 'XAUUSD' || normSymbol === 'XAGUSD') {
-      effectiveCandleProvenance = 'INDEPENDENT_REFERENCE';
-      effectiveCandleProvider = 'Binance PAXG / Yahoo Futures (Proxy)';
     } else {
-      effectiveCandleProvenance = 'INDEPENDENT_VERIFIED';
-      effectiveCandleProvider = 'Independent Verified Feed';
+      // Fail-closed: Unspecified or untracked candle feed must NEVER be upgraded to INDEPENDENT_VERIFIED
+      effectiveCandleProvenance = 'HEURISTIC';
+      effectiveCandleProvider = 'UNSPECIFIED';
     }
   }
 
@@ -546,7 +594,18 @@ export function generateAssetIntelligence(
   const setupLifecycleRecord = SetupLifecycleEngine.getActiveSetup(normSymbol);
 
   // 3b. Specialist Market Diagnostics: Volume Profile & Order Flow
-  const isExchangeVol = (normSymbol === 'BTCUSD' || normSymbol === 'ETHUSD' || normSymbol === 'SOLUSD');
+  // Exchange volume is ONLY recognized when genuine centralized exchange provenance is explicitly verified.
+  // MT5 tick volume for ANY instrument (including crypto) is classified as BROKER_TICK_VOLUME_PROXY.
+  const isExchangeVol = effectiveCandleProvenance === 'INDEPENDENT_VERIFIED' &&
+    Boolean(
+      effectiveCandleProvider &&
+      !effectiveCandleProvider.toLowerCase().includes('proxy') &&
+      !effectiveCandleProvider.toLowerCase().includes('mt5') &&
+      (
+        effectiveCandleProvider.toLowerCase().includes('binance') ||
+        effectiveCandleProvider.toLowerCase().includes('exchange')
+      )
+    );
   const volumeProfile = hasCandles
     ? calculateVolumeProfile(analysisCandles, normSymbol, structureTf, 24, isExchangeVol)
     : null;
@@ -574,6 +633,7 @@ export function generateAssetIntelligence(
   const cachedSentiment = (feeds?.sentiment && feeds.sentiment[normSymbol] !== undefined)
     ? feeds.sentiment[normSymbol]
     : marketSentimentEngine.getCachedSentiment(normSymbol);
+  // Official XAUUSD macro engine is strictly scoped to XAUUSD
   const cachedXauusdMacro = (normSymbol === 'XAUUSD' && feeds?.xauusdMacro)
     ? feeds.xauusdMacro
     : null;
@@ -895,7 +955,7 @@ export function generateAssetIntelligence(
         }
 
         const relevantMacro = cachedMacro.filter((m) =>
-          !m.affectedAssets || m.affectedAssets.length === 0 || m.affectedAssets.includes(normSymbol)
+          isMacroRecordApplicable(m, normSymbol, meta.category)
         );
 
         if (relevantMacro.length > 0) {
@@ -943,17 +1003,17 @@ export function generateAssetIntelligence(
       }
 
       case 'CORRELATION': {
-        const corrTarget = normSymbol === 'XAUUSD' ? 'DXY' : (normSymbol === 'USOIL' ? 'DXY' : 'US500');
-        const expectedBenchmark = normSymbol === 'XAUUSD' ? -0.72 : (normSymbol === 'USOIL' ? -0.45 : +0.65);
+        const corrTarget = getCrossAssetBenchmark(normSymbol);
+        const expectedBenchmark = getExpectedBenchmarkCorrelation(normSymbol);
         return {
           ...base,
           bias: 'NEUTRAL',
           confidence: 0,
           status: 'DATA LIMITED',
-          lastOpinion: `Intermarket correlation data limited: Synchronized benchmark OHLC (${corrTarget}) not connected. Historical correlation baseline (${expectedBenchmark}) is contextual reference only.`,
+          lastOpinion: `Intermarket correlation data limited: Synchronized benchmark OHLC (${corrTarget}) not connected. Historical correlation baseline (${expectedBenchmark >= 0 ? '+' : ''}${expectedBenchmark}) is contextual reference only.`,
           evidence: [
             `Benchmark Asset: ${corrTarget} (OHLC UNAVAILABLE)`,
-            `Historical Reference Baseline: ${expectedBenchmark} (Contextual Reference Only)`,
+            `Historical Reference Baseline: ${expectedBenchmark >= 0 ? '+' : ''}${expectedBenchmark} (Contextual Reference Only)`,
             'Live Beta: UNMEASURED (Awaiting synchronized benchmark feed)',
             'Regime State: UNVERIFIED'
           ],
@@ -1028,21 +1088,20 @@ export function generateAssetIntelligence(
       case 'GEOPOLITICAL': {
         if (cachedAlerts.length > 0) {
           const top = cachedAlerts[0];
-          const hasRisk = normSymbol === 'XAUUSD' || normSymbol === 'USOIL';
-          const geoBias: BiasType = hasRisk && (top.threatLevel === 'CRITICAL' || top.threatLevel === 'HIGH' || top.threatLevel === 'ELEVATED')
-            ? 'BULLISH'
-            : 'NEUTRAL';
+          // Conservative fail-closed invariant: Geopolitical events inform risk/caution context,
+          // but do NOT provide unilateral directional execution bias without corroborated direction.
+          const geoBias: BiasType = 'NEUTRAL';
 
           return {
             ...base,
             bias: geoBias,
             confidence: 0,
             status: 'ONLINE',
-            lastOpinion: `[${top.threatLevel}] ${top.headline} (${top.region}). ${top.marketImpactAssessment.slice(0, 100)}...`,
+            lastOpinion: `[${top.threatLevel}] ${top.headline} (${top.region}). ${top.marketImpactAssessment.slice(0, 100)}... Directional execution bias remains neutral; event-risk context noted.`,
             evidence: cachedAlerts.map((a) =>
               `[${a.threatLevel}] ${a.headline} | Impact: ${a.marketImpactAssessment}`
             ),
-            keyRisk: 'Escalation impacting maritime transit',
+            keyRisk: 'Escalation impacting market liquidity and energy corridors',
             invalidation: 'Comprehensive geopolitical de-escalation',
             requiredInputs: ['Geopolitical Risk Feed', 'Maritime Transit Alerts'],
             availableInputs: ['Global Wire Surveillance'],
@@ -1099,15 +1158,31 @@ export function generateAssetIntelligence(
           };
         }
 
-        // Truthfully mark OTC spot DATA LIMITED without synthetic percentages
+        // Truthfully mark positioning DATA LIMITED with category-aware wording
+        let positioningDesc = 'positioning feed unavailable';
+        let evidenceLabel = 'Positioning Feed: UNAVAILABLE';
+        if (meta.category === 'FOREX') {
+          positioningDesc = `centralized positioning unavailable for FX spot ${normSymbol}`;
+          evidenceLabel = 'Retail Positioning: UNAVAILABLE FOR FX SPOT';
+        } else if (meta.category === 'METALS' || meta.category === 'COMMODITIES') {
+          positioningDesc = `broker/institutional positioning feed unavailable for CFD ${normSymbol}`;
+          evidenceLabel = 'Institutional Positioning: FEED UNAVAILABLE FOR COMMODITY/METALS CFD';
+        } else if (meta.category === 'INDICES') {
+          positioningDesc = `positioning feed unavailable for index CFD ${normSymbol}`;
+          evidenceLabel = 'Index Positioning: FEED UNAVAILABLE';
+        } else if (meta.category === 'CRYPTO') {
+          positioningDesc = `centralized derivatives sentiment unavailable for ${normSymbol}`;
+          evidenceLabel = 'Crypto Derivatives Sentiment: UNAVAILABLE / DATA LIMITED';
+        }
+
         return {
           ...base,
           bias: 'NEUTRAL',
           confidence: 0,
           status: 'DATA LIMITED',
-          lastOpinion: `No centralized positioning feed available for OTC spot ${normSymbol}. Crowd positioning unavailable.`,
+          lastOpinion: `No centralized positioning feed available: ${positioningDesc}. Crowd positioning unavailable.`,
           evidence: [
-            'Retail Positioning: UNAVAILABLE FOR OTC SPOT',
+            evidenceLabel,
             'Fabrication Policy: ZERO FAKE PERCENTAGES ENFORCED'
           ],
           keyRisk: 'N/A',
@@ -1430,7 +1505,7 @@ export function generateAssetIntelligence(
         structuralGate = false;
       } else if (ag.type === 'MACRO' && cachedMacro.length > 0) {
         const relevantMacro = cachedMacro.filter((m) =>
-          !m.affectedAssets || m.affectedAssets.length === 0 || m.affectedAssets.includes(normSymbol)
+          isMacroRecordApplicable(m, normSymbol, meta.category)
         );
         if (relevantMacro.length > 0) {
           const lead = relevantMacro[0];
@@ -1560,11 +1635,13 @@ export function generateAssetIntelligence(
     yieldCurve: feeds?.macroDetails?.yieldCurve,
     fedPolicy: feeds?.macroDetails?.fedPolicy,
     tenYearYield: feeds?.macroDetails?.tenYearYield,
+    instrument: normSymbol,
   });
 
   const inflationSpecialist = evaluateInflationAgent({
     breakevenAnalysis: feeds?.macroDetails?.breakeven,
     realYieldAnalysis: feeds?.macroDetails?.realYield,
+    instrument: normSymbol,
   });
 
   const volatilitySpecialist = evaluateVolatilityAgent({
@@ -1573,23 +1650,115 @@ export function generateAssetIntelligence(
 
   const crossAssetSpecialist = evaluateCrossAssetAgent({
     matrix: feeds?.crossAsset || undefined,
-  });
-
-  const rawSentinel = feeds?.sentinel || evaluateDataSentinelAgent({
-    isMt5Online: false,
-    activeProviders: [],
-    offlineProviders: [],
-    feedAgeMs: 0,
-  });
-
-  const dataSentinelSpecialist: UnifiedAgentResponse = {
-    ...rawSentinel,
     instrument: normSymbol,
-  };
+  });
+
+  let dataSentinelSpecialist: UnifiedAgentResponse;
+  if (feeds?.sentinel) {
+    dataSentinelSpecialist = {
+      ...feeds.sentinel,
+      instrument: normSymbol,
+    };
+  } else {
+    // Truthfully infer from the current asset's verified runtime inputs without claiming global health
+    const isAssetMt5Live = effectiveCandleProvenance === 'LIVE_MT5' || liveAsset?.provider === 'MT5' || liveAsset?.source === 'MT5';
+    const activeProvList: string[] = [];
+    const offlineProvList: string[] = [];
+
+    if (isAssetMt5Live) {
+      activeProvList.push('MT5');
+    } else if (effectiveCandleProvenance === 'INDEPENDENT_VERIFIED') {
+      activeProvList.push(effectiveCandleProvider);
+      offlineProvList.push('MT5');
+    } else {
+      offlineProvList.push('MT5');
+    }
+
+    const rawSentinel = evaluateDataSentinelAgent({
+      isMt5Online: isAssetMt5Live,
+      activeProviders: activeProvList,
+      offlineProviders: offlineProvList,
+      feedAgeMs: quoteTimestampMs ? Math.max(0, evalTimeMs - quoteTimestampMs) : 0,
+    });
+
+    dataSentinelSpecialist = {
+      ...rawSentinel,
+      instrument: normSymbol,
+    };
+  }
 
   const quantSpecialist = evaluateQuantAgent({
     metrics: feeds?.quant?.metrics || undefined,
     analogue: feeds?.quant?.analogue || undefined,
+  });
+
+  const macroCorrelatorSpecialist = evaluateMacroCorrelatorAgent({
+    instrument: normSymbol,
+    tenYearYield: feeds?.macroDetails?.tenYearYield || undefined,
+    crossAssetMatrix: feeds?.crossAsset || undefined,
+  });
+
+  const crossAssetLeadLagSpecialist = evaluateCrossAssetLeadLagAgent({
+    instrument: normSymbol,
+    liveAssets: undefined,
+    crossAssetMatrix: feeds?.crossAsset || undefined,
+  });
+
+  const volatilitySqueezeSpecialist = evaluateVolatilitySqueezeAgent({
+    instrument: normSymbol,
+    candles: hasCandles ? analysisCandles : undefined,
+    regimeAssessment: feeds?.regime || undefined,
+  });
+
+  const currencyStrengthSpecialist = evaluateCurrencyStrengthAgent({
+    instrument: normSymbol,
+    currencyMatrix: (feeds?.crossAsset as any)?.currencyMatrix,
+    forexQuotes: undefined,
+  });
+
+  const anchoredVwapSpecialist = evaluateAnchoredVWAPAgent({
+    instrument: normSymbol,
+    candles: hasCandles ? analysisCandles : undefined,
+    currentPrice: p,
+  });
+
+  const marketRegimeClassifierSpecialist = evaluateMarketRegimeClassifierAgent({
+    instrument: normSymbol,
+    candles: hasCandles ? analysisCandles : undefined,
+    currentPrice: p,
+  });
+
+  const orderFlowDeltaSpecialist = evaluateOrderFlowDeltaAgent({
+    instrument: normSymbol,
+    candles: hasCandles ? analysisCandles : undefined,
+    marketStructure,
+  });
+
+  const cotPositioningSpecialist = evaluateCotPositioningAgent({
+    instrument: normSymbol,
+    liveCot: (feeds as any)?.cot,
+  });
+
+  const centralBankPolicySpecialist = evaluateCentralBankPolicyAgent({
+    instrument: normSymbol,
+    liveCentralBanks: (feeds as any)?.centralBanks,
+  });
+
+  const quantMonteCarloSpecialist = evaluateQuantMonteCarloAgent({
+    instrument: normSymbol,
+    currentPrice: p,
+    slPrice: blueprint?.sl?.price,
+    tp1Price: blueprint?.tp1?.price,
+    tp2Price: blueprint?.tp2?.price,
+    direction: blueprint?.direction,
+    candles: hasCandles ? analysisCandles : undefined,
+  });
+
+  const economicNewsMomentumSpecialist = evaluateEconomicNewsMomentumAgent({
+    instrument: normSymbol,
+    calendarEvents: cachedEvents,
+    candles: hasCandles ? analysisCandles : undefined,
+    currentPrice: p,
   });
 
   const specialistsList: UnifiedAgentResponse[] = [
@@ -1599,6 +1768,17 @@ export function generateAssetIntelligence(
     crossAssetSpecialist,
     dataSentinelSpecialist,
     quantSpecialist,
+    macroCorrelatorSpecialist,
+    crossAssetLeadLagSpecialist,
+    volatilitySqueezeSpecialist,
+    currencyStrengthSpecialist,
+    anchoredVwapSpecialist,
+    marketRegimeClassifierSpecialist,
+    orderFlowDeltaSpecialist,
+    cotPositioningSpecialist,
+    centralBankPolicySpecialist,
+    quantMonteCarloSpecialist,
+    economicNewsMomentumSpecialist,
   ].map((spec) => ({
     ...spec,
     instrument: normSymbol,
@@ -1646,24 +1826,28 @@ export function generateAssetIntelligence(
         evidenceTrust: a.evidenceTrustScore || a.confidence,
         readiness: readinessState,
         primaryThesis: a.lastOpinion,
-        evidence: (a.evidenceRecords || []).map((ev) => ({
-          id: ev.id,
-          agentId: a.type,
-          domainFamily: family,
-          nature: 'DATA' as const,
-          classification: ev.classification,
-          polarity: dir,
-          strength: ev.decisionEligible ? 0.8 : 0.4,
-          confidence: ev.confidence,
-          claim: ev.claim,
-          source: ev.source,
-          provider: ev.source,
-          observedAt: ev.observedAt,
-          receivedAt: Date.now(),
-          freshnessMs: ev.freshnessMs,
-          isStale: ev.freshnessMs > 60_000,
-          instrument: normSymbol,
-        })),
+        evidence: (a.evidenceRecords || []).map((ev) => {
+          const maxAllowedFreshnessMs = FRESHNESS_POLICIES[ev.classification as EvidenceClassification] ?? 60_000;
+          const isStale = maxAllowedFreshnessMs === 0 ? true : ev.freshnessMs > maxAllowedFreshnessMs;
+          return {
+            id: ev.id,
+            agentId: a.type,
+            domainFamily: family,
+            nature: 'DATA' as const,
+            classification: ev.classification,
+            polarity: dir,
+            strength: ev.decisionEligible ? 0.8 : 0.4,
+            confidence: ev.confidence,
+            claim: ev.claim,
+            source: ev.source,
+            provider: ev.source,
+            observedAt: ev.observedAt,
+            receivedAt: Date.now(),
+            freshnessMs: ev.freshnessMs,
+            isStale,
+            instrument: normSymbol,
+          };
+        }),
         conflicts: [],
         missingEvidence: a.missingInputs || [],
         invalidation: a.invalidation || 'Structural violation',
@@ -1683,6 +1867,7 @@ export function generateAssetIntelligence(
     instrument: normSymbol,
     agents: allUnifiedAgents,
     riskCheckPassed: !rgAgent || rgAgent.bias !== 'RESTRICTED',
+    hasBlueprint: Boolean(blueprint && blueprint.state !== 'INVALIDATED' && blueprint.state !== 'EXPIRED'),
   });
 
   // Compute Consensus Trust & Actionability Gate
@@ -1762,7 +1947,7 @@ export function generateAssetIntelligence(
       : effectiveSetupDirection.includes('SELL')
       ? 'BEARISH'
       : 'NEUTRAL';
-    const isFinalOnline = confluenceResult.dataReadiness === 'READY' || consensusTrust.verifiedAgentCount >= 3;
+    const isFinalOnline = consensusTrust.verifiedAgentCount >= 3;
     finalAgent.status = isFinalOnline ? 'ONLINE' : 'DATA LIMITED';
     if (!isFinalOnline) {
       finalAgent.confidence = 0;
@@ -1805,10 +1990,17 @@ export function generateAssetIntelligence(
 
   const macroDebateAgent = assembledAgents.find((a) => a.type === 'MACRO');
   const techDebateAgent = assembledAgents.find((a) => a.type === 'TECHNICAL');
+  const liqDebateAgent = assembledAgents.find((a) => a.type === 'LIQUIDITY_MAP');
+  const sentimentDebateAgent = assembledAgents.find((a) => a.type === 'SENTIMENT');
   const debateTimeStr = new Date(evalTimeMs).toISOString().substring(11, 19);
 
+  // 3-Round Interactive Debate Council Protocol
   const debateMessages = [
+    // Round 1: PROPOSAL
     {
+      round: 1 as const,
+      roundLabel: 'ROUND 1: PROPOSAL' as const,
+      role: 'SMC, Structure & Fractals',
       time: debateTimeStr,
       agent: 'TECHNICAL AGENT',
       text: hasCandles
@@ -1816,30 +2008,153 @@ export function generateAssetIntelligence(
         : `Phase 2D: ${normSymbol} awaiting verified OHLC candles from broker before structure analysis.`,
       status: (techDebateAgent?.status === 'ONLINE'
         ? techDebateAgent?.bias
-        : 'DATA LIMITED') as any
+        : 'DATA LIMITED') as any,
     },
     {
+      round: 1 as const,
+      roundLabel: 'ROUND 1: PROPOSAL' as const,
+      role: 'Structural BSL/SSL Pools & Zones',
+      time: debateTimeStr,
+      agent: 'LIQUIDITY AGENT',
+      text: blueprint
+        ? `Proposed institutional mitigation zone: [${blueprint.entryZoneLow.price.toFixed(4)} - ${blueprint.entryZoneHigh.price.toFixed(4)}]. R:R asymmetric ${blueprint.rrRatio}.`
+        : (liqDebateAgent?.lastOpinion || `Institutional liquidity pools mapping active for ${normSymbol}.`),
+      status: (liqDebateAgent?.status === 'ONLINE' ? liqDebateAgent?.bias : 'NEUTRAL') as any,
+    },
+    {
+      round: 1 as const,
+      roundLabel: 'ROUND 1: PROPOSAL' as const,
+      role: 'Bollinger-Keltner Volatility Compression',
+      time: debateTimeStr,
+      agent: 'VOLATILITY SQUEEZE AGENT',
+      text: volatilitySqueezeSpecialist.primaryThesis,
+      status: (volatilitySqueezeSpecialist.readiness === 'READY' ? volatilitySqueezeSpecialist.direction : 'DATA LIMITED') as any,
+    },
+    {
+      round: 1 as const,
+      roundLabel: 'ROUND 1: PROPOSAL' as const,
+      role: 'Cross-Currency Relative Strength Matrix',
+      time: debateTimeStr,
+      agent: 'CURRENCY STRENGTH AGENT',
+      text: currencyStrengthSpecialist.primaryThesis,
+      status: (currencyStrengthSpecialist.readiness === 'READY' ? currencyStrengthSpecialist.direction : 'DATA LIMITED') as any,
+    },
+    {
+      round: 1 as const,
+      roundLabel: 'ROUND 1: PROPOSAL' as const,
+      role: 'Session & Weekly Anchor Volume-Weighted Price',
+      time: debateTimeStr,
+      agent: 'ANCHORED VWAP AGENT',
+      text: anchoredVwapSpecialist.primaryThesis,
+      status: (anchoredVwapSpecialist.readiness === 'READY' ? anchoredVwapSpecialist.direction : 'DATA LIMITED') as any,
+    },
+    {
+      round: 1 as const,
+      roundLabel: 'ROUND 1: PROPOSAL' as const,
+      role: 'CFTC Institutional Net Commercial Positioning',
+      time: debateTimeStr,
+      agent: 'COT POSITIONING AGENT',
+      text: cotPositioningSpecialist.primaryThesis,
+      status: (cotPositioningSpecialist.readiness === 'READY' || cotPositioningSpecialist.readiness === 'PARTIAL' ? cotPositioningSpecialist.direction : 'DATA LIMITED') as any,
+    },
+
+    // Round 2: CHALLENGE
+    {
+      round: 2 as const,
+      roundLabel: 'ROUND 2: CHALLENGE' as const,
+      role: 'Mathematical Exposure & Risk Bounds',
+      time: debateTimeStr,
+      agent: 'RISK GUARDIAN',
+      text: tradeExecutable
+        ? (blueprint ? `Structural stop defined at ${blueprint.sl.price}. Risk policy cap is 0.50% equity. Invalidation: ${blueprint.invalidation.reason}.` : `Risk Guardian armed. Maximum risk policy cap is 0.50% equity. Execution locked until verified blueprint exists.`)
+        : `Execution hard-locked: Market is ${sessionState.marketState}. All order routes disabled.`,
+      status: (rgAgent?.bias === 'RESTRICTED' ? 'RESTRICTED' : rgAgent?.bias === 'NEUTRAL' ? 'NEUTRAL' : 'CAUTION') as any,
+    },
+    {
+      round: 2 as const,
+      roundLabel: 'ROUND 2: CHALLENGE' as const,
+      role: 'Central Banks & Yield Differentials',
       time: debateTimeStr,
       agent: 'MACRO AGENT',
       text: macroDebateAgent?.lastOpinion || `No live macro indicators matched for ${normSymbol}. Telemetry awaiting update.`,
       status: (macroDebateAgent?.status === 'ONLINE'
         ? macroDebateAgent.bias
-        : 'DATA LIMITED') as any
+        : 'DATA LIMITED') as any,
     },
     {
+      round: 2 as const,
+      roundLabel: 'ROUND 2: CHALLENGE' as const,
+      role: 'Retail Crowding & Contrarian Skew',
       time: debateTimeStr,
-      agent: 'RISK GUARDIAN',
-      text: tradeExecutable
-        ? (blueprint ? `Structural stop defined at ${blueprint.sl.price}. Risk policy cap is 0.50% equity. Position sizing unvalidated.` : `Risk Guardian armed. Maximum risk policy cap is 0.50% equity. Execution locked until verified blueprint exists.`)
-        : `Execution hard-locked: Market is ${sessionState.marketState}. All order routes disabled.`,
-      status: (rgAgent?.bias === 'RESTRICTED' ? 'RESTRICTED' : rgAgent?.bias === 'NEUTRAL' ? 'ACTIVE' : 'CAUTION') as any
+      agent: 'SENTIMENT AGENT',
+      text: sentimentDebateAgent?.lastOpinion || `Sentiment positioning telemetry monitored for ${normSymbol}.`,
+      status: (sentimentDebateAgent?.status === 'ONLINE' ? sentimentDebateAgent.bias : 'NEUTRAL') as any,
     },
     {
+      round: 2 as const,
+      roundLabel: 'ROUND 2: CHALLENGE' as const,
+      role: 'Cumulative Volume Delta & Aggressive Order Flow',
+      time: debateTimeStr,
+      agent: 'ORDER FLOW DELTA AGENT',
+      text: orderFlowDeltaSpecialist.primaryThesis,
+      status: (orderFlowDeltaSpecialist.readiness === 'READY' ? orderFlowDeltaSpecialist.direction : 'DATA LIMITED') as any,
+    },
+    {
+      round: 2 as const,
+      roundLabel: 'ROUND 2: CHALLENGE' as const,
+      role: 'Adaptive Volatility & Trend Clustering Classifier',
+      time: debateTimeStr,
+      agent: 'MARKET REGIME CLASSIFIER',
+      text: marketRegimeClassifierSpecialist.primaryThesis,
+      status: (marketRegimeClassifierSpecialist.readiness === 'READY' ? marketRegimeClassifierSpecialist.direction : 'DATA LIMITED') as any,
+    },
+    {
+      round: 2 as const,
+      roundLabel: 'ROUND 2: CHALLENGE' as const,
+      role: 'Policy Rate Differentials & Central Bank Stance',
+      time: debateTimeStr,
+      agent: 'CENTRAL BANK POLICY AGENT',
+      text: centralBankPolicySpecialist.primaryThesis,
+      status: (centralBankPolicySpecialist.readiness === 'READY' || centralBankPolicySpecialist.readiness === 'PARTIAL' ? centralBankPolicySpecialist.direction : 'DATA LIMITED') as any,
+    },
+    {
+      round: 2 as const,
+      roundLabel: 'ROUND 2: CHALLENGE' as const,
+      role: 'High-Impact Economic Calendar & Volatility Blackout',
+      time: debateTimeStr,
+      agent: 'ECONOMIC NEWS MOMENTUM AGENT',
+      text: economicNewsMomentumSpecialist.primaryThesis,
+      status: (economicNewsMomentumSpecialist.readiness === 'READY' || economicNewsMomentumSpecialist.readiness === 'PARTIAL' ? economicNewsMomentumSpecialist.direction : 'DATA LIMITED') as any,
+    },
+
+    // Round 3: RESOLUTION
+    {
+      round: 3 as const,
+      roundLabel: 'ROUND 3: RESOLUTION' as const,
+      role: '1,000-Path Monte Carlo Geometric Brownian Motion Stress',
+      time: debateTimeStr,
+      agent: 'QUANT MONTE CARLO AGENT',
+      text: quantMonteCarloSpecialist.primaryThesis,
+      status: (quantMonteCarloSpecialist.readiness === 'READY' || quantMonteCarloSpecialist.readiness === 'PARTIAL' ? (quantMonteCarloSpecialist.direction === 'CAUTION' ? 'CAUTION' : quantMonteCarloSpecialist.direction) : 'DATA LIMITED') as any,
+    },
+    {
+      round: 3 as const,
+      roundLabel: 'ROUND 3: RESOLUTION' as const,
+      role: 'Deterministic Multi-Domain Confluence Arbiter',
+      time: debateTimeStr,
+      agent: 'CORTEX CONFLUENCE',
+      text: `Agreement: ${confluenceResult.agreementScore}%, Conflict: ${confluenceResult.conflictScore}%. Evidence Trust: ${confluenceResult.evidenceTrust}%. Posture: ${confluenceResult.presentationPosture}.`,
+      status: (confluenceResult.presentationPosture.includes('BUY') ? 'BULLISH' : confluenceResult.presentationPosture.includes('SELL') ? 'BEARISH' : 'NEUTRAL') as any,
+    },
+    {
+      round: 3 as const,
+      roundLabel: 'ROUND 3: RESOLUTION' as const,
+      role: 'Swarm Consensus Engine',
       time: debateTimeStr,
       agent: 'FINAL DECISION',
-      text: `Council status: ${effectiveSetupDirection}. Verified evidence trust: ${consensusTrust.evidenceTrust}%.`,
-      status: (finalAgent?.bias || 'NEUTRAL') as any
-    }
+      text: `Council verdict: ${effectiveSetupDirection}. Posture: ${confluenceResult.presentationPosture}. Evidence Trust: ${consensusTrust.evidenceTrust}%.`,
+      status: (finalAgent?.bias || 'NEUTRAL') as any,
+    },
   ];
 
   const limitedAgentsList = assembledAgents
@@ -1848,6 +2163,27 @@ export function generateAssetIntelligence(
   const feedStatusLine = limitedAgentsList.length > 0
     ? `Feeds currently DATA LIMITED: ${limitedAgentsList.slice(0, 4).join(', ')}${limitedAgentsList.length > 4 ? ` (+${limitedAgentsList.length - 4} more)` : ''}.`
     : 'All 15 council agent telemetry feeds active.';
+
+  // Truthfully record genuine state transitions in the Evolutionary Tracker
+  evaluateAndRecordTransition({
+    symbol: normSymbol,
+    currentVerdict: effectiveSetupDirection,
+    currentConsensus: consensusTrust.evidenceTrust,
+    stage: setupLifecycleRecord?.state || (blueprint ? 'ARMED' : 'FORMING'),
+    actionability: actionability.actionabilityState,
+    evidenceTrust: consensusTrust.evidenceTrust,
+    catalysts: marketStructure?.trend ? [`Structure ${marketStructure.trend} on ${normSymbol}`] : [],
+    shifts: assembledAgents
+      .filter((a) => a.bias === 'BULLISH' || a.bias === 'BEARISH')
+      .slice(0, 3)
+      .map((a) => ({
+        agent: a.name,
+        from: 'NEUTRAL',
+        to: a.bias,
+        reason: `${a.type} signal evaluated`,
+      })),
+    reason: `Cortex continuous intelligence update for ${normSymbol}`,
+  });
 
   return {
     symbol: normSymbol,
@@ -1858,8 +2194,12 @@ export function generateAssetIntelligence(
     session: sessionState.sessionName,
     trend: hasCandles && marketStructure ? marketStructure.trend : 'INSUFFICIENT DATA — Awaiting verified OHLC candles',
     volatility: hasCandles ? 'ATR computed from verified candles' : 'ATR: PENDING CANDLES',
-    newsRisk: 'DATA LIMITED — No live news feed',
-    liquidity: 'Broker specification available',
+    newsRisk: cachedNews.length > 0
+      ? `Live newswire active (${cachedNews[0].impactTier || 'NORMAL'})`
+      : 'DATA LIMITED — No live news feed',
+    liquidity: (liveAsset?.spread !== undefined && liveAsset.spread > 0) || liveAsset?.provider === 'MT5'
+      ? 'Broker specification available'
+      : 'UNVERIFIED / DATA LIMITED',
     setupDirection: effectiveSetupDirection,
     directionalBias,
     decisionPosture: effectiveSetupDirection,
@@ -1874,7 +2214,9 @@ export function generateAssetIntelligence(
     invalidation: blueprint ? blueprint.invalidation.reason : 'No structural invalidation computed yet — awaiting verified candles',
     whyThisTrade: [
       `Price: ${p.toFixed(5)} (${isPos ? '+' : ''}${liveAsset?.change24h?.toFixed(2) || 0}% 24h).`,
-      hasCandles ? `Market structure: ${marketStructure?.trend}. Verified ${verifiedCandles?.length} bars.` : 'Market structure analysis pending. Verified OHLC candles required.',
+      hasCandles
+        ? `Market structure (${structureTf}): ${marketStructure?.trend}. Verified ${analysisCandles.length} bars.`
+        : 'Market structure analysis pending. Verified OHLC candles required.',
       feedStatusLine,
     ],
     opposingRisks: [

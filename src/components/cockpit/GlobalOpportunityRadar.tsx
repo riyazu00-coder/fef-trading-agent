@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import Link from 'next/link';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import {
   generateGlobalRadarIntelligence,
@@ -20,7 +21,7 @@ type SubTabType = 'RADAR_TABLE' | 'DEVELOPING' | 'INVALIDATED' | 'REGIME_MAP';
 type AvailabilityFilterType = 'ALL' | 'TRADEABLE_NOW' | 'DEVELOPING' | 'MARKET_CLOSED';
 
 export const GlobalOpportunityRadar: React.FC = () => {
-  const { activeSymbol, setActiveSymbol, allAssets, timeframe, candles, candleProvenance, candleProvider } = useActiveAsset();
+  const { activeSymbol, setActiveSymbol, allAssets, timeframe, candles, candleProvenance, candleProvider, multiAssetCandles } = useActiveAsset();
 
   const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilterType>('ALL');
   const [stateFilter, setStateFilter] = useState<StateFilterType>('ALL');
@@ -29,13 +30,13 @@ export const GlobalOpportunityRadar: React.FC = () => {
   const [subTab, setSubTab] = useState<SubTabType>('RADAR_TABLE');
   const [lastScanTime, setLastScanTime] = useState<string>('Live');
 
-  // Generate continuous multi-asset radar intelligence from live assets with active candles
+  // Generate continuous multi-asset radar intelligence from live assets with active candles and background multi-asset feeds
   const radarData = useMemo(() => {
     const activeCandlesPayload = candles && candles.length >= 10
       ? { symbol: activeSymbol, candles, provenance: candleProvenance, provider: candleProvider }
       : undefined;
-    return generateGlobalRadarIntelligence(allAssets, timeframe, activeCandlesPayload);
-  }, [allAssets, timeframe, activeSymbol, candles, candleProvenance, candleProvider]);
+    return generateGlobalRadarIntelligence(allAssets, timeframe, activeCandlesPayload, multiAssetCandles);
+  }, [allAssets, timeframe, activeSymbol, candles, candleProvenance, candleProvider, multiAssetCandles]);
 
   // Update last scan timestamp on fresh data
   useEffect(() => {
@@ -183,6 +184,13 @@ export const GlobalOpportunityRadar: React.FC = () => {
               <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-cyan-500/15 text-[#22D3EE] border border-[#22D3EE]/30">
                 ACTIVE SWARM SCAN
               </span>
+              <Link
+                href="/how-to-use#opportunity-radar"
+                className="px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold bg-white/5 hover:bg-cyan-500/20 text-gray-400 hover:text-cyan-300 border border-white/10 hover:border-cyan-400/40 transition-colors"
+                title="Learn how Global Opportunity Radar works"
+              >
+                ? LEARN
+              </Link>
             </div>
             <p className="text-[11px] text-[#94A3B8] font-sans flex items-center space-x-2">
               <span>Continuously triaging all connected markets</span>
@@ -216,6 +224,7 @@ export const GlobalOpportunityRadar: React.FC = () => {
       {/* 2. Top Spotlight (#1 Ranked Opportunity) + Market Attention Queue */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
         {/* Spotlight Card: #1 Ranked Opportunity (7 cols) */}
+        {topOpp ? (
         <div className="lg:col-span-7 rounded-xl bg-gradient-to-br from-cyan-950/30 via-[#0a152e]/50 to-black/60 border border-cyan-500/30 p-3.5 sm:p-4 flex flex-col justify-between relative overflow-hidden shadow-lg">
           <div className="absolute top-0 right-0 px-3 py-1 bg-cyan-500/20 border-b border-l border-cyan-400/30 rounded-bl-xl text-[9.5px] font-mono font-bold text-cyan-300 tracking-wider">
             ★ #1 HIGHEST RANKED OPPORTUNITY
@@ -328,6 +337,12 @@ export const GlobalOpportunityRadar: React.FC = () => {
             </button>
           </div>
         </div>
+        ) : (
+          <div className="lg:col-span-7 rounded-xl bg-black/40 border border-white/10 p-6 flex flex-col items-center justify-center text-center space-y-2">
+            <div className="text-gray-400 font-mono text-sm">NO OPPORTUNITY IDENTIFIED</div>
+            <div className="text-gray-500 text-xs">Awaiting verified structural trade opportunities...</div>
+          </div>
+        )}
 
         {/* Market Attention Queue (5 cols) */}
         <div className="lg:col-span-5 rounded-xl bg-black/40 border border-white/10 p-3.5 sm:p-4 flex flex-col justify-between space-y-3">
@@ -503,10 +518,10 @@ export const GlobalOpportunityRadar: React.FC = () => {
 
       {/* 4. Tab Views */}
       {subTab === 'RADAR_TABLE' && (
-        <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/40">
+        <div className="overflow-x-auto max-h-[520px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-cyan-500/20 rounded-xl border border-white/10 bg-black/40 relative">
           <table className="w-full text-left font-mono text-[11px] border-collapse">
-            <thead>
-              <tr className="border-b border-white/10 bg-black/70 text-gray-300 text-[10px] uppercase font-bold">
+            <thead className="sticky top-0 z-10 bg-[#060D1E] shadow-sm">
+              <tr className="border-b border-white/10 text-gray-300 text-[10px] uppercase font-bold">
                 <th className="py-2.5 px-3"># RANK</th>
                 <th className="py-2.5 px-3">ASSET</th>
                 <th className="py-2.5 px-3">MARKET</th>

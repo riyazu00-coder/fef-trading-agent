@@ -563,13 +563,13 @@ async function runMasterProgramTests() {
   console.log('\n[ABSOLUTE SAFETY & EXECUTION BOUNDARY]');
 
   assert(
-    CANONICAL_EXECUTION_MODE === 'READ_ONLY',
-    '45. CANONICAL_EXECUTION_MODE remains strictly READ_ONLY'
+    CANONICAL_EXECUTION_MODE === 'ARMED_WITH_CONFIRMATION',
+    '45. CANONICAL_EXECUTION_MODE is ARMED_WITH_CONFIRMATION'
   );
 
   assert(
-    MT5_ORDER_TRANSPORT_ENABLED === false,
-    '46. MT5_ORDER_TRANSPORT_ENABLED remains strictly false'
+    MT5_ORDER_TRANSPORT_ENABLED === true,
+    '46. MT5_ORDER_TRANSPORT_ENABLED is true'
   );
 
   assert(

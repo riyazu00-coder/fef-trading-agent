@@ -12,6 +12,8 @@ interface AgentNodePillProps {
   isHovered: boolean;
   onHover: (key: string | null) => void;
   onClick: (agent: AgentState) => void;
+  isSpecialist?: boolean;
+  isBursting?: boolean;
 }
 
 export const AgentNodePill: React.FC<AgentNodePillProps> = ({
@@ -22,6 +24,8 @@ export const AgentNodePill: React.FC<AgentNodePillProps> = ({
   isHovered,
   onHover,
   onClick,
+  isSpecialist = false,
+  isBursting = false,
 }) => {
   const [showTooltip, setShowTooltip] = useState<boolean>(false);
 
@@ -29,13 +33,19 @@ export const AgentNodePill: React.FC<AgentNodePillProps> = ({
   const nodeState: HubAgentState = calculateAgentNodeState(agent, elapsedSec, index);
 
   const isDataLimited = agent.status === 'DATA LIMITED';
+  const isOffline = agent.status === 'OFFLINE';
+  const isError = agent.status === 'ERROR';
   const isCaution = agent.bias === 'CAUTION' || agent.bias === 'RESTRICTED';
   const isBull = agent.bias === 'BULLISH';
   const isBear = agent.bias === 'BEARISH';
   const isRiskGuardian = agent.type === 'RISK_GUARDIAN';
 
   // Dot color & pulse
-  const dotColor = isDataLimited
+  const dotColor = isError
+    ? 'bg-rose-500'
+    : isOffline
+    ? 'bg-slate-500'
+    : isDataLimited
     ? 'bg-slate-400'
     : isCaution
     ? 'bg-amber-400'
@@ -45,7 +55,11 @@ export const AgentNodePill: React.FC<AgentNodePillProps> = ({
     ? 'bg-rose-400'
     : 'bg-cyan-400';
 
-  const statusColor = isDataLimited
+  const statusColor = isError
+    ? 'text-rose-400'
+    : isOffline
+    ? 'text-slate-500'
+    : isDataLimited
     ? 'text-slate-400'
     : isCaution
     ? 'text-amber-400'
@@ -57,11 +71,21 @@ export const AgentNodePill: React.FC<AgentNodePillProps> = ({
 
   const isRestricted = agent.bias === 'RESTRICTED';
 
-  // Dynamic border & glow: subtle by default, elevated outline strictly when actively communicating
-  let borderStyle = 'border-cyan-500/20 bg-[#091526]/80 text-gray-300 shadow-none';
+  // Dynamic border & glow: subtle by default, elevated outline strictly when actively communicating or bursting
+  let borderStyle = isSpecialist
+    ? 'border-purple-500/30 bg-[#0a0f24]/85 text-purple-200/90 shadow-none'
+    : 'border-cyan-500/20 bg-[#091526]/80 text-gray-300 shadow-none';
   
-  if (isDataLimited) {
+  if (isError) {
+    borderStyle = 'border-rose-700/60 bg-[#16080d]/80 text-rose-400 shadow-none';
+  } else if (isOffline) {
+    borderStyle = 'border-slate-800/50 bg-[#060c18]/50 text-slate-500 shadow-none';
+  } else if (isDataLimited) {
     borderStyle = 'border-slate-700/40 bg-[#091526]/60 text-slate-400 shadow-none';
+  } else if (isBursting) {
+    borderStyle = isSpecialist
+      ? 'border-purple-400 bg-[#160e36] ring-1 ring-purple-400/60 shadow-[0_0_12px_rgba(168,85,247,0.4)]'
+      : 'border-cyan-400 bg-[#071d38] ring-1 ring-cyan-400/60 shadow-[0_0_12px_rgba(0,240,255,0.4)]';
   } else if (isRestricted) {
     borderStyle = 'border-rose-500/70 bg-rose-950/40 shadow-[0_0_12px_rgba(244,63,94,0.35)] animate-pulse';
   } else if (isCaution) {
@@ -69,7 +93,9 @@ export const AgentNodePill: React.FC<AgentNodePillProps> = ({
   } else if (nodeState === 'ANALYZING') {
     borderStyle = 'border-purple-400/70 bg-[#0e1736] shadow-[0_0_12px_rgba(168,85,247,0.35)] ring-1 ring-purple-400/40';
   } else if (nodeState === 'SENDING') {
-    borderStyle = 'border-blue-400/70 bg-[#0a1c38] shadow-[0_0_12px_rgba(59,130,246,0.35)] ring-1 ring-blue-400/40';
+    borderStyle = isSpecialist
+      ? 'border-purple-400/70 bg-[#140f2e] shadow-[0_0_12px_rgba(168,85,247,0.35)] ring-1 ring-purple-400/40'
+      : 'border-blue-400/70 bg-[#0a1c38] shadow-[0_0_12px_rgba(59,130,246,0.35)] ring-1 ring-blue-400/40';
   } else if (nodeState === 'RECEIVING') {
     borderStyle = 'border-cyan-400/70 bg-[#0a1b33] shadow-[0_0_10px_rgba(0,240,255,0.35)] ring-1 ring-cyan-400/40';
   }
@@ -79,7 +105,37 @@ export const AgentNodePill: React.FC<AgentNodePillProps> = ({
     borderStyle = 'border-amber-400 bg-amber-950/50 shadow-[0_0_14px_rgba(251,191,36,0.4)] animate-pulse';
   }
 
-  const cleanName = agent.name.replace(' Agent', '');
+  const getDisplayAgentName = (name: string, type: string) => {
+    switch (type) {
+      case 'MARKET_REGIME_CLASSIFIER_AGENT':
+        return 'Market Regime';
+      case 'CURRENCY_STRENGTH_AGENT':
+        return 'Currencies';
+      case 'COT_POSITIONING_AGENT':
+        return 'COT Profiler';
+      case 'RATES_AGENT':
+        return 'Rates Regime';
+      case 'VOLATILITY_AGENT':
+        return 'Volatility';
+      case 'CENTRAL_BANK_POLICY_AGENT':
+        return 'Central Bank';
+      case 'ORDER_FLOW':
+      case 'SCALPER_FLOW_SHIFT':
+        return 'Scalper / Flow';
+      default:
+        return name.replace(' Agent', '').replace(' Sniper', '');
+    }
+  };
+
+  const cleanName = getDisplayAgentName(agent.name, agent.type);
+
+  const statusText = isError
+    ? 'ERROR'
+    : isOffline
+    ? 'OFFLINE'
+    : isDataLimited
+    ? 'DATA LTD'
+    : `${agent.confidence}% ${agent.bias === 'BULLISH' ? 'BULL' : agent.bias === 'BEARISH' ? 'BEAR' : agent.bias === 'NEUTRAL' ? 'NEUT' : agent.bias.slice(0, 4)}`;
 
   return (
     <div
@@ -96,14 +152,14 @@ export const AgentNodePill: React.FC<AgentNodePillProps> = ({
       {/* Agent Pill Container */}
       <div
         onClick={() => onClick(agent)}
-        className={`flex items-center justify-between px-2 py-1 rounded-xl border text-[9px] font-mono transition-all cursor-pointer select-none ${
-          isHovered ? 'scale-[1.03] z-20 brightness-110' : 'hover:scale-[1.02]'
+        className={`flex items-center justify-between px-2 py-0.5 sm:py-0.8 rounded-lg sm:rounded-xl border text-[8px] sm:text-[8.5px] font-mono transition-all cursor-pointer select-none ${
+          isHovered ? 'scale-[1.02] z-20 brightness-110 shadow-[0_0_10px_rgba(0,240,255,0.3)]' : 'hover:scale-[1.01]'
         } ${borderStyle}`}
       >
         {/* Left: Indicator dot & clean name */}
-        <div className="flex items-center space-x-1.5 truncate">
+        <div className="flex items-center space-x-1 sm:space-x-1.5 truncate">
           <span className="relative flex h-2 w-2 flex-shrink-0 items-center justify-center">
-            {nodeState === 'SENDING' && (
+            {(nodeState === 'SENDING' || isBursting) && (
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dotColor}`} />
             )}
             <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${dotColor}`} />
@@ -112,11 +168,16 @@ export const AgentNodePill: React.FC<AgentNodePillProps> = ({
           <span className="text-gray-200 font-bold truncate tracking-tight">
             {cleanName}
           </span>
+          {isSpecialist && (
+            <span className="text-[6px] px-1 py-0.2 rounded bg-purple-950/70 text-purple-300 border border-purple-500/30 font-bold flex-shrink-0">
+              SPEC
+            </span>
+          )}
         </div>
 
-        {/* Right: Confidence & Bias */}
+        {/* Right: Confidence & Bias or Textual Status */}
         <span className={`font-bold flex-shrink-0 pl-1 ${statusColor}`}>
-          {isDataLimited ? 'DATA LTD' : `${agent.confidence}% ${agent.bias.slice(0, 4)}`}
+          {statusText}
         </span>
       </div>
 

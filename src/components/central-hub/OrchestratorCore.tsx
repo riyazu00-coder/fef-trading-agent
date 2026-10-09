@@ -7,105 +7,120 @@ interface OrchestratorCoreProps {
   profile: AssetIntelligenceProfile;
   activeSymbol: string;
   isSynthesizing?: boolean;
+  isIngesting?: boolean;
+  contributingCount?: number;
+  dataLimitedCount?: number;
+  offlineCount?: number;
+  errorCount?: number;
+  unavailableCount?: number;
+  totalVisibleCount?: number;
   onPulseCore?: () => void;
 }
-
-const CORE_STATES = [
-  'INGESTING DATA',
-  'CROSS-CHECKING',
-  'AGENTS COMMUNICATING',
-  'RISK VALIDATION',
-  'SYNTHESIZING',
-  'FINALIZING DECISION'
-];
 
 export const OrchestratorCore: React.FC<OrchestratorCoreProps> = ({
   profile,
   activeSymbol,
   isSynthesizing = false,
+  isIngesting = false,
+  contributingCount = 21,
+  dataLimitedCount: propDataLimitedCount = 0,
+  offlineCount = 0,
+  errorCount = 0,
+  unavailableCount = 0,
+  totalVisibleCount = 21,
 }) => {
-  const [coreStateIndex, setCoreStateIndex] = useState<number>(0);
-  const [pulseGlow, setPulseGlow] = useState<boolean>(false);
-
-  // Rotate compact state every 2.5 seconds
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCoreStateIndex((prev) => (prev + 1) % CORE_STATES.length);
-      setPulseGlow(true);
-      setTimeout(() => setPulseGlow(false), 800);
-    }, 2500);
-    return () => clearInterval(timer);
-  }, []);
-
-  const currentState = CORE_STATES[coreStateIndex];
+  const pulseGlow = isIngesting || isSynthesizing;
+  const currentState = isIngesting
+    ? 'INGESTING EVIDENCE'
+    : isSynthesizing
+    ? 'SYNTHESIZING'
+    : profile.confidence === 0
+    ? 'STANDBY'
+    : 'SYNCHRONIZED';
 
   const bullishCount = profile.agents.filter((a) => a.bias === 'BULLISH' && a.status !== 'DATA LIMITED').length;
   const bearishCount = profile.agents.filter((a) => a.bias === 'BEARISH' && a.status !== 'DATA LIMITED').length;
   const cautionCount = profile.agents.filter((a) => (a.bias === 'CAUTION' || a.bias === 'RESTRICTED') && a.status !== 'DATA LIMITED').length;
-  const dataLimitedCount = profile.agents.filter((a) => a.status === 'DATA LIMITED').length;
+  const profileDataLimited = profile.agents.filter((a) => a.status === 'DATA LIMITED').length;
   const neutralCount = profile.agents.filter((a) => a.bias === 'NEUTRAL' && a.status !== 'DATA LIMITED').length;
+
+  const dataLimitedCount = propDataLimitedCount > 0 ? propDataLimitedCount : profileDataLimited;
 
   const isBuy = profile.setupDirection.includes('BUY');
   const isSell = profile.setupDirection.includes('SELL');
 
   return (
-    <div className="relative z-10 flex flex-col items-center justify-center text-center px-2 flex-shrink-0">
+    <div className="relative z-10 flex flex-col items-center justify-center text-center px-1 flex-shrink-0">
       {/* Central Holographic Multi-Ring Nucleus */}
-      <div className="relative flex items-center justify-center w-36 h-36">
+      <div className="relative flex items-center justify-center w-36 h-36 sm:w-40 sm:h-40">
         {/* Outer Counter-Clockwise Rotating Ring */}
         <svg
           className="absolute inset-0 w-full h-full pointer-events-none animate-spin"
           style={{ animationDuration: '28s', animationDirection: 'reverse' }}
-          viewBox="0 0 144 144"
+          viewBox="0 0 160 160"
         >
           <circle
-            cx="72"
-            cy="72"
-            r="68"
+            cx="80"
+            cy="80"
+            r="74"
             stroke="#00f0ff"
             strokeWidth="1.2"
-            strokeDasharray="8 14 2 14"
-            fill="none"
-            opacity="0.5"
-          />
-        </svg>
-
-        {/* Inner Clockwise Rotating Ring */}
-        <svg
-          className="absolute inset-0 w-full h-full pointer-events-none animate-spin"
-          style={{ animationDuration: '18s' }}
-          viewBox="0 0 144 144"
-        >
-          <circle
-            cx="72"
-            cy="72"
-            r="56"
-            stroke="#a855f7"
-            strokeWidth="1.5"
-            strokeDasharray="16 24 4 12"
+            strokeDasharray="4 8"
             fill="none"
             opacity="0.6"
           />
         </svg>
 
+        {/* Inner Clockwise Rotating Ring (Intensifies on genuine ingestion) */}
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none animate-spin"
+          style={{ animationDuration: isIngesting ? '6s' : '18s' }}
+          viewBox="0 0 160 160"
+        >
+          <circle
+            cx="80"
+            cy="80"
+            r="62"
+            stroke={isIngesting ? '#38bdf8' : '#a855f7'}
+            strokeWidth={isIngesting ? 2.0 : 1.2}
+            strokeDasharray="12 20 4 10"
+            fill="none"
+            opacity={isIngesting ? 0.95 : 0.6}
+          />
+
+          {/* Genuine Evidence Inward Absorption Ripple */}
+          {isIngesting && (
+            <>
+              <circle cx="80" cy="80" r="70" stroke="#00f0ff" strokeWidth="1.6" fill="none" opacity="0.8">
+                <animate attributeName="r" from="72" to="40" dur="0.6s" repeatCount="1" />
+                <animate attributeName="opacity" from="0.8" to="0" dur="0.6s" repeatCount="1" />
+              </circle>
+              <circle cx="80" cy="80" r="58" stroke="#a855f7" strokeWidth="1.4" fill="none" opacity="0.7">
+                <animate attributeName="r" from="60" to="34" begin="0.1s" dur="0.5s" repeatCount="1" />
+                <animate attributeName="opacity" from="0.7" to="0" begin="0.1s" dur="0.5s" repeatCount="1" />
+              </circle>
+            </>
+          )}
+        </svg>
+
         {/* Dynamic Glowing Pulsing Aura */}
         <div
-          className={`absolute w-32 h-32 rounded-full transition-all duration-700 pointer-events-none ${
+          className={`absolute w-32 h-32 sm:w-36 sm:h-36 rounded-full transition-all duration-700 pointer-events-none ${
             pulseGlow || isSynthesizing
-              ? 'bg-gradient-to-r from-cyan-500/25 via-purple-500/25 to-blue-500/25 blur-xl scale-110'
-              : 'bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-blue-500/10 blur-md scale-95'
+              ? 'bg-gradient-to-r from-cyan-500/35 via-purple-500/35 to-blue-500/35 blur-2xl scale-105'
+              : 'bg-gradient-to-r from-cyan-500/15 via-purple-500/15 to-blue-500/15 blur-xl scale-95'
           }`}
         />
 
         {/* Central Core Chamber */}
         <div
-          className={`relative w-28 h-28 rounded-full bg-gradient-to-br from-[#0c1a36] via-[#071124] to-[#030611] border-2 transition-all duration-500 flex flex-col items-center justify-center shadow-[0_0_30px_rgba(0,240,255,0.45),inset_0_0_15px_rgba(0,240,255,0.3)] ${
+          className={`relative w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-[#0c1a36] via-[#071124] to-[#030611] border-2 transition-all duration-500 flex flex-col items-center justify-center shadow-[0_0_30px_rgba(0,240,255,0.5),inset_0_0_15px_rgba(0,240,255,0.3)] ${
             pulseGlow
-              ? 'border-cyan-300 shadow-[0_0_40px_rgba(0,240,255,0.7),inset_0_0_20px_rgba(168,85,247,0.5)]'
-              : 'border-cyan-400/80'
+              ? 'border-cyan-300 shadow-[0_0_45px_rgba(0,240,255,0.8),inset_0_0_20px_rgba(168,85,247,0.55)]'
+              : 'border-cyan-400/85'
           }`}
         >
-          {/* Subtle neural grid background - reduced intensity for crisp readability */}
+          {/* Subtle neural grid background */}
           <div
             className="absolute inset-0 rounded-full opacity-[0.09] pointer-events-none transition-opacity duration-500"
             style={{
@@ -114,35 +129,30 @@ export const OrchestratorCore: React.FC<OrchestratorCoreProps> = ({
             }}
           />
 
-          <span className="text-base font-black text-white tracking-widest drop-shadow-[0_0_10px_rgba(0,240,255,0.9)] font-sans">
+          <span className="text-base sm:text-lg font-black text-white tracking-widest drop-shadow-[0_0_10px_rgba(0,240,255,0.9)] font-sans">
             FEF
           </span>
 
-          <span className="text-[8px] font-mono text-cyan-300 font-black tracking-widest uppercase">
+          <span className="text-[7.5px] sm:text-[8px] font-mono text-cyan-300 font-bold tracking-widest uppercase mt-0.5">
             CORTEX CORE
           </span>
 
-          {/* Mini Soundwave / Neural Waveform */}
-          <div className="flex items-center space-x-0.5 my-1 h-3 pointer-events-none">
-            <span className="w-0.5 bg-cyan-400 rounded-full animate-pulse h-2" style={{ animationDelay: '0ms' }} />
-            <span className="w-0.5 bg-blue-400 rounded-full animate-pulse h-3" style={{ animationDelay: '150ms' }} />
-            <span className="w-0.5 bg-purple-400 rounded-full animate-pulse h-1.5" style={{ animationDelay: '300ms' }} />
-            <span className="w-0.5 bg-cyan-300 rounded-full animate-pulse h-2.5" style={{ animationDelay: '450ms' }} />
-            <span className="w-0.5 bg-emerald-400 rounded-full animate-pulse h-2" style={{ animationDelay: '600ms' }} />
-          </div>
-
-          {/* Dynamic Rotating Sub-State */}
-          <div className="text-[6.5px] font-mono font-bold tracking-tight text-cyan-200 uppercase px-1 py-0.2 bg-cyan-950/60 rounded border border-cyan-400/30">
+          {/* Dynamic Sub-State Badge */}
+          <div className={`text-[6.5px] sm:text-[7px] font-mono font-bold tracking-tight uppercase px-2 py-0.5 rounded border mt-1.5 transition-all ${
+            isIngesting
+              ? 'text-cyan-100 bg-cyan-900/90 border-cyan-300 shadow-[0_0_8px_rgba(0,240,255,0.6)] scale-105'
+              : 'text-cyan-200 bg-cyan-950/70 border-cyan-400/40 shadow-sm'
+          }`}>
             {currentState}
           </div>
         </div>
       </div>
 
       {/* Synthesis Status Bar */}
-      <div className="w-full max-w-[200px] mt-1.5 space-y-1">
+      <div className="w-full max-w-[220px] mt-2 space-y-1">
         <div className="flex items-center justify-between text-[7.5px] font-mono text-gray-300">
-          <span className="text-cyan-300 font-bold">15 / 15 AGENTS</span>
-          <span className="text-gray-400">SYNCHRONIZED</span>
+          <span className="text-cyan-300 font-bold">{contributingCount} CONTRIBUTING / {totalVisibleCount} VISIBLE</span>
+          <span className="text-gray-400">{contributingCount === totalVisibleCount ? 'SYNCHRONIZED' : 'ACTIVE CONTRIBUTING'}</span>
         </div>
 
         {/* Sleek Confluence Progress Bar */}
@@ -153,8 +163,13 @@ export const OrchestratorCore: React.FC<OrchestratorCoreProps> = ({
           />
         </div>
 
-        <div className="text-[7px] text-gray-400 font-mono tracking-tighter uppercase">
-          {profile.confidence === 0 ? 'CONFLUENCE: INSUFFICIENT EVIDENCE' : `SYNTHESIZING CONFLUENCE (${profile.confidence}%)`}
+        {/* Compact State Breakdown */}
+        <div className="text-[6.8px] text-gray-400 font-mono tracking-tighter uppercase flex items-center justify-center space-x-1 flex-wrap">
+          <span className="text-emerald-400 font-bold">{contributingCount} CONTRIBUTING</span>
+          {dataLimitedCount > 0 && <span>&bull; <span className="text-slate-400">{dataLimitedCount} DATA LIMITED</span></span>}
+          {offlineCount > 0 && <span>&bull; <span className="text-amber-400">{offlineCount} OFFLINE</span></span>}
+          {errorCount > 0 && <span>&bull; <span className="text-rose-400">{errorCount} ERROR</span></span>}
+          {unavailableCount > 0 && <span>&bull; <span className="text-slate-400">{unavailableCount} UNAVAILABLE</span></span>}
         </div>
       </div>
 

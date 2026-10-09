@@ -1,13 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
 import { LiveTickerStrip } from '@/components/cockpit/LiveTickerStrip';
 import { MarketOverviewCard } from '@/components/cockpit/MarketOverviewCard';
 import { EconomicEventsCard } from '@/components/cockpit/EconomicEventsCard';
-import { VulnerabilityAuditCard } from '@/components/cockpit/VulnerabilityAuditCard';
 import { MarketSessionLiquidityMap } from '@/components/cockpit/MarketSessionLiquidityMap';
 import { CentralIntelligenceHub } from '@/components/cockpit/CentralIntelligenceHub';
 import { ConfluenceConflictPanel } from '@/components/cockpit/ConfluenceConflictPanel';
@@ -21,19 +20,21 @@ import { FullSmartPositionCalculator } from '@/components/cockpit/FullSmartPosit
 import { CurrentAiDecision } from '@/components/cockpit/CurrentAiDecision';
 import { RiskGuardianPolicy } from '@/components/cockpit/RiskGuardianPolicy';
 import { ExecutionControlCard } from '@/components/cockpit/ExecutionControlCard';
-import { ChartVisionAnalyzerCard } from '@/components/cockpit/ChartVisionAnalyzerCard';
-import { ProviderTelemetryCard } from '@/components/cockpit/ProviderTelemetryCard';
+import { ActiveVisionBlueprintCard } from '@/components/cockpit/ActiveVisionBlueprintCard';
 import { AccountPlatformStatusCard } from '@/components/cockpit/AccountPlatformStatusCard';
 import { GlobalOpportunityRadar } from '@/components/cockpit/GlobalOpportunityRadar';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 
+type SecondaryTab = 'confluence' | 'macro' | 'regime' | 'sentinel';
+
 export default function CockpitPage() {
   const { activeSymbol, activeAsset } = useActiveAsset();
+  const [activeTab, setActiveTab] = useState<SecondaryTab>('confluence');
 
   return (
     <div className="relative min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black overflow-x-hidden">
-      {/* Background Aurora Borealis Motion */}
+      {/* Static Premium CORTEX Visual Foundation */}
       <BackgroundLiveChart symbol={activeSymbol} isPositive={activeAsset.change24h >= 0} />
 
       {/* Main Cockpit Content Layer */}
@@ -47,62 +48,170 @@ export default function CockpitPage() {
         {/* 3. Full-Width Live Asset Ticker Strip */}
         <LiveTickerStrip />
 
-        {/* 4. Master 3-Column Cockpit Grid (Independent Column Flow) */}
-        <main className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-start">
-          {/* LEFT COLUMN (3 cols on lg) */}
-          <section className="lg:col-span-3 space-y-2.5 flex flex-col">
+        {/* 4. Top Executive Command Header: 3-Column Flanking & Central Swarm */}
+        <section id="cockpit-top-command-header" className="grid grid-cols-1 xl:grid-cols-12 gap-2.5 items-stretch">
+          {/* Left (3 cols): Compact Current AI Decision */}
+          <div className="xl:col-span-3 min-w-0 flex flex-col">
+            <CurrentAiDecision />
+          </div>
+
+          {/* Center (6 cols): Tightly-Wired Swarm Hub */}
+          <div className="xl:col-span-6 min-w-0 flex flex-col">
+            <CentralIntelligenceHub />
+          </div>
+
+          {/* Right (3 cols): Compact Market Overview */}
+          <div className="xl:col-span-3 min-w-0 flex flex-col">
             <MarketOverviewCard />
-            <EconomicEventsCard />
-            <VulnerabilityAuditCard />
+          </div>
+        </section>
+
+        {/* 6. Master 2-Column Cockpit Workspace (Balanced 6/6 Grid) */}
+        <main className="grid grid-cols-1 xl:grid-cols-12 gap-2.5 items-start">
+          {/* =========================================================================
+              LEFT COLUMN (6 cols on xl): OPPORTUNITY RADAR & UNIVERSE DISCOVERY
+             ========================================================================= */}
+          <section className="xl:col-span-6 space-y-2.5 flex flex-col">
+            {/* Global Opportunity Radar (Ranked Setup, Attention Queue & 26-Asset Table) */}
+            <GlobalOpportunityRadar />
+
+            {/* Session Liquidity Map */}
             <MarketSessionLiquidityMap />
           </section>
 
-          {/* CENTER COLUMN (6 cols on lg) */}
-          <section className="lg:col-span-6 space-y-2.5 flex flex-col">
-            {/* Central Multi-Agent Intelligence Hub */}
-            <CentralIntelligenceHub />
-
-            {/* Live Cortex Confluence & Conflict Engine */}
-            <ConfluenceConflictPanel />
-
-            {/* Official Macro & Cross-Asset Intelligence */}
-            <MacroCrossAssetPanel />
-
-            {/* Sub-row: Agent Consensus Matrix & Council Debate Stream */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              <AgentConsensusBarChart />
-              <CouncilDebateStream />
-            </div>
-
-            {/* Market Regime & Quant Intelligence */}
-            <RegimeQuantPanel />
-
-            {/* Evolutionary Tracker ("What Changed?" Engine) */}
-            <EvolutionaryTracker />
-
-            {/* Full Smart Position Size & Risk Calculator */}
+          {/* =========================================================================
+              RIGHT COLUMN (6 cols on xl): POSITION RISK CALCULATOR & EXECUTION
+             ========================================================================= */}
+          <section className="xl:col-span-6 space-y-2.5 flex flex-col">
+            {/* Full Smart Position Size & Risk Calculator (Flanking Global Opportunity Radar) */}
             <FullSmartPositionCalculator />
 
-            {/* Global Multi-Asset Opportunity Radar */}
-            <GlobalOpportunityRadar />
-          </section>
+            {/* Live Inter-Agent Council Debate Stream */}
+            <CouncilDebateStream />
 
-          {/* RIGHT COLUMN (3 cols on lg) */}
-          <section className="lg:col-span-3 space-y-2.5 flex flex-col">
-            <CurrentAiDecision />
-            {/* Data Sentinel & System Integrity Auditor */}
-            <DataSentinelPanel />
-            <RiskGuardianPolicy />
+            {/* Execution Telemetry & Direct Transport Controls */}
             <ExecutionControlCard />
-            <ChartVisionAnalyzerCard />
-            <ProviderTelemetryCard />
-            <AccountPlatformStatusCard />
+
+            {/* CORTEX Intelligence Evolution ("What Changed?" Engine) */}
+            <EvolutionaryTracker />
           </section>
         </main>
 
-        {/* 4. Global Footer */}
+        {/* =========================================================================
+            5. CONSOLIDATED SECONDARY INTELLIGENCE & TELEMETRY DECK (TABBED)
+           ========================================================================= */}
+        <section id="sentinel-deck" className="ghost-glass-panel rounded-2xl p-2.5 sm:p-3 space-y-2.5 border border-white/10">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-white/10">
+            <div className="flex items-center space-x-2">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+              <h2 className="text-xs font-black tracking-wider uppercase text-cyan-300 font-mono">
+                DEEP ANALYTICAL INTELLIGENCE &amp; PLATFORM TELEMETRY
+              </h2>
+            </div>
+
+            {/* Tab Selector Buttons */}
+            <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/5 font-mono text-[10px]">
+              <button
+                onClick={() => setActiveTab('confluence')}
+                className={`px-2.5 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                  activeTab === 'confluence'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <span>⚡</span>
+                <span>CONFLUENCE &amp; CONSENSUS</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('macro')}
+                className={`px-2.5 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                  activeTab === 'macro'
+                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-[0_0_10px_rgba(59,130,246,0.2)]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <span>🌐</span>
+                <span>MACRO &amp; CROSS-ASSET</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('regime')}
+                className={`px-2.5 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                  activeTab === 'regime'
+                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <span>📊</span>
+                <span>REGIME &amp; QUANT</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('sentinel')}
+                className={`px-2.5 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                  activeTab === 'sentinel'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <span>🛡️</span>
+                <span>SENTINEL &amp; DIAGNOSTICS</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Active Tab Panel Content */}
+          <div className="pt-1">
+            {activeTab === 'confluence' && (
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-2.5 items-start">
+                <div className="xl:col-span-7 space-y-2.5">
+                  <ConfluenceConflictPanel />
+                </div>
+                <div className="xl:col-span-5 space-y-2.5">
+                  <AgentConsensusBarChart />
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'macro' && (
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-2.5 items-start">
+                <div className="xl:col-span-8 space-y-2.5">
+                  <MacroCrossAssetPanel />
+                </div>
+                <div className="xl:col-span-4 space-y-2.5">
+                  <EconomicEventsCard />
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'regime' && (
+              <div className="w-full space-y-2.5">
+                <RegimeQuantPanel />
+              </div>
+            )}
+
+            {activeTab === 'sentinel' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 items-start">
+                <div className="space-y-2.5">
+                  <DataSentinelPanel />
+                </div>
+                <div className="space-y-2.5">
+                  <AccountPlatformStatusCard />
+                </div>
+                <div className="space-y-2.5">
+                  <RiskGuardianPolicy />
+                  <ActiveVisionBlueprintCard />
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 6. Global Footer */}
         <MasterFooter />
       </div>
     </div>
   );
 }
+

@@ -319,4 +319,13 @@ export class SetupLifecycleEngine {
   public static getActiveSetup(symbol: string): SetupLifecycleRecord | null {
     return this.activeLifecycleStore.get(symbol.toUpperCase()) || null;
   }
+
+  /**
+   * Retrieves all recorded invalidations for reporting (e.g. in GlobalOpportunityRadar).
+   */
+  public static getRecentlyInvalidated(limit: number = 5): InvalidationArchiveEntry[] {
+    const list = Array.from(this.invalidatedRegistry.values());
+    list.sort((a, b) => b.invalidatedAt - a.invalidatedAt);
+    return list.slice(0, limit);
+  }
 }

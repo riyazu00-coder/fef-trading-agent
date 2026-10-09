@@ -19,6 +19,7 @@ import {
   MT5BrokerSessionInfo
 } from './mt5-bridge-protocol';
 import { symbolDirectory } from './symbol-mapper';
+import { ConnectivityState } from './connectivity-policy';
 
 export type QuoteMatchStatus =
   | 'MATCHED'
@@ -77,6 +78,9 @@ export interface MT5UnifiedTelemetry {
   mt5Connected: boolean;
   isRemote?: boolean;
   state: BridgeConnectionState;
+  connectionStatus?: ConnectivityState;
+  statusLabel?: string;
+  isInGracePeriod?: boolean;
   transport: string;
   heartbeatAgeMs: number | null;
   lastHeartbeat: string | null;

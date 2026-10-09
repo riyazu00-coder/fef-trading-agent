@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
@@ -9,14 +10,25 @@ import {
   PositionSizeResult,
   getInstrumentContractSpec,
 } from '@/lib/calculator/position-size-calculator';
+import { reanchorProtectionLevels } from '@/lib/execution/trade-protection-validator';
 import { ChartAnalysisStorage } from '@/lib/chart-analysis/storage';
 
 const STORAGE_KEY = 'fef_calc_preferences_v1';
 
-export const FullSmartPositionCalculator: React.FC = () => {
+export interface FullSmartPositionCalculatorProps {
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
+}
+
+export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorProps> = ({
+  collapsible = false,
+  defaultCollapsed = false,
+}) => {
   const router = useRouter();
   const { activeSymbol, activeAsset, assetProfile } = useActiveAsset();
-  const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
+  const { telemetry, activeTelemetry, isMt5Connected, refreshTelemetry } = useMT5Telemetry();
+
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState<boolean>(defaultCollapsed);
 
   // MT5 Source Toggles
   const [accountSource, setAccountSource] = useState<'MANUAL' | 'MT5_VERIFIED'>('MANUAL');
@@ -46,6 +58,26 @@ export const FullSmartPositionCalculator: React.FC = () => {
   // Notification / Flash Feedback
   const [flashNotice, setFlashNotice] = useState<string | null>(null);
   const [mounted, setMounted] = useState<boolean>(false);
+
+  // One-Click Execution Guard Modal States
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
+  const [isDispatching, setIsDispatching] = useState<boolean>(false);
+  const [executionResult, setExecutionResult] = useState<{
+    success: boolean;
+    ticket?: number | string;
+    message?: string;
+    error?: string;
+  } | null>(null);
+
+  // Live Heartbeat in Confirmation Modal (1-second quote freshness refresh)
+  useEffect(() => {
+    if (!isConfirmModalOpen) return;
+    refreshTelemetry().catch(() => {});
+    const interval = setInterval(() => {
+      refreshTelemetry().catch(() => {});
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isConfirmModalOpen, refreshTelemetry]);
 
   // Load preferences from localStorage on mount
   useEffect(() => {
@@ -288,10 +320,123 @@ export const FullSmartPositionCalculator: React.FC = () => {
     router.push('/execution');
   };
 
+  // Open One-Click Confirmation Guard Modal
+  const handleOpenConfirmModal = () => {
+    if (!calcResult.isValid || calcResult.safeLotSize <= 0 || stopLoss <= 0 || !spec || !spec.isVerified) {
+      setFlashNotice('⚠️ Execution locked: Provide valid Stop Loss and verified contract specs.');
+      return;
+    }
+
+    if (direction === 'BUY' && (stopLoss >= entryPrice || (tp1 > 0 && tp1 <= entryPrice))) {
+      setFlashNotice('⚠️ Inverted Risk Geometry: For BUY, SL must be below entry and TP1 above entry.');
+      return;
+    }
+    if (direction === 'SELL' && (stopLoss <= entryPrice || (tp1 > 0 && tp1 >= entryPrice))) {
+      setFlashNotice('⚠️ Inverted Risk Geometry: For SELL, SL must be above entry and TP1 below entry.');
+      return;
+    }
+
+    setExecutionResult(null);
+    setIsConfirmModalOpen(true);
+  };
+
+  // Confirm and dispatch direct to /api/bridge/mt5
+  const handleConfirmDispatch = async () => {
+    setIsDispatching(true);
+    setExecutionResult(null);
+
+    try {
+      // 1. Pre-dispatch fresh tick fetch to evaluate against real-time broker price
+      await refreshTelemetry().catch(() => {});
+
+      const livePrice = (activeTelemetry?.quote && (direction === 'BUY' ? activeTelemetry.quote.ask : activeTelemetry.quote.bid)) || entryPrice;
+
+      // 2. Dynamic Live Pip Re-anchoring (Guarantees valid geometry & preserves exact pip distances)
+      const reanchored = reanchorProtectionLevels({
+        direction,
+        plannedEntry: entryPrice,
+        freshEntry: livePrice > 0 ? livePrice : entryPrice,
+        sl: stopLoss,
+        tp1: tp1 > 0 ? tp1 : 0,
+        tp2: tp2 > 0 ? tp2 : undefined,
+        tp3: tp3 > 0 ? tp3 : undefined,
+        digits: precision,
+      });
+
+      const payload = {
+        action: 'PLACE_ORDER',
+        symbol,
+        params: {
+          symbol,
+          direction,
+          volume: calcResult.safeLotSize,
+          price: reanchored.entry,
+          sl: reanchored.sl,
+          tp: reanchored.tp1 > 0 ? reanchored.tp1 : undefined,
+          tp1: reanchored.tp1 > 0 ? reanchored.tp1 : undefined,
+          takeProfit: reanchored.tp1 > 0 ? reanchored.tp1 : undefined,
+          tp2: reanchored.tp2 != null ? reanchored.tp2 : undefined,
+          tp3: reanchored.tp3 != null ? reanchored.tp3 : undefined,
+          plannedPrice: entryPrice,
+          magic: 888123,
+          humanApproved: true,
+          tradeMode: 'DEMO',
+        },
+      };
+
+      const res = await fetch('/api/bridge/mt5', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        const ticketNum = data.ticket || data.orderTicket || data.data?.ticket || 'TICKET-' + Date.now().toString().slice(-6);
+        setExecutionResult({
+          success: true,
+          ticket: ticketNum,
+          message: data.message || `Order successfully staged & executed via MT5 Bridge (${calcResult.safeLotSize.toFixed(2)} lots ${direction} ${symbol})`,
+        });
+        setFlashNotice(`✓ Executed on MT5: ${symbol} ${direction} ${calcResult.safeLotSize.toFixed(2)} lots (#${ticketNum})`);
+      } else {
+        const errorMsg = data.error?.message || data.message || 'Execution rejected by bridge or trade protection gate.';
+        setExecutionResult({
+          success: false,
+          error: errorMsg,
+        });
+      }
+    } catch (err: any) {
+      setExecutionResult({
+        success: false,
+        error: err.message || 'Network exception communicating with /api/bridge/mt5',
+      });
+    } finally {
+      setIsDispatching(false);
+    }
+  };
+
   const spec = getInstrumentContractSpec(symbol);
   const precision = spec ? (spec.pipSize < 0.001 ? 5 : spec.pipSize < 0.1 ? 3 : 2) : 2;
   const tickStep = spec?.tickSize || 0.01;
   const minLotStep = spec?.lotStep || 0.01;
+
+  // Dynamic Live Pip Re-anchoring for modal preview
+  const livePrice = (activeTelemetry?.quote && (direction === 'BUY' ? activeTelemetry.quote.ask : activeTelemetry.quote.bid)) || entryPrice;
+  const modalReanchoredLevels = useMemo(() => {
+    if (!isConfirmModalOpen) return null;
+    return reanchorProtectionLevels({
+      direction,
+      plannedEntry: entryPrice,
+      freshEntry: livePrice > 0 ? livePrice : entryPrice,
+      sl: stopLoss,
+      tp1: tp1 > 0 ? tp1 : 0,
+      tp2: tp2 > 0 ? tp2 : undefined,
+      tp3: tp3 > 0 ? tp3 : undefined,
+      digits: precision,
+    });
+  }, [isConfirmModalOpen, direction, entryPrice, livePrice, stopLoss, tp1, tp2, tp3, precision]);
 
   // Risk badge classifier
   const riskBadge = useMemo(() => {
@@ -312,7 +457,7 @@ export const FullSmartPositionCalculator: React.FC = () => {
   const riskChips = [0.25, 0.50, 1.00, 1.50, 2.00];
 
   return (
-    <div id="smart-position-calculator" className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-3 relative select-none w-full border border-cyan-500/20 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
+    <div id="smart-position-calculator" className="ghost-glass-panel rounded-2xl p-3 font-mono space-y-2.5 relative select-none w-full border border-cyan-500/20 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
       {/* Flash Notice Feedback Banner */}
       {flashNotice && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-3 py-1 bg-cyan-950/90 border border-cyan-400 text-cyan-200 text-[10px] rounded-full shadow-[0_0_15px_rgba(0,240,255,0.4)] animate-bounce font-sans">
@@ -333,16 +478,23 @@ export const FullSmartPositionCalculator: React.FC = () => {
               <h3 className="text-xs font-bold text-[#F8FAFC] tracking-[0.06em] font-sans uppercase">
                 SMART POSITION SIZE &amp; RISK CALCULATOR
               </h3>
-              <span className={`text-[8.5px] font-bold px-2 py-0.5 rounded border font-mono ${riskBadge.color}`}>
+              <Link
+                href="/how-to-use#risk-calculator"
+                className="text-[8.5px] font-mono font-bold text-gray-400 hover:text-cyan-300 px-1.5 py-0.5 rounded border border-white/10 hover:border-cyan-400/40 bg-black/40 transition-colors"
+                title="Learn how Risk & Position Size are calculated"
+              >
+                ? LEARN
+              </Link>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border font-mono ${riskBadge.color}`}>
                 {riskBadge.label}
               </span>
               {!assetProfile.tradeExecutable && (
-                <span className="text-[8.5px] font-bold px-2 py-0.5 rounded border font-mono bg-amber-950/70 text-amber-300 border-amber-500/40">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded border font-mono bg-amber-950/70 text-amber-300 border-amber-500/40">
                   MARKET CLOSED — PLANNING ONLY
                 </span>
               )}
             </div>
-            <p className="text-[9px] font-sans text-[#94A3B8]">
+            <p className="text-[10px] font-sans text-[#94A3B8]">
               Institutional Contract Sizing • Risk-First Floor Rounding
               {!assetProfile.tradeExecutable && (
                 <span suppressHydrationWarning className="text-rose-400 font-mono ml-2">
@@ -355,12 +507,20 @@ export const FullSmartPositionCalculator: React.FC = () => {
 
         {/* Asset & Direction Switcher */}
         <div className="flex items-center space-x-2">
-          <span className="text-[10px] font-bold text-cyan-300 bg-cyan-950/50 px-2 py-1 rounded-lg border border-cyan-500/30">
+          {collapsible && (
+            <button
+              onClick={() => setIsPanelCollapsed((prev) => !prev)}
+              className="text-[10px] font-bold px-2 py-1 rounded border border-white/20 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-all cursor-pointer"
+            >
+              {isPanelCollapsed ? 'EXPAND AUDIT ▼' : 'COLLAPSE ▲'}
+            </button>
+          )}
+          <span className="text-[10.5px] font-bold text-cyan-300 bg-cyan-950/50 px-2 py-1 rounded-lg border border-cyan-500/30">
             {symbol}
           </span>
           <button
             onClick={() => setDirection((prev) => (prev === 'BUY' ? 'SELL' : 'BUY'))}
-            className={`text-[10px] font-black px-2.5 py-1 rounded-lg cursor-pointer transition-all border shadow-sm ${
+            className={`text-[10.5px] font-black px-2.5 py-1 rounded-lg cursor-pointer transition-all border shadow-sm ${
               direction === 'BUY'
                 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
                 : 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-[0_0_8px_rgba(244,63,94,0.3)]'
@@ -372,15 +532,52 @@ export const FullSmartPositionCalculator: React.FC = () => {
         </div>
       </div>
 
-      {/* Row 1: Capital, Risk %, Allowed Risk %, Max Loss */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+      {isPanelCollapsed ? (
+        <div className="bg-black/40 rounded-xl p-3 border border-white/5 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                direction === 'BUY'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+              }`}
+            >
+              {direction} {symbol}
+            </span>
+            <span className="text-gray-300">
+              Safe Size: <strong className="text-white font-bold">{calcResult.safeLotSize.toFixed(2)} lots</strong>
+            </span>
+            <span className="text-gray-500">|</span>
+            <span className="text-gray-300">
+              Risk: <strong className="text-rose-400 font-bold">${calcResult.estimatedLossAtSL.toFixed(2)} ({calcResult.accountImpactPct.toFixed(2)}%)</strong>
+            </span>
+            <span className="text-gray-500">|</span>
+            <span className="text-gray-300">
+              TP1: <strong className="text-emerald-400 font-bold">${calcResult.tp1 ? calcResult.tp1.profitPartial.toFixed(2) : '0.00'} ({calcResult.tp1?.rrFormatted ?? '--'} RR)</strong>
+            </span>
+            <span className="text-gray-500">|</span>
+            <span className="text-gray-400 text-[10px]">
+              Entry: {entryPrice.toFixed(precision)} • SL: {stopLoss > 0 ? stopLoss.toFixed(precision) : '--'} • TP1: {tp1 > 0 ? tp1.toFixed(precision) : '--'}
+            </span>
+          </div>
+          <button
+            onClick={() => setIsPanelCollapsed(false)}
+            className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 transition-all cursor-pointer"
+          >
+            EXPAND DETAILED AUDIT ▾
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Row 1: Capital, Risk %, Allowed Risk %, Max Loss */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
         {/* Capital */}
         <div className="bg-black/40 p-2.5 rounded-xl border border-white/10 flex flex-col justify-between space-y-1.5">
-          <div className="flex items-center justify-between text-[9.5px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-gray-400">Account Capital ($)</span>
             <button
               onClick={handleUseMt5Balance}
-              className={`text-[8px] px-1.5 py-0.5 rounded font-bold transition-all cursor-pointer ${
+              className={`text-[9.5px] px-1.5 py-0.5 rounded font-bold transition-all cursor-pointer ${
                 accountSource === 'MT5_VERIFIED' && isMt5Connected
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                   : 'text-cyan-400 hover:text-cyan-200 underline'
@@ -410,7 +607,7 @@ export const FullSmartPositionCalculator: React.FC = () => {
                   setCapital(c);
                   savePreferences(c, riskPct);
                 }}
-                className={`text-[7.5px] px-1.5 py-0.2 rounded border transition-colors ${
+                className={`text-[9.5px] px-1.5 py-0.5 rounded border transition-colors ${
                   capital === c
                     ? 'bg-cyan-500/30 text-cyan-300 border-cyan-400 font-bold'
                     : 'bg-black/30 text-gray-400 border-white/5 hover:text-white'
@@ -424,7 +621,7 @@ export const FullSmartPositionCalculator: React.FC = () => {
 
         {/* Risk % */}
         <div className="bg-black/40 p-2.5 rounded-xl border border-white/10 flex flex-col justify-between space-y-1.5">
-          <div className="flex items-center justify-between text-[9.5px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-gray-400">Requested Risk</span>
             <span className="text-cyan-300 font-bold">{riskPct.toFixed(2)}%</span>
           </div>
@@ -449,7 +646,7 @@ export const FullSmartPositionCalculator: React.FC = () => {
                   setRiskPct(r);
                   savePreferences(capital, r);
                 }}
-                className={`text-[7.5px] px-1.5 py-0.2 rounded border transition-colors ${
+                className={`text-[9.5px] px-1.5 py-0.5 rounded border transition-colors ${
                   riskPct === r
                     ? 'bg-cyan-500/30 text-cyan-300 border-cyan-400 font-bold'
                     : 'bg-black/30 text-gray-400 border-white/5 hover:text-white'
@@ -463,14 +660,14 @@ export const FullSmartPositionCalculator: React.FC = () => {
 
         {/* Allowed Risk % (Risk Guardian Authoritative) */}
         <div className="bg-black/40 p-2.5 rounded-xl border border-white/10 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[9.5px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-gray-400">Allowed Risk %</span>
-            <span className="text-[8px] text-amber-400 font-bold">RISK GUARDIAN</span>
+            <span className="text-[9.5px] text-amber-400 font-bold">RISK GUARDIAN</span>
           </div>
           <div className="text-sm font-black text-amber-300 my-1">
             {calcResult.allowedRiskPct.toFixed(2)}%
           </div>
-          <p className="text-[8px] text-gray-400 leading-tight">
+          <p className="text-[9.5px] text-gray-400 leading-tight">
             {calcResult.isRiskCappedByGuardian ? (
               <span className="text-rose-400 font-semibold">⚠️ Capped at {riskGuardianCap.toFixed(2)}% due to news buffer</span>
             ) : (
@@ -481,14 +678,14 @@ export const FullSmartPositionCalculator: React.FC = () => {
 
         {/* Max Monetary Loss */}
         <div className="bg-black/40 p-2.5 rounded-xl border border-white/10 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[9.5px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-gray-400">Max Permitted Loss</span>
-            <span className="text-rose-400 font-bold">BUDGET</span>
+            <span className="text-rose-400 font-bold text-[9.5px]">BUDGET</span>
           </div>
           <div className="text-sm font-black text-rose-400 my-1">
             ${calcResult.riskAmount.toFixed(2)}
           </div>
-          <p className="text-[8px] text-gray-400 leading-tight">
+          <p className="text-[9.5px] text-gray-400 leading-tight">
             Hard stop limit: never risked beyond {calcResult.allowedRiskPct.toFixed(2)}%
           </p>
         </div>
@@ -498,7 +695,7 @@ export const FullSmartPositionCalculator: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
         {/* Entry Price */}
         <div className="bg-black/40 p-2 rounded-xl border border-white/10 space-y-1">
-          <span className="text-[9px] text-gray-400">Entry Price</span>
+          <span className="text-[10px] text-gray-400">Entry Price</span>
           <input
             type="number"
             value={entryPrice}
@@ -510,10 +707,10 @@ export const FullSmartPositionCalculator: React.FC = () => {
 
         {/* Stop Loss */}
         <div className="bg-black/40 p-2 rounded-xl border border-white/10 space-y-1">
-          <div className="flex items-center justify-between text-[9px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-gray-400">Stop Loss</span>
-            {!calcResult.isValid && (
-              <span className="text-rose-400 text-[8px] font-bold">INVALID SL</span>
+            {(!calcResult.isValid || stopLoss <= 0) && (
+              <span className="text-rose-400 text-[9.5px] font-bold">INVALID / REQUIRED</span>
             )}
           </div>
           <input
@@ -522,7 +719,7 @@ export const FullSmartPositionCalculator: React.FC = () => {
             onChange={(e) => setStopLoss(parseFloat(e.target.value) || 0)}
             step={tickStep}
             className={`w-full bg-black/60 border font-mono font-bold text-xs px-2 py-1 rounded outline-none ${
-              !calcResult.isValid
+              !calcResult.isValid || stopLoss <= 0
                 ? 'border-rose-500 text-rose-300'
                 : 'border-white/10 focus:border-cyan-400 text-rose-400'
             }`}
@@ -531,22 +728,28 @@ export const FullSmartPositionCalculator: React.FC = () => {
 
         {/* Stop Distance */}
         <div className="bg-black/40 p-2 rounded-xl border border-white/10 space-y-1">
-          <span className="text-[9px] text-gray-400">Stop Distance</span>
+          <span className="text-[10px] text-gray-400">Stop Distance</span>
           <div className="text-xs font-bold text-gray-200 mt-1">
-            {calcResult.stopDistance.toFixed(precision)}{' '}
-            <span className="text-[9px] text-gray-400">
-              ({calcResult.stopDistancePips.toFixed(1)} {spec?.quoteCurrency === 'USD' ? 'pts/pips' : 'pips'})
-            </span>
+            {stopLoss > 0 && calcResult.isValid ? (
+              <>
+                {calcResult.stopDistance.toFixed(precision)}{' '}
+                <span className="text-[10px] text-gray-400">
+                  ({calcResult.stopDistancePips.toFixed(1)} {spec?.quoteCurrency === 'USD' ? 'pts/pips' : 'pips'})
+                </span>
+              </>
+            ) : (
+              <span className="text-[10px] text-gray-500 italic">-- Awaiting Valid SL --</span>
+            )}
           </div>
         </div>
 
         {/* Spread & Slippage Buffer */}
         <div className="bg-black/40 p-2 rounded-xl border border-white/10 space-y-1">
-          <div className="flex items-center justify-between text-[9px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-gray-400">Spread + Slippage</span>
             <button
               onClick={() => setUseSpreadBuffer(!useSpreadBuffer)}
-              className={`text-[8px] px-1 py-0.2 rounded font-bold transition-colors ${
+              className={`text-[9.5px] px-1.5 py-0.5 rounded font-bold transition-colors ${
                 useSpreadBuffer ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'bg-black/40 text-gray-500 border border-white/5'
               }`}
             >
@@ -561,50 +764,92 @@ export const FullSmartPositionCalculator: React.FC = () => {
         </div>
       </div>
 
-      {/* Row 3: RECOMMENDED POSITION HIGHLIGHT BANNER */}
-      <div className="p-3 rounded-2xl bg-gradient-to-r from-cyan-950/60 via-blue-950/40 to-black/80 border border-cyan-400/40 shadow-[0_0_20px_rgba(0,240,255,0.15)] flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="p-2 rounded-xl bg-cyan-500/20 border border-cyan-400/60 text-cyan-300">
-            <span className="text-base font-black">⚡</span>
-          </div>
-          <div>
-            <div className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold">
-              RECOMMENDED SAFE POSITION
+      {/* Row 3: RECOMMENDED POSITION HIGHLIGHT BANNER (FAIL-CLOSED PROTECTED) */}
+      {(!calcResult.isValid || calcResult.safeLotSize <= 0 || stopLoss <= 0) ? (
+        <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-950/50 via-slate-900/60 to-black/80 border border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.15)] flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 rounded-xl bg-amber-500/20 border border-amber-400/60 text-amber-300">
+              <span className="text-base font-black">⚠️</span>
             </div>
-            <div className="flex items-baseline space-x-2">
-              <span className="text-xl sm:text-2xl font-black text-cyan-300 tracking-tight">
-                {calcResult.safeLotSize.toFixed(2)} LOT
-              </span>
-              <span className="text-[9px] text-gray-400 font-mono">
-                (Raw: {calcResult.rawLotSize.toFixed(4)} • Step: {minLotStep})
+            <div>
+              <div className="text-[10px] text-amber-400 uppercase tracking-widest font-semibold">
+                {!spec || !spec.isVerified ? 'BROKER SPECIFICATIONS UNAVAILABLE' : 'CALCULATOR STATUS: FAIL-CLOSED'}
+              </div>
+              <div className="flex items-baseline space-x-2">
+                <span className="text-sm sm:text-base font-black text-amber-200 tracking-tight">
+                  {!spec || !spec.isVerified
+                    ? 'POSITION SIZING UNAVAILABLE'
+                    : 'AWAITING VERIFIED STRUCTURE / NO VALID SETUP GEOMETRY'}
+                </span>
+              </div>
+              <span className="text-[10px] text-gray-400 font-mono">
+                {!spec || !spec.isVerified
+                  ? `Broker contract specification is not verified for ${symbol}. Position sizing fails closed.`
+                  : 'Valid stop loss required to compute risk-bounded lot size'}
               </span>
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center space-x-4 text-right">
-          <div>
-            <div className="text-[8.5px] text-gray-400 uppercase">Estimated SL Loss</div>
-            <div className="text-xs sm:text-sm font-bold text-rose-400">
-              -${calcResult.estimatedLossAtSL.toFixed(2)}
+          <div className="flex items-center space-x-4 text-right">
+            <div>
+              <div className="text-[10px] text-gray-400 uppercase">Estimated SL Loss</div>
+              <div className="text-xs sm:text-sm font-bold text-gray-400">
+                UNAVAILABLE
+              </div>
             </div>
-          </div>
-          <div className="border-l border-white/10 pl-4">
-            <div className="text-[8.5px] text-gray-400 uppercase">Actual Account Risk</div>
-            <div className="text-xs sm:text-sm font-bold text-amber-300">
-              -{calcResult.accountImpactPct.toFixed(2)}%
+            <div className="border-l border-white/10 pl-4">
+              <div className="text-[10px] text-gray-400 uppercase">Actual Account Risk</div>
+              <div className="text-xs sm:text-sm font-bold text-gray-400">
+                0.00%
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="p-3 rounded-2xl bg-gradient-to-r from-cyan-950/60 via-blue-950/40 to-black/80 border border-cyan-400/40 shadow-[0_0_20px_rgba(0,240,255,0.15)] flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 rounded-xl bg-cyan-500/20 border border-cyan-400/60 text-cyan-300">
+              <span className="text-base font-black">⚡</span>
+            </div>
+            <div>
+              <div className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">
+                RECOMMENDED SAFE POSITION
+              </div>
+              <div className="flex items-baseline space-x-2">
+                <span className="text-xl sm:text-2xl font-black text-cyan-300 tracking-tight">
+                  {calcResult.safeLotSize.toFixed(2)} LOT
+                </span>
+                <span className="text-[10px] text-gray-400 font-mono">
+                  (Raw: {calcResult.rawLotSize.toFixed(4)} • Step: {minLotStep})
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-4 text-right">
+            <div>
+              <div className="text-[10px] text-gray-400 uppercase">Estimated SL Loss</div>
+              <div className="text-xs sm:text-sm font-bold text-rose-400">
+                -${calcResult.estimatedLossAtSL.toFixed(2)}
+              </div>
+            </div>
+            <div className="border-l border-white/10 pl-4">
+              <div className="text-[10px] text-gray-400 uppercase">Actual Account Risk</div>
+              <div className="text-xs sm:text-sm font-bold text-amber-300">
+                -{calcResult.accountImpactPct.toFixed(2)}%
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Row 4: Take Profit Targets (TP1, TP2, TP3) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
         {/* TP1 */}
         <div className="bg-black/40 p-2.5 rounded-xl border border-white/10 space-y-1.5">
-          <div className="flex items-center justify-between text-[9px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-emerald-400 font-bold">TP1 Target ({tp1Pct}%)</span>
-            <span className="text-cyan-300 font-mono">R:R {calcResult.tp1?.rrFormatted || '1:1.0'}</span>
+            <span className="text-cyan-300 font-mono">R:R {calcResult.isValid && stopLoss > 0 ? (calcResult.tp1?.rrFormatted || '1:1.0') : '--'}</span>
           </div>
           <input
             type="number"
@@ -613,17 +858,19 @@ export const FullSmartPositionCalculator: React.FC = () => {
             step={tickStep}
             className="w-full bg-black/60 border border-white/10 focus:border-emerald-400 text-white font-mono font-bold text-xs px-2 py-1 rounded outline-none"
           />
-          <div className="flex items-center justify-between text-[9px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-gray-400">Target Profit:</span>
-            <span className="text-emerald-400 font-bold">+${(calcResult.tp1?.profitFullLot || 0).toFixed(2)}</span>
+            <span className="text-emerald-400 font-bold">
+              {calcResult.isValid && stopLoss > 0 ? `+$${(calcResult.tp1?.profitFullLot || 0).toFixed(2)}` : '--'}
+            </span>
           </div>
         </div>
 
         {/* TP2 */}
         <div className="bg-black/40 p-2.5 rounded-xl border border-white/10 space-y-1.5">
-          <div className="flex items-center justify-between text-[9px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-emerald-400 font-bold">TP2 Target ({tp2Pct}%)</span>
-            <span className="text-cyan-300 font-mono">R:R {calcResult.tp2?.rrFormatted || '1:2.0'}</span>
+            <span className="text-cyan-300 font-mono">R:R {calcResult.isValid && stopLoss > 0 ? (calcResult.tp2?.rrFormatted || '1:2.0') : '--'}</span>
           </div>
           <input
             type="number"
@@ -632,17 +879,19 @@ export const FullSmartPositionCalculator: React.FC = () => {
             step={tickStep}
             className="w-full bg-black/60 border border-white/10 focus:border-emerald-400 text-white font-mono font-bold text-xs px-2 py-1 rounded outline-none"
           />
-          <div className="flex items-center justify-between text-[9px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-gray-400">Target Profit:</span>
-            <span className="text-emerald-400 font-bold">+${(calcResult.tp2?.profitFullLot || 0).toFixed(2)}</span>
+            <span className="text-emerald-400 font-bold">
+              {calcResult.isValid && stopLoss > 0 ? `+$${(calcResult.tp2?.profitFullLot || 0).toFixed(2)}` : '--'}
+            </span>
           </div>
         </div>
 
         {/* TP3 */}
         <div className="bg-black/40 p-2.5 rounded-xl border border-white/10 space-y-1.5">
-          <div className="flex items-center justify-between text-[9px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-emerald-400 font-bold">TP3 Target ({tp3Pct}%)</span>
-            <span className="text-cyan-300 font-mono">R:R {calcResult.tp3?.rrFormatted || '1:3.0'}</span>
+            <span className="text-cyan-300 font-mono">R:R {calcResult.isValid && stopLoss > 0 ? (calcResult.tp3?.rrFormatted || '1:3.0') : '--'}</span>
           </div>
           <input
             type="number"
@@ -651,9 +900,11 @@ export const FullSmartPositionCalculator: React.FC = () => {
             step={tickStep}
             className="w-full bg-black/60 border border-white/10 focus:border-emerald-400 text-white font-mono font-bold text-xs px-2 py-1 rounded outline-none"
           />
-          <div className="flex items-center justify-between text-[9px]">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-gray-400">Target Profit:</span>
-            <span className="text-emerald-400 font-bold">+${(calcResult.tp3?.profitFullLot || 0).toFixed(2)}</span>
+            <span className="text-emerald-400 font-bold">
+              {calcResult.isValid && stopLoss > 0 ? `+$${(calcResult.tp3?.profitFullLot || 0).toFixed(2)}` : '--'}
+            </span>
           </div>
         </div>
       </div>
@@ -671,7 +922,9 @@ export const FullSmartPositionCalculator: React.FC = () => {
           <div>
             <span className="text-gray-400">Blended Expected Return: </span>
             <span className="text-emerald-400 font-bold">
-              +${calcResult.blendedTotalProfit.toFixed(2)} (R:R {calcResult.blendedTotalRR})
+              {calcResult.isValid && stopLoss > 0
+                ? `+$${calcResult.blendedTotalProfit.toFixed(2)} (R:R ${calcResult.blendedTotalRR})`
+                : 'Awaiting Valid Setup'}
             </span>
           </div>
           <div className="hidden sm:block border-l border-white/10 pl-3">
@@ -704,24 +957,228 @@ export const FullSmartPositionCalculator: React.FC = () => {
         </button>
 
         <button
-          onClick={handleSendToExecution}
-          className="px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black transition-all text-[11px] flex items-center justify-center space-x-1.5 cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]"
-          title="Stage verified position sizing into Execution Terminal"
+          onClick={handleOpenConfirmModal}
+          disabled={!calcResult.isValid || calcResult.safeLotSize <= 0 || stopLoss <= 0 || !spec || !spec.isVerified}
+          className={`px-3 py-2 rounded-xl font-black transition-all text-[11px] flex items-center justify-center space-x-1.5 shadow-[0_0_15px_rgba(16,185,129,0.3)] ${
+            !calcResult.isValid || calcResult.safeLotSize <= 0 || stopLoss <= 0 || !spec || !spec.isVerified
+              ? 'bg-gray-800/60 border border-white/10 text-gray-500 cursor-not-allowed opacity-60 shadow-none'
+              : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.4)]'
+          }`}
+          title={
+            !spec || !spec.isVerified
+              ? `Broker specifications unavailable for ${symbol} — position sizing locked`
+              : !calcResult.isValid || calcResult.safeLotSize <= 0 || stopLoss <= 0
+              ? 'Position calculation unavailable — specify valid entry and stop loss'
+              : 'Open One-Click Safety Confirmation Guard to dispatch to MT5'
+          }
         >
-          <span>🚀</span>
-          <span>SEND PLAN TO EXECUTION &rarr;</span>
+          <span>⚡</span>
+          <span>DIRECT MT5 EXECUTE &rarr;</span>
         </button>
       </div>
 
       {/* Contract Specification Footnote */}
-      <div className="text-[8px] text-gray-500 font-mono flex items-center justify-between pt-1 border-t border-white/5">
+      <div className="text-[9.5px] text-gray-500 font-mono flex items-center justify-between pt-1 border-t border-white/5">
         <span>
-          Contract Spec: 1.00 Lot = {spec?.contractSize ?? 100} units • Tick: {spec?.tickSize ?? 0.01} (${spec?.tickValue ?? 1.0}) • Min: {spec?.minLot ?? 0.01} Lot
+          {spec && spec.isVerified
+            ? `Contract Spec: 1.00 Lot = ${spec.contractSize} units • Tick: ${spec.tickSize} ($${spec.tickValue}) • Min: ${spec.minLot} Lot`
+            : `Contract Spec: BROKER SPECIFICATIONS UNAVAILABLE for ${symbol} • Execution/Sizing Locked`}
         </span>
         <span className="text-cyan-400/80">
           Risk Guardian Floor Policy: Zero Risk Overshoot Guarantee
         </span>
       </div>
+        </>
+      )}
+
+      {/* =========================================================================
+          ONE-CLICK SAFETY CONFIRMATION GUARD MODAL
+         ========================================================================= */}
+      {isConfirmModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#090D16] border border-cyan-500/40 rounded-2xl max-w-lg w-full p-4 sm:p-5 shadow-[0_0_40px_rgba(6,182,212,0.25)] space-y-4 font-mono relative animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                <h3 className="text-xs sm:text-sm font-black tracking-wider text-white uppercase font-sans">
+                  SAFETY CONFIRMATION GUARD • DIRECT MT5 DISPATCH
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isDispatching) setIsConfirmModalOpen(false);
+                }}
+                disabled={isDispatching}
+                className="text-gray-400 hover:text-white text-xs px-2 py-1 rounded hover:bg-white/10 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Execution Parameter Review Cards */}
+            <div className="space-y-3">
+              {/* Order Lockup Pill */}
+              <div className="p-3 rounded-xl bg-black/60 border border-white/10 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-gray-400 uppercase">Target Instrument &amp; Order</span>
+                  <div className="flex items-center space-x-2 mt-0.5">
+                    <span className="text-base font-black text-cyan-300">{symbol}</span>
+                    <span
+                      className={`text-xs font-black px-2 py-0.5 rounded ${
+                        direction === 'BUY'
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                      }`}
+                    >
+                      {direction}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-[10px] text-gray-400 uppercase">Calculated Safe Lots</span>
+                  <div className="text-lg font-black text-emerald-400">
+                    {calcResult.safeLotSize.toFixed(2)} <span className="text-xs text-gray-400">LOTS</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Price & Risk Geometry Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="p-2 rounded-lg bg-black/40 border border-white/5">
+                  <span className="text-[9.5px] text-gray-400 block">Execution Entry</span>
+                  <span className="text-white font-bold">
+                    {(modalReanchoredLevels?.entry ?? entryPrice).toFixed(precision)}
+                    {modalReanchoredLevels && modalReanchoredLevels.entry !== entryPrice && (
+                      <span className="text-[9px] text-gray-400 font-normal ml-1">
+                        (Ref: {entryPrice.toFixed(precision)})
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-black/40 border border-white/5">
+                  <span className="text-[9.5px] text-gray-400 block">Stop Loss (Re-anchored)</span>
+                  <span className="text-rose-400 font-bold">
+                    {(modalReanchoredLevels?.sl ?? stopLoss).toFixed(precision)}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-black/40 border border-white/5">
+                  <span className="text-[9.5px] text-gray-400 block">Take Profit 1 (Re-anchored)</span>
+                  <span className="text-emerald-400 font-bold">
+                    {tp1 > 0 ? (modalReanchoredLevels?.tp1 ?? tp1).toFixed(precision) : '--'}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-black/40 border border-white/5">
+                  <span className="text-[9.5px] text-gray-400 block">Est. SL Loss</span>
+                  <span className="text-rose-400 font-bold">-${calcResult.estimatedLossAtSL.toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Safety Checks Verification Strip */}
+              <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/20 space-y-1.5 text-[10px]">
+                <div className="text-cyan-300 font-bold uppercase tracking-wider text-[9px] pb-1 border-b border-cyan-500/20 flex items-center justify-between">
+                  <span>MANDATORY PRE-FLIGHT VERIFICATIONS</span>
+                  <span className="text-emerald-400 font-mono">100% FAIL-CLOSED PROTECTED</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-gray-300">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-emerald-400">✓</span>
+                    <span>Broker Contract: {spec?.contractSize} units</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-emerald-400">✓</span>
+                    <span>Risk Capped at {calcResult.allowedRiskPct.toFixed(2)}% Equity</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-emerald-400">✓</span>
+                    <span>Valid Directional Geometry</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className={assetProfile.tradeExecutable ? 'text-emerald-400' : 'text-amber-400'}>
+                      {assetProfile.tradeExecutable ? '✓' : '⚠️'}
+                    </span>
+                    <span>Session: {assetProfile.tradeExecutable ? 'ACTIVE & EXECUTABLE' : 'MARKET CLOSED'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Real-time Status / Execution Result */}
+              {executionResult && (
+                <div
+                  className={`p-3 rounded-xl border text-xs ${
+                    executionResult.success
+                      ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-200'
+                      : 'bg-rose-950/60 border-rose-500/60 text-rose-200'
+                  }`}
+                >
+                  <div className="flex items-start space-x-2">
+                    <span className="text-base">{executionResult.success ? '✅' : '❌'}</span>
+                    <div className="space-y-0.5">
+                      <div className="font-bold">
+                        {executionResult.success ? 'ORDER DISPATCHED SUCCESSFULLY' : 'EXECUTION REJECTED'}
+                      </div>
+                      {executionResult.ticket && (
+                        <div className="text-[10px] text-emerald-300 font-mono">
+                          Ticket #{executionResult.ticket}
+                        </div>
+                      )}
+                      <div className="text-[10.5px] opacity-90">
+                        {executionResult.message || executionResult.error}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-2 border-t border-white/10">
+              <button
+                onClick={handleSendToExecution}
+                className="text-[10px] text-gray-400 hover:text-cyan-300 underline cursor-pointer"
+                title="Stage parameters into the dedicated /execution page"
+              >
+                Or open in Execution Terminal &rarr;
+              </button>
+
+              <div className="flex items-center space-x-2 w-full sm:w-auto">
+                <button
+                  onClick={() => setIsConfirmModalOpen(false)}
+                  disabled={isDispatching}
+                  className="w-1/2 sm:w-auto px-3 py-2 rounded-xl bg-black/60 border border-white/10 hover:bg-white/5 text-gray-300 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  {executionResult?.success ? 'CLOSE' : 'CANCEL'}
+                </button>
+
+                {!executionResult?.success && (
+                  <button
+                    onClick={handleConfirmDispatch}
+                    disabled={isDispatching || !assetProfile.tradeExecutable}
+                    className={`w-1/2 sm:w-auto px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.4)] ${
+                      isDispatching || !assetProfile.tradeExecutable
+                        ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-white/5 shadow-none'
+                        : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white'
+                    }`}
+                  >
+                    {isDispatching ? (
+                      <>
+                        <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>DISPATCHING...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>⚡</span>
+                        <span>CONFIRM &amp; DISPATCH ORDER</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

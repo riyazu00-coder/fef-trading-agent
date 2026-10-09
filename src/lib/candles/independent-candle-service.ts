@@ -79,6 +79,8 @@ const BINANCE_SYMBOLS: Record<string, string> = {
   BTCUSD: 'BTCUSDT',
   ETHUSD: 'ETHUSDT',
   SOLUSD: 'SOLUSDT',
+  XRPUSD: 'XRPUSDT',
+  BNBUSD: 'BNBUSDT',
   XAUUSD: 'PAXGUSDT', // Reference proxy only
 };
 
@@ -142,21 +144,30 @@ export class BinanceSpotAdapter implements CandleProviderAdapter {
 // =========================================================================
 
 const YAHOO_SYMBOLS: Record<string, string> = {
-  // Forex
+  // Forex Majors & Crosses
   EURUSD: 'EURUSD=X',
   GBPUSD: 'GBPUSD=X',
   USDJPY: 'JPY=X',
   USDCHF: 'CHF=X',
   AUDUSD: 'AUDUSD=X',
+  NZDUSD: 'NZDUSD=X',
+  USDCAD: 'CAD=X',
   GBPJPY: 'GBPJPY=X',
+  EURJPY: 'EURJPY=X',
+  EURGBP: 'EURGBP=X',
 
-  // Indices
+  // US & Global Indices
   US100: '^NDX',
   US500: '^GSPC',
   US30: '^DJI',
+  GER40: '^GDAXI',
+  UK100: '^FTSE',
+  JP225: '^N225',
 
   // Commodities & Energy
   USOIL: 'CL=F',
+  UKOIL: 'BZ=F',
+  NATGAS: 'NG=F',
 
   // Metals Reference / Proxies
   XAUUSD: 'GC=F',
@@ -337,14 +348,20 @@ export class YahooFinanceChartAdapter implements CandleProviderAdapter {
         } else if (sym === 'XAGUSD') {
           provider = 'Yahoo Finance CME SI=F (Silver Futures Proxy)';
           provenance = 'INDEPENDENT_REFERENCE_OHLC';
-        } else if (['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'GBPJPY'].includes(sym)) {
+        } else if (['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD', 'GBPJPY', 'EURJPY', 'EURGBP'].includes(sym)) {
           provider = 'Yahoo Finance Spot FX';
           provenance = 'INDEPENDENT_VERIFIED_OHLC';
         } else if (['US100', 'US500', 'US30'].includes(sym)) {
           provider = 'Yahoo Finance US Indices';
           provenance = 'INDEPENDENT_VERIFIED_OHLC';
+        } else if (['GER40', 'UK100', 'JP225'].includes(sym)) {
+          provider = 'Yahoo Finance Global Indices';
+          provenance = 'INDEPENDENT_VERIFIED_OHLC';
         } else if (sym === 'USOIL') {
           provider = 'Yahoo Finance WTI Crude';
+          provenance = 'INDEPENDENT_VERIFIED_OHLC';
+        } else if (sym === 'UKOIL' || sym === 'NATGAS') {
+          provider = 'Yahoo Finance Energy Commodities';
           provenance = 'INDEPENDENT_VERIFIED_OHLC';
         }
 
@@ -392,13 +409,13 @@ export async function getVerifiedCandles(
 
   // 2. Dispatch to registered adapters
   const adapters: CandleProviderAdapter[] = [];
-  if (['BTCUSD', 'ETHUSD', 'SOLUSD'].includes(normSymbol)) {
+  if (['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'BNBUSD'].includes(normSymbol) || Boolean(BINANCE_SYMBOLS[normSymbol] && normSymbol !== 'XAUUSD')) {
     adapters.push(binanceAdapter);
   } else if (normSymbol === 'XAUUSD') {
     // For Gold proxy, try Yahoo CME futures first, then Binance PAXG
     adapters.push(yahooAdapter, binanceAdapter);
   } else {
-    // Forex, Indices, USOIL, XAGUSD
+    // Forex, Indices, USOIL, UKOIL, NATGAS, XAGUSD
     adapters.push(yahooAdapter);
   }
 

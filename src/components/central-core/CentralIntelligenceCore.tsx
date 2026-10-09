@@ -223,13 +223,13 @@ export const CentralIntelligenceCore: React.FC<CentralIntelligenceCoreProps> = (
           <div>
             <div className="flex items-center justify-between border-b border-white/[0.06] pb-2 mb-2">
               <div>
-                <span className="text-[9px] font-mono text-cyan-400 uppercase tracking-wider block">
+                <span className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider block">
                   Agent Telemetry Inspector
                 </span>
                 <span className="text-xs sm:text-sm font-bold text-white">{selectedAgentKey} Agent</span>
               </div>
               <span
-                className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded ${
+                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
                   selectedAgentData.bias === 'BULLISH'
                     ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
                     : selectedAgentData.bias === 'RESTRICTED' || selectedAgentData.bias === 'CAUTION'
@@ -262,19 +262,20 @@ export const CentralIntelligenceCore: React.FC<CentralIntelligenceCoreProps> = (
           </div>
 
           {/* Bottom Blackboard Snapshot */}
-          <div className="bg-[#09111c] p-2.5 rounded-lg border border-white/[0.04] text-[9px] font-mono text-gray-400 space-y-1">
-            <div className="flex justify-between">
+          <div className="bg-[#09111c] p-2.5 rounded-lg border border-white/[0.04] text-[10px] font-mono text-gray-400 space-y-1.5">
+            <div className="flex justify-between items-center">
               <span>SHARED REGIME:</span>
               <span className="text-cyan-300 font-bold">{blackboard.marketRegime}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span>DXY BIAS:</span>
-              <span className="text-emerald-400 font-bold">
-                {blackboard.dxyState.trend}
-                {blackboard.dxyState.divergenceToGold && blackboard.dxyState.divergenceToGold !== 'NORMAL' ? ` (${blackboard.dxyState.divergenceToGold})` : ''}
+              <span className={`font-bold ${blackboard.dxyState.trend === 'DATA LIMITED' ? 'text-amber-400 text-[9px]' : 'text-emerald-400'}`}>
+                {blackboard.dxyState.trend === 'DATA LIMITED'
+                  ? 'USD CONTEXT UNAVAILABLE: DXY CONNECTOR REQUIRED'
+                  : `${blackboard.dxyState.trend}${blackboard.dxyState.divergenceToGold && blackboard.dxyState.divergenceToGold !== 'NORMAL' ? ` (${blackboard.dxyState.divergenceToGold})` : ''}`}
               </span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span>EVENT RISK:</span>
               <span className="text-amber-400 font-bold">{blackboard.eventRisk.countdown}</span>
             </div>

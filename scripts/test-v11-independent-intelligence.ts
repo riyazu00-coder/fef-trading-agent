@@ -154,7 +154,7 @@ async function runTests() {
     price: basePrice + 40,
     change24h: +2.50,
     category: 'CRYPTO',
-  } as any, 'H1', testCandles, undefined, undefined, deterministicOpenTime);
+  } as any, 'H1', testCandles, 'INDEPENDENT_VERIFIED', 'Binance Public Spot', deterministicOpenTime);
 
   const btcTech = btcProfile.agents.find(a => a.type === 'TECHNICAL');
   assert(btcTech?.status === 'ONLINE', 'BTCUSD with verified candles has Technical ONLINE');

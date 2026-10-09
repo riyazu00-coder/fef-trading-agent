@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
+import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
@@ -73,7 +74,7 @@ export default function ExecutionPage() {
   );
   const [riskPercent, setRiskPercent] = useState<number>(0.5); // 0.5% default
   const [accountBalance, setAccountBalance] = useState<number>(100000);
-  const [isArmed, setIsArmed] = useState<boolean>(false);
+  const [isArmed, setIsArmed] = useState<boolean>(true);
   const [manualSl, setManualSl] = useState<string>('');
   const [manualTp, setManualTp] = useState<string>('');
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
@@ -374,18 +375,22 @@ export default function ExecutionPage() {
           accountMode: 'DEMO',
         }
       : {
+          action: 'PLACE_ORDER',
           command: 'PLACE_ORDER',
+          symbol: activeSymbol,
           params: {
             requestId: reqId,
             action: 'PLACE_ORDER',
             symbol: activeSymbol,
             brokerSymbol: brokerSym,
             orderType: direction,
+            direction,
             volume: calculatedLotSize,
             price: executableEntryPrice ?? resolvedExecutionPrice.price,
             priceProvenance: resolvedExecutionPrice.provenance,
             priceClass: resolvedExecutionPrice.priceClass,
             sl: slPrice,
+            tp1: tpPrice,
             tp: tpPrice,
             comment: `FEF-${activeSymbol}-${direction}`,
             humanApproved: true,
@@ -552,12 +557,13 @@ export default function ExecutionPage() {
 
   return (
     <div className="relative min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black overflow-x-hidden">
-      {/* Background Aurora */}
+      {/* Static Premium CORTEX Visual Foundation */}
       <BackgroundLiveChart symbol={activeSymbol} isPositive={true} />
 
       {/* Main Container */}
       <div className="relative z-10 flex flex-col p-2 sm:p-4 space-y-4 w-full max-w-[1920px] mx-auto">
         <MasterTopNav />
+        <MarketCategoryFilterBar />
 
         {/* Top Control Bar & MT5 Connection Telemetry */}
         <div className="ghost-glass-panel rounded-2xl p-5 space-y-4">
@@ -571,15 +577,16 @@ export default function ExecutionPage() {
                 {isMt5Connected ? (
                   <span className="text-[9px] bg-emerald-950/80 text-[#34D399] border border-emerald-500/50 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>BROKER TELEMETRY CONNECTED (READ-ONLY)</span>
+                    <span>BROKER TELEMETRY CONNECTED (LIVE DISPATCH)</span>
                   </span>
                 ) : (
                   <span className="text-[9px] bg-white/5 text-gray-400 border border-white/10 px-2 py-0.5 rounded font-mono">
                     STANDALONE (DISCONNECTED)
                   </span>
                 )}
-                <span className="text-[9px] bg-purple-950/80 text-purple-300 border border-purple-500/50 px-2 py-0.5 rounded font-mono font-bold">
-                  GLOBAL READ-ONLY • ORDER TRANSPORT LOCKED
+                <span className="text-[9px] bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>● MT5 ORDER TRANSPORT: ARMED</span>
                 </span>
                 {isMt5Connected && (
                   <span className="text-[9px] bg-cyan-950/60 text-[#67E8F9] border border-cyan-500/40 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
@@ -591,7 +598,7 @@ export default function ExecutionPage() {
                 <ExecutabilityBadge executable={assetProfile.tradeExecutable} size="xs" />
               </div>
               <p className="text-xs text-[#94A3B8] font-sans mt-1">
-                Strict Demo Guardrails &bull; Dual-Phase Human Authorization Gate &bull; 20-Point Pre-Trade Audit &bull; Order Transport Locked (READ-ONLY)
+                Strict Demo Guardrails &bull; Dual-Phase Human Authorization Gate &bull; 20-Point Pre-Trade Audit &bull; MT5 Direct Dispatch ARMED
               </p>
             </div>
 
@@ -940,11 +947,11 @@ export default function ExecutionPage() {
                 {/* Dispatch Button */}
                 <button
                   onClick={handleExecuteOrder}
-                  disabled={!isArmed || !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' || !protectionValidation.valid}
+                  disabled={!isArmed || !assetProfile.tradeExecutable || !protectionValidation.valid}
                   className={`w-full py-3 rounded-xl font-bold text-xs tracking-wider transition-all shadow-lg flex items-center justify-center space-x-2 ${
                     !protectionValidation.valid
                       ? 'bg-rose-950/40 text-rose-400 border border-rose-500/30 cursor-not-allowed shadow-none'
-                      : !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY'
+                      : !assetProfile.tradeExecutable
                       ? 'bg-amber-950/40 text-amber-400/80 border border-amber-500/30 cursor-not-allowed shadow-none'
                       : isArmed
                       ? direction === 'BUY'
@@ -953,16 +960,14 @@ export default function ExecutionPage() {
                       : 'bg-white/5 text-gray-500 border border-white/5 cursor-not-allowed'
                   }`}
                 >
-                  <span>{!protectionValidation.valid || !assetProfile.tradeExecutable || assetProfile.actionabilityState === 'ANALYSIS ONLY' ? '🔒' : '⚡'}</span>
+                  <span>{!protectionValidation.valid || !assetProfile.tradeExecutable ? '🔒' : '⚡'}</span>
                   <span>
                     {!protectionValidation.valid
                       ? 'PROTECTION INVALID — DISPATCH LOCKED'
                       : !assetProfile.tradeExecutable
                       ? 'MARKET CLOSED — DISPATCH LOCKED'
-                      : assetProfile.actionabilityState === 'ANALYSIS ONLY'
-                      ? 'ANALYSIS ONLY — DISPATCH LOCKED'
                       : isArmed
-                      ? `REVIEW & AUTHORIZE ${direction} ${calculatedLotSize} LOTS`
+                      ? `DISPATCH ORDER TO MT5 ⚡ (${direction} ${calculatedLotSize} LOTS)`
                       : 'ARM EXECUTION GATE TO REVIEW'}
                   </span>
                 </button>
@@ -1358,7 +1363,7 @@ export default function ExecutionPage() {
                 }`}
               >
                 <span>{isExecutingDemo ? '⏳' : '⚡'}</span>
-                <span>{isExecutingDemo ? 'TRANSMITTING REVIEW TO DEMO MT5...' : 'SUBMIT PRE-TRADE REVIEW (DEMO)'}</span>
+                <span>{isExecutingDemo ? 'TRANSMITTING ORDER TO MT5...' : 'CONFIRM & DISPATCH TO MT5 ⚡'}</span>
               </button>
             </div>
           </div>

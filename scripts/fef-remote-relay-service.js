@@ -44,8 +44,10 @@ const executionWaiters = new Map(); // requestId -> { resolve, timer }
 const candleSnapshots = new Map();
 
 const TIMEFRAME_DURATION_MS = {
+  M1: 1 * 60 * 1000,
   M5: 5 * 60 * 1000,
   M15: 15 * 60 * 1000,
+  M30: 30 * 60 * 1000,
   H1: 60 * 60 * 1000,
   H4: 4 * 60 * 60 * 1000,
   D1: 24 * 60 * 60 * 1000,
@@ -380,6 +382,7 @@ const server = http.createServer(async (req, res) => {
       positions: telemetry ? telemetry.positions : [],
       pendingOrders: telemetry ? telemetry.pendingOrders : [],
       sessions: telemetry ? (telemetry.sessions || {}) : {},
+      assetDiagnostics: telemetry ? (telemetry.assetDiagnostics || {}) : {},
       timestamp: now,
     });
   }
@@ -744,6 +747,7 @@ wss.on('connection', (ws, req) => {
         positions: Array.isArray(snapshot.positions) ? snapshot.positions.slice(0, 100) : [],
         pendingOrders: Array.isArray(snapshot.pendingOrders) ? snapshot.pendingOrders.slice(0, 100) : [],
         sessions: (snapshot.sessions && typeof snapshot.sessions === 'object') ? snapshot.sessions : {},
+        assetDiagnostics: (snapshot.assetDiagnostics && typeof snapshot.assetDiagnostics === 'object') ? snapshot.assetDiagnostics : {},
         timestamp: Date.now(),
         isStale: !terminalFresh,
       });
@@ -759,13 +763,13 @@ wss.on('connection', (ws, req) => {
 
       const normSym = (symbol || '').toUpperCase().trim();
       const normTf = (timeframe || '').toUpperCase().trim();
-      const validTfs = ['M5', 'M15', 'H1', 'H4', 'D1'];
+      const validTfs = ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
       if (!normSym || !validTfs.includes(normTf) || !Array.isArray(candles) || candles.length === 0) {
         ws.send(JSON.stringify({
           type: 'CANDLES_REJECTED',
           code: 'INVALID_CANDLE_PAYLOAD',
-          message: 'Symbol, valid timeframe (M5, M15, H1, H4, D1), and non-empty candles array required.',
+          message: 'Symbol, valid timeframe (M5, M15, M30, H1, H4, D1), and non-empty candles array required.',
           symbol: normSym,
           timeframe: normTf,
         }));
@@ -943,4 +947,5 @@ module.exports = {
   executionWaiters,
   hashAuthToken,
   isCandleFresh,
+  TIMEFRAME_DURATION_MS,
 };

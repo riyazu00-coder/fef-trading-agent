@@ -336,7 +336,7 @@ export const TradeOpportunityPopup: React.FC = () => {
               </span>
             ) : (
               <span className="text-[9px] text-amber-300 font-bold uppercase bg-amber-950/40 px-1 py-0.5 rounded border border-amber-500/30">
-                EXECUTION LOCKED 🔒
+                ARMED • CONFIRMATION REQ ⚡
               </span>
             )}
           </div>

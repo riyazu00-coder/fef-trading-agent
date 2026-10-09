@@ -1,17 +1,36 @@
 /**
  * Central Canonical Market Registry
  * 
- * Single source of truth for all tradable assets across:
+ * Single source of truth for all 26 tradable assets across:
  * - METALS: XAUUSD, XAGUSD
- * - FOREX: EURUSD, GBPUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF, EURJPY, GBPJPY, EURGBP, AUDJPY, CADJPY, CHFJPY
+ * - FOREX: EURUSD, GBPUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF, GBPJPY, EURJPY, EURGBP
  * - INDICES: US30, US100, US500, GER40, UK100, JP225
  * - COMMODITIES: USOIL, UKOIL, NATGAS
- * - CRYPTO: BTCUSD, ETHUSD, SOLUSD, XRPUSD, BNBUSD, ADAUSD, DOGEUSD, LTCUSD, AVAXUSD, LINKUSD
+ * - CRYPTO: BTCUSD, ETHUSD, SOLUSD, XRPUSD, BNBUSD
  */
 
 export type MarketCategory = 'METALS' | 'FOREX' | 'INDICES' | 'COMMODITIES' | 'CRYPTO';
 
 export type MarketFeedStatus = 'LIVE' | 'DEMO' | 'DELAYED' | 'DATA LIMITED' | 'OFFLINE' | 'STALE' | 'FALLBACK';
+
+export type SessionModel =
+  | 'METALS_24_5'
+  | 'FOREX_24_5'
+  | 'CME_EQUITY_INDEX'
+  | 'EUREX_INDEX'
+  | 'LSE_INDEX'
+  | 'TSE_INDEX'
+  | 'NYMEX_ENERGY'
+  | 'ICE_BRENT'
+  | 'CRYPTO_24_7';
+
+export interface MacroSensitivityProfile {
+  interestRates: 'INVERSE' | 'DIRECT' | 'NEUTRAL';
+  inflation: 'DIRECT' | 'INVERSE' | 'NEUTRAL';
+  dollarSensitivity: 'STRONG_INVERSE' | 'INVERSE' | 'DIRECT' | 'NEUTRAL';
+  energyPrice: 'DIRECT' | 'INVERSE' | 'NEUTRAL';
+  riskAppetite: 'RISK_ON' | 'RISK_OFF' | 'NEUTRAL';
+}
 
 export interface MarketDefinition {
   symbol: string;
@@ -33,6 +52,14 @@ export interface MarketDefinition {
   typicalSpread: number;
   typicalDailyChangePct: number;
   sparklineBaseline: number[];
+  sessionModel: SessionModel;
+  is24x7: boolean;
+  baseAsset: string;
+  quoteAsset: string;
+  brokerAliases: string[];
+  macroSensitivity: MacroSensitivityProfile;
+  crossAssetBenchmark: string;
+  expectedBenchmarkCorrelation: number;
 }
 
 export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
@@ -58,7 +85,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 4349.70,
     typicalSpread: 0.16,
     typicalDailyChangePct: -0.85,
-    sparklineBaseline: [4375, 4368, 4362, 4350, 4354, 4342, 4349.7]
+    sparklineBaseline: [4375, 4368, 4362, 4350, 4354, 4342, 4349.7],
+    sessionModel: 'METALS_24_5',
+    is24x7: false,
+    baseAsset: 'XAU',
+    quoteAsset: 'USD',
+    brokerAliases: ['GOLD', 'XAU', 'GOLDUSD', 'SPOTGOLD', 'XAUUSDm', 'XAUUSD.cash'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'STRONG_INVERSE',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'RISK_OFF'
+    },
+    crossAssetBenchmark: 'DXY',
+    expectedBenchmarkCorrelation: -0.72
   },
   XAGUSD: {
     symbol: 'XAGUSD',
@@ -79,7 +120,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 64.62,
     typicalSpread: 0.02,
     typicalDailyChangePct: +1.28,
-    sparklineBaseline: [63.2, 63.6, 63.8, 64.1, 64.0, 64.4, 64.62]
+    sparklineBaseline: [63.2, 63.6, 63.8, 64.1, 64.0, 64.4, 64.62],
+    sessionModel: 'METALS_24_5',
+    is24x7: false,
+    baseAsset: 'XAG',
+    quoteAsset: 'USD',
+    brokerAliases: ['SILVER', 'XAG', 'SILVERUSD', 'XAGUSDm', 'XAGUSD.cash'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'STRONG_INVERSE',
+      energyPrice: 'DIRECT',
+      riskAppetite: 'NEUTRAL'
+    },
+    crossAssetBenchmark: 'XAUUSD',
+    expectedBenchmarkCorrelation: +0.82
   },
 
   // -------------------------------------------------------------------------
@@ -104,7 +159,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 20412.00,
     typicalSpread: 1.10,
     typicalDailyChangePct: +0.72,
-    sparklineBaseline: [20280, 20310, 20350, 20390, 20370, 20440, 20412]
+    sparklineBaseline: [20280, 20310, 20350, 20390, 20370, 20440, 20412],
+    sessionModel: 'CME_EQUITY_INDEX',
+    is24x7: false,
+    baseAsset: 'NDX',
+    quoteAsset: 'USD',
+    brokerAliases: ['NAS100', 'USTEC', 'NASDAQ', 'NASDAQ100', 'NDX', 'NQ', 'US100m', 'USTECm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'INVERSE',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'INVERSE',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'US500',
+    expectedBenchmarkCorrelation: +0.92
   },
   US30: {
     symbol: 'US30',
@@ -125,7 +194,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 42890.00,
     typicalSpread: 2.20,
     typicalDailyChangePct: +0.38,
-    sparklineBaseline: [42720, 42760, 42810, 42790, 42850, 42920, 42890]
+    sparklineBaseline: [42720, 42760, 42810, 42790, 42850, 42920, 42890],
+    sessionModel: 'CME_EQUITY_INDEX',
+    is24x7: false,
+    baseAsset: 'DJI',
+    quoteAsset: 'USD',
+    brokerAliases: ['DOW', 'DOWJONES', 'DJI', 'DJ30', 'WALLSTREET30', 'YM', 'US30m'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'INVERSE',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'US500',
+    expectedBenchmarkCorrelation: +0.88
   },
   US500: {
     symbol: 'US500',
@@ -146,7 +229,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 5824.20,
     typicalSpread: 0.40,
     typicalDailyChangePct: +0.45,
-    sparklineBaseline: [5795, 5805, 5812, 5818, 5814, 5830, 5824.2]
+    sparklineBaseline: [5795, 5805, 5812, 5818, 5814, 5830, 5824.2],
+    sessionModel: 'CME_EQUITY_INDEX',
+    is24x7: false,
+    baseAsset: 'SPX',
+    quoteAsset: 'USD',
+    brokerAliases: ['SPX', 'SP500', 'SPX500', 'ES', 'US500m'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'INVERSE',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'TNX',
+    expectedBenchmarkCorrelation: -0.45
   },
   GER40: {
     symbol: 'GER40',
@@ -167,7 +264,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 19450.00,
     typicalSpread: 1.50,
     typicalDailyChangePct: +0.18,
-    sparklineBaseline: [19380, 19410, 19420, 19460, 19440, 19470, 19450]
+    sparklineBaseline: [19380, 19410, 19420, 19460, 19440, 19470, 19450],
+    sessionModel: 'EUREX_INDEX',
+    is24x7: false,
+    baseAsset: 'DAX',
+    quoteAsset: 'EUR',
+    brokerAliases: ['DAX', 'DE40', 'GERMANY40', 'FDAX', 'GER40m'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'INVERSE',
+      dollarSensitivity: 'DIRECT',
+      energyPrice: 'INVERSE',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'US500',
+    expectedBenchmarkCorrelation: +0.78
   },
   UK100: {
     symbol: 'UK100',
@@ -188,7 +299,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 8260.00,
     typicalSpread: 1.00,
     typicalDailyChangePct: -0.12,
-    sparklineBaseline: [8290, 8280, 8270, 8265, 8272, 8255, 8260]
+    sparklineBaseline: [8290, 8280, 8270, 8265, 8272, 8255, 8260],
+    sessionModel: 'LSE_INDEX',
+    is24x7: false,
+    baseAsset: 'FTSE',
+    quoteAsset: 'GBP',
+    brokerAliases: ['FTSE', 'FTSE100', 'UKX', 'UK100m'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'INVERSE',
+      dollarSensitivity: 'DIRECT',
+      energyPrice: 'DIRECT',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'US500',
+    expectedBenchmarkCorrelation: +0.72
   },
   JP225: {
     symbol: 'JP225',
@@ -209,7 +334,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 38650.00,
     typicalSpread: 6.00,
     typicalDailyChangePct: +0.65,
-    sparklineBaseline: [38300, 38450, 38520, 38480, 38600, 38720, 38650]
+    sparklineBaseline: [38300, 38450, 38520, 38480, 38600, 38720, 38650],
+    sessionModel: 'TSE_INDEX',
+    is24x7: false,
+    baseAsset: 'N225',
+    quoteAsset: 'JPY',
+    brokerAliases: ['NIKKEI', 'N225', 'JAPAN225', 'JP225m'],
+    macroSensitivity: {
+      interestRates: 'DIRECT',
+      inflation: 'NEUTRAL',
+      dollarSensitivity: 'DIRECT',
+      energyPrice: 'INVERSE',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'USDJPY',
+    expectedBenchmarkCorrelation: +0.68
   },
 
   // -------------------------------------------------------------------------
@@ -234,7 +373,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 100.05,
     typicalSpread: 0.03,
     typicalDailyChangePct: -2.37,
-    sparklineBaseline: [102.8, 102.1, 101.5, 101.0, 100.8, 100.4, 100.05]
+    sparklineBaseline: [102.8, 102.1, 101.5, 101.0, 100.8, 100.4, 100.05],
+    sessionModel: 'NYMEX_ENERGY',
+    is24x7: false,
+    baseAsset: 'WTI',
+    quoteAsset: 'USD',
+    brokerAliases: ['OIL', 'WTI', 'CRUDE', 'CL', 'USOILm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'DIRECT',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'DXY',
+    expectedBenchmarkCorrelation: -0.45
   },
   UKOIL: {
     symbol: 'UKOIL',
@@ -255,7 +408,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 104.30,
     typicalSpread: 0.03,
     typicalDailyChangePct: -1.85,
-    sparklineBaseline: [106.2, 105.8, 105.2, 104.9, 104.7, 104.2, 104.3]
+    sparklineBaseline: [106.2, 105.8, 105.2, 104.9, 104.7, 104.2, 104.3],
+    sessionModel: 'ICE_BRENT',
+    is24x7: false,
+    baseAsset: 'BRENT',
+    quoteAsset: 'USD',
+    brokerAliases: ['BRENT', 'BRENTOIL', 'UKOILm', 'BZ'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'DIRECT',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'USOIL',
+    expectedBenchmarkCorrelation: +0.94
   },
   NATGAS: {
     symbol: 'NATGAS',
@@ -276,7 +443,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 2.845,
     typicalSpread: 0.004,
     typicalDailyChangePct: +2.15,
-    sparklineBaseline: [2.76, 2.78, 2.81, 2.80, 2.83, 2.86, 2.845]
+    sparklineBaseline: [2.76, 2.78, 2.81, 2.80, 2.83, 2.86, 2.845],
+    sessionModel: 'NYMEX_ENERGY',
+    is24x7: false,
+    baseAsset: 'NG',
+    quoteAsset: 'USD',
+    brokerAliases: ['GAS', 'NG', 'NATGASm'],
+    macroSensitivity: {
+      interestRates: 'NEUTRAL',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'DIRECT',
+      riskAppetite: 'NEUTRAL'
+    },
+    crossAssetBenchmark: 'USOIL',
+    expectedBenchmarkCorrelation: +0.42
   },
 
   // -------------------------------------------------------------------------
@@ -301,7 +482,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 1.1601,
     typicalSpread: 0.0001,
     typicalDailyChangePct: +0.22,
-    sparklineBaseline: [1.157, 1.158, 1.1575, 1.159, 1.1585, 1.1598, 1.1601]
+    sparklineBaseline: [1.157, 1.158, 1.1575, 1.159, 1.1585, 1.1598, 1.1601],
+    sessionModel: 'FOREX_24_5',
+    is24x7: false,
+    baseAsset: 'EUR',
+    quoteAsset: 'USD',
+    brokerAliases: ['FIBER', 'EUR', 'EURUSDm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'NEUTRAL',
+      dollarSensitivity: 'STRONG_INVERSE',
+      energyPrice: 'INVERSE',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'DXY',
+    expectedBenchmarkCorrelation: -0.92
   },
   GBPUSD: {
     symbol: 'GBPUSD',
@@ -322,7 +517,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 1.3522,
     typicalSpread: 0.0001,
     typicalDailyChangePct: +0.31,
-    sparklineBaseline: [1.348, 1.349, 1.350, 1.351, 1.3505, 1.3518, 1.3522]
+    sparklineBaseline: [1.348, 1.349, 1.350, 1.351, 1.3505, 1.3518, 1.3522],
+    sessionModel: 'FOREX_24_5',
+    is24x7: false,
+    baseAsset: 'GBP',
+    quoteAsset: 'USD',
+    brokerAliases: ['CABLE', 'GBP', 'GBPUSDm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'NEUTRAL',
+      dollarSensitivity: 'STRONG_INVERSE',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'DXY',
+    expectedBenchmarkCorrelation: -0.84
   },
   USDJPY: {
     symbol: 'USDJPY',
@@ -343,7 +552,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 153.76,
     typicalSpread: 0.01,
     typicalDailyChangePct: -0.45,
-    sparklineBaseline: [154.5, 154.2, 154.0, 153.9, 154.1, 153.8, 153.76]
+    sparklineBaseline: [154.5, 154.2, 154.0, 153.9, 154.1, 153.8, 153.76],
+    sessionModel: 'FOREX_24_5',
+    is24x7: false,
+    baseAsset: 'USD',
+    quoteAsset: 'JPY',
+    brokerAliases: ['NINJA', 'JPY', 'USDJPYm'],
+    macroSensitivity: {
+      interestRates: 'DIRECT',
+      inflation: 'INVERSE',
+      dollarSensitivity: 'DIRECT',
+      energyPrice: 'DIRECT',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'TNX',
+    expectedBenchmarkCorrelation: +0.78
   },
   AUDUSD: {
     symbol: 'AUDUSD',
@@ -364,7 +587,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 0.7170,
     typicalSpread: 0.0001,
     typicalDailyChangePct: +0.28,
-    sparklineBaseline: [0.714, 0.715, 0.7148, 0.716, 0.7155, 0.7168, 0.717]
+    sparklineBaseline: [0.714, 0.715, 0.7148, 0.716, 0.7155, 0.7168, 0.717],
+    sessionModel: 'FOREX_24_5',
+    is24x7: false,
+    baseAsset: 'AUD',
+    quoteAsset: 'USD',
+    brokerAliases: ['AUSSIE', 'AUD', 'AUDUSDm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'STRONG_INVERSE',
+      energyPrice: 'DIRECT',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'US500',
+    expectedBenchmarkCorrelation: +0.65
   },
   NZDUSD: {
     symbol: 'NZDUSD',
@@ -385,7 +622,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 0.6342,
     typicalSpread: 0.0001,
     typicalDailyChangePct: +0.18,
-    sparklineBaseline: [0.631, 0.632, 0.6325, 0.6338, 0.633, 0.6345, 0.6342]
+    sparklineBaseline: [0.631, 0.632, 0.6325, 0.6338, 0.633, 0.6345, 0.6342],
+    sessionModel: 'FOREX_24_5',
+    is24x7: false,
+    baseAsset: 'NZD',
+    quoteAsset: 'USD',
+    brokerAliases: ['KIWI', 'NZD', 'NZDUSDm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'STRONG_INVERSE',
+      energyPrice: 'DIRECT',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'AUDUSD',
+    expectedBenchmarkCorrelation: +0.89
   },
   USDCAD: {
     symbol: 'USDCAD',
@@ -406,7 +657,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 1.3861,
     typicalSpread: 0.0001,
     typicalDailyChangePct: -0.18,
-    sparklineBaseline: [1.389, 1.388, 1.3875, 1.3868, 1.387, 1.3858, 1.3861]
+    sparklineBaseline: [1.389, 1.388, 1.3875, 1.3868, 1.387, 1.3858, 1.3861],
+    sessionModel: 'FOREX_24_5',
+    is24x7: false,
+    baseAsset: 'USD',
+    quoteAsset: 'CAD',
+    brokerAliases: ['LOONIE', 'CAD', 'USDCADm'],
+    macroSensitivity: {
+      interestRates: 'DIRECT',
+      inflation: 'NEUTRAL',
+      dollarSensitivity: 'DIRECT',
+      energyPrice: 'INVERSE',
+      riskAppetite: 'RISK_OFF'
+    },
+    crossAssetBenchmark: 'USOIL',
+    expectedBenchmarkCorrelation: -0.62
   },
   USDCHF: {
     symbol: 'USDCHF',
@@ -427,7 +692,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 0.8161,
     typicalSpread: 0.0001,
     typicalDailyChangePct: -0.22,
-    sparklineBaseline: [0.819, 0.818, 0.8175, 0.8168, 0.817, 0.8158, 0.8161]
+    sparklineBaseline: [0.819, 0.818, 0.8175, 0.8168, 0.817, 0.8158, 0.8161],
+    sessionModel: 'FOREX_24_5',
+    is24x7: false,
+    baseAsset: 'USD',
+    quoteAsset: 'CHF',
+    brokerAliases: ['SWISSIE', 'CHF', 'USDCHFm'],
+    macroSensitivity: {
+      interestRates: 'DIRECT',
+      inflation: 'NEUTRAL',
+      dollarSensitivity: 'DIRECT',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'RISK_OFF'
+    },
+    crossAssetBenchmark: 'EURUSD',
+    expectedBenchmarkCorrelation: -0.88
   },
   GBPJPY: {
     symbol: 'GBPJPY',
@@ -448,7 +727,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 207.91,
     typicalSpread: 0.02,
     typicalDailyChangePct: -0.14,
-    sparklineBaseline: [208.5, 208.2, 207.9, 208.1, 207.8, 208.0, 207.91]
+    sparklineBaseline: [208.5, 208.2, 207.9, 208.1, 207.8, 208.0, 207.91],
+    sessionModel: 'FOREX_24_5',
+    is24x7: false,
+    baseAsset: 'GBP',
+    quoteAsset: 'JPY',
+    brokerAliases: ['GUPPY', 'DRAGON', 'GEPPY', 'GBPJPYm'],
+    macroSensitivity: {
+      interestRates: 'DIRECT',
+      inflation: 'NEUTRAL',
+      dollarSensitivity: 'NEUTRAL',
+      energyPrice: 'DIRECT',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'USDJPY',
+    expectedBenchmarkCorrelation: +0.75
   },
   EURJPY: {
     symbol: 'EURJPY',
@@ -469,7 +762,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 178.38,
     typicalSpread: 0.015,
     typicalDailyChangePct: -0.23,
-    sparklineBaseline: [178.8, 178.6, 178.4, 178.5, 178.3, 178.4, 178.38]
+    sparklineBaseline: [178.8, 178.6, 178.4, 178.5, 178.3, 178.4, 178.38],
+    sessionModel: 'FOREX_24_5',
+    is24x7: false,
+    baseAsset: 'EUR',
+    quoteAsset: 'JPY',
+    brokerAliases: ['EURJPY', 'EPPY', 'EURJPYm'],
+    macroSensitivity: {
+      interestRates: 'DIRECT',
+      inflation: 'NEUTRAL',
+      dollarSensitivity: 'NEUTRAL',
+      energyPrice: 'DIRECT',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'USDJPY',
+    expectedBenchmarkCorrelation: +0.72
   },
   EURGBP: {
     symbol: 'EURGBP',
@@ -490,7 +797,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 0.8579,
     typicalSpread: 0.0001,
     typicalDailyChangePct: -0.09,
-    sparklineBaseline: [0.859, 0.8585, 0.858, 0.8575, 0.8582, 0.8576, 0.8579]
+    sparklineBaseline: [0.859, 0.8585, 0.858, 0.8575, 0.8582, 0.8576, 0.8579],
+    sessionModel: 'FOREX_24_5',
+    is24x7: false,
+    baseAsset: 'EUR',
+    quoteAsset: 'GBP',
+    brokerAliases: ['CHUNNEL', 'EURGBPm'],
+    macroSensitivity: {
+      interestRates: 'NEUTRAL',
+      inflation: 'NEUTRAL',
+      dollarSensitivity: 'NEUTRAL',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'NEUTRAL'
+    },
+    crossAssetBenchmark: 'EURUSD',
+    expectedBenchmarkCorrelation: +0.48
   },
 
   // -------------------------------------------------------------------------
@@ -515,7 +836,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 77366.00,
     typicalSpread: 8.00,
     typicalDailyChangePct: +1.48,
-    sparklineBaseline: [76100, 76500, 77000, 76800, 77400, 77800, 77366]
+    sparklineBaseline: [76100, 76500, 77000, 76800, 77400, 77800, 77366],
+    sessionModel: 'CRYPTO_24_7',
+    is24x7: true,
+    baseAsset: 'BTC',
+    quoteAsset: 'USD',
+    brokerAliases: ['BTC', 'BITCOIN', 'BTCUSDT', 'XBTUSD', 'BTCUSDm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'US100',
+    expectedBenchmarkCorrelation: +0.58
   },
   ETHUSD: {
     symbol: 'ETHUSD',
@@ -536,7 +871,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 2542.50,
     typicalSpread: 1.20,
     typicalDailyChangePct: -3.54,
-    sparklineBaseline: [2650, 2620, 2580, 2560, 2575, 2530, 2542.5]
+    sparklineBaseline: [2650, 2620, 2580, 2560, 2575, 2530, 2542.5],
+    sessionModel: 'CRYPTO_24_7',
+    is24x7: true,
+    baseAsset: 'ETH',
+    quoteAsset: 'USD',
+    brokerAliases: ['ETH', 'ETHEREUM', 'ETHUSDT', 'ETHUSDm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'BTCUSD',
+    expectedBenchmarkCorrelation: +0.86
   },
   SOLUSD: {
     symbol: 'SOLUSD',
@@ -557,7 +906,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 198.40,
     typicalSpread: 0.15,
     typicalDailyChangePct: +4.22,
-    sparklineBaseline: [188, 191, 194, 192, 196, 201, 198.4]
+    sparklineBaseline: [188, 191, 194, 192, 196, 201, 198.4],
+    sessionModel: 'CRYPTO_24_7',
+    is24x7: true,
+    baseAsset: 'SOL',
+    quoteAsset: 'USD',
+    brokerAliases: ['SOL', 'SOLANA', 'SOLUSDT', 'SOLUSDm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'BTCUSD',
+    expectedBenchmarkCorrelation: +0.82
   },
   XRPUSD: {
     symbol: 'XRPUSD',
@@ -578,7 +941,21 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 0.6124,
     typicalSpread: 0.0005,
     typicalDailyChangePct: +1.84,
-    sparklineBaseline: [0.595, 0.602, 0.608, 0.605, 0.615, 0.618, 0.6124]
+    sparklineBaseline: [0.595, 0.602, 0.608, 0.605, 0.615, 0.618, 0.6124],
+    sessionModel: 'CRYPTO_24_7',
+    is24x7: true,
+    baseAsset: 'XRP',
+    quoteAsset: 'USD',
+    brokerAliases: ['XRP', 'RIPPLE', 'XRPUSDT', 'XRPUSDm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'BTCUSD',
+    expectedBenchmarkCorrelation: +0.72
   },
   BNBUSD: {
     symbol: 'BNBUSD',
@@ -599,9 +976,30 @@ export const MARKET_REGISTRY: Record<string, MarketDefinition> = {
     basePrice: 624.80,
     typicalSpread: 0.40,
     typicalDailyChangePct: +0.65,
-    sparklineBaseline: [615, 618, 622, 620, 626, 628, 624.8]
+    sparklineBaseline: [615, 618, 622, 620, 626, 628, 624.8],
+    sessionModel: 'CRYPTO_24_7',
+    is24x7: true,
+    baseAsset: 'BNB',
+    quoteAsset: 'USD',
+    brokerAliases: ['BNB', 'BINANCECOIN', 'BNBUSDT', 'BNBUSDm'],
+    macroSensitivity: {
+      interestRates: 'INVERSE',
+      inflation: 'DIRECT',
+      dollarSensitivity: 'INVERSE',
+      energyPrice: 'NEUTRAL',
+      riskAppetite: 'RISK_ON'
+    },
+    crossAssetBenchmark: 'BTCUSD',
+    expectedBenchmarkCorrelation: +0.76
   }
 };
+
+/**
+ * Returns all registered canonical market definitions.
+ */
+export function getAllMarkets(): MarketDefinition[] {
+  return Object.values(MARKET_REGISTRY);
+}
 
 /**
  * Returns canonical market definition resolving standard symbols and common aliases.
@@ -621,6 +1019,9 @@ export function getMarketDefinition(query: string): MarketDefinition | null {
       return def;
     }
     if (def.aliases.some((alias) => alias.toUpperCase() === clean)) {
+      return def;
+    }
+    if (def.brokerAliases && def.brokerAliases.some((ba) => ba.toUpperCase() === clean)) {
       return def;
     }
   }
@@ -667,6 +1068,82 @@ export function searchMarkets(searchTerm: string, category: string = 'ALL'): Mar
     if (m.displayName.toLowerCase().includes(q)) return true;
     if (m.shortName.toLowerCase().includes(q)) return true;
     if (m.aliases.some((a) => a.toLowerCase().includes(q))) return true;
+    if (m.brokerAliases && m.brokerAliases.some((ba) => ba.toLowerCase().includes(q))) return true;
     return false;
   });
+}
+
+/**
+ * Helper: Check if an asset trades 24/7 (e.g. Crypto)
+ */
+export function isAsset24x7(symbol: string): boolean {
+  const def = getMarketDefinition(symbol);
+  if (def) return Boolean(def.is24x7);
+  const s = symbol.toUpperCase();
+  return s.startsWith('BTC') || s.startsWith('ETH') || s.startsWith('SOL') || s.startsWith('XRP') || s.startsWith('BNB');
+}
+
+/**
+ * Helper: Get session model for an asset
+ */
+export function getAssetSessionModel(symbol: string): SessionModel {
+  const def = getMarketDefinition(symbol);
+  if (def && def.sessionModel) return def.sessionModel;
+  if (isAsset24x7(symbol)) return 'CRYPTO_24_7';
+  const s = symbol.toUpperCase();
+  if (s.startsWith('XAU') || s.startsWith('XAG')) return 'METALS_24_5';
+  if (s.startsWith('US30') || s.startsWith('US100') || s.startsWith('US500')) return 'CME_EQUITY_INDEX';
+  if (s === 'GER40') return 'EUREX_INDEX';
+  if (s === 'UK100') return 'LSE_INDEX';
+  if (s === 'JP225') return 'TSE_INDEX';
+  if (s === 'UKOIL') return 'ICE_BRENT';
+  if (s === 'USOIL' || s === 'NATGAS') return 'NYMEX_ENERGY';
+  return 'FOREX_24_5';
+}
+
+/**
+ * Helper: Get benchmark asset for intermarket correlation
+ */
+export function getCrossAssetBenchmark(symbol: string): string {
+  const def = getMarketDefinition(symbol);
+  if (def && def.crossAssetBenchmark) return def.crossAssetBenchmark;
+  const s = symbol.toUpperCase();
+  if (s === 'XAUUSD' || s === 'USOIL' || s === 'EURUSD' || s === 'GBPUSD') return 'DXY';
+  if (s === 'XAGUSD') return 'XAUUSD';
+  if (s === 'USDJPY') return 'TNX';
+  if (s.startsWith('BTC') || s.startsWith('ETH') || s.startsWith('SOL')) return 'US100';
+  return 'US500';
+}
+
+/**
+ * Helper: Get expected benchmark correlation coefficient
+ */
+export function getExpectedBenchmarkCorrelation(symbol: string): number {
+  const def = getMarketDefinition(symbol);
+  if (def && typeof def.expectedBenchmarkCorrelation === 'number') {
+    return def.expectedBenchmarkCorrelation;
+  }
+  const s = symbol.toUpperCase();
+  if (s === 'XAUUSD') return -0.72;
+  if (s === 'EURUSD') return -0.92;
+  if (s === 'GBPUSD') return -0.84;
+  if (s === 'USOIL') return -0.45;
+  if (s === 'XAGUSD') return +0.82;
+  if (s === 'USDJPY') return +0.78;
+  return +0.65;
+}
+
+/**
+ * Helper: Get macro sensitivity profile for an asset
+ */
+export function getMacroSensitivities(symbol: string): MacroSensitivityProfile {
+  const def = getMarketDefinition(symbol);
+  if (def && def.macroSensitivity) return def.macroSensitivity;
+  return {
+    interestRates: 'INVERSE',
+    inflation: 'NEUTRAL',
+    dollarSensitivity: 'INVERSE',
+    energyPrice: 'NEUTRAL',
+    riskAppetite: 'RISK_ON'
+  };
 }

@@ -28,22 +28,22 @@ export const HubMiniFeed: React.FC<HubMiniFeedProps> = ({ messages, activeSymbol
   const displayedMessages = messages.slice(visibleStartIndex, visibleStartIndex + 3);
 
   return (
-    <div className="p-2 rounded-xl bg-black/40 border border-white/10 font-mono text-[9px] space-y-1 overflow-hidden transition-all hover:border-white/20">
+    <div className="p-2.5 rounded-xl bg-black/40 border border-white/10 font-mono text-[10px] space-y-1 overflow-hidden transition-all hover:border-white/20">
       <div className="flex items-center justify-between border-b border-white/5 pb-1">
         <div className="flex items-center space-x-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-          <span className="text-[8px] font-bold text-gray-400 uppercase font-sans">
+          <span className="text-[9.5px] font-bold text-gray-400 uppercase font-sans">
             LIVE AGENT COMMUNICATIONS
           </span>
         </div>
-        <span className="text-[7.5px] text-cyan-400/80 font-mono">
+        <span className="text-[9.5px] text-cyan-400/80 font-mono">
           {activeSymbol} Stream
         </span>
       </div>
 
       {/* 3 Compact Rotating Lines */}
       {messages.length === 0 ? (
-        <div className="py-2 text-center text-gray-500 text-[8.5px] italic">
+        <div className="py-2 text-center text-gray-500 text-[9.5px] italic">
           Awaiting verified agent communications
         </div>
       ) : (
@@ -65,9 +65,9 @@ export const HubMiniFeed: React.FC<HubMiniFeedProps> = ({ messages, activeSymbol
             <div
               key={msg.id}
               title={`[${msg.agentName}] ${msg.message}`}
-              className="flex items-center space-x-1.5 text-[8.5px] min-w-0"
+              className="flex items-center space-x-1.5 text-[9.5px] min-w-0"
             >
-              <span suppressHydrationWarning className="text-gray-500 font-bold flex-shrink-0 text-[8px]">
+              <span suppressHydrationWarning className="text-gray-500 font-bold flex-shrink-0 text-[9px]">
                 {mounted ? msg.timestamp : '--:--:--'}
               </span>
               <span

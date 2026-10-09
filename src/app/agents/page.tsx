@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
+import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
@@ -14,7 +15,7 @@ import { CouncilDebateStream } from '@/components/cockpit/CouncilDebateStream';
 
 export type AgentGroupCategory = 'MARKET' | 'MACRO' | 'EVENT' | 'QUANT' | 'CONTROL';
 
-interface ExtendedAgent extends AgentState {
+interface ExtendedAgent extends Omit<AgentState, 'provenanceBadge'> {
   id: string;
   model: string;
   weight: number;
@@ -28,6 +29,7 @@ interface ExtendedAgent extends AgentState {
     uptime: string;
   };
   conflictsWith?: string[];
+  provenanceBadge?: string;
 }
 
 export default function AgentsDirectoryPage() {
@@ -95,13 +97,24 @@ export default function AgentsDirectoryPage() {
     conflictsWith: ag.bias === 'BULLISH' ? ['Macro Agent (Hawkish Fed)', 'Risk Guardian'] : ['Technical Agent', 'Opportunity Hunter']
   }));
 
-  // 2. Map Official Specialist Agents from Foundation
+  // 2. Map Official Specialist Agents from Foundation & Institutional Expansion (17 Total Specialists)
   const ratesSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'RATES_AGENT');
   const inflationSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'INFLATION_AGENT');
   const volSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'VOLATILITY_AGENT');
   const crossSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'CROSS_ASSET_AGENT');
   const sentinelSpec = assetProfile.dataSentinel;
   const quantSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'QUANT_AGENT');
+  const macroCorrelatorSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'MACRO_CORRELATOR_AGENT');
+  const leadLagSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'CROSS_ASSET_LEAD_LAG_AGENT');
+  const volSqueezeSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'VOLATILITY_SQUEEZE_AGENT');
+  const currencyStrengthSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'CURRENCY_STRENGTH_AGENT');
+  const anchoredVwapSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'ANCHORED_VWAP_AGENT');
+  const regimeClassifierSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'MARKET_REGIME_CLASSIFIER_AGENT');
+  const orderFlowDeltaSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'ORDER_FLOW_DELTA_AGENT');
+  const cotPositioningSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'COT_POSITIONING_AGENT');
+  const centralBankSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'CENTRAL_BANK_POLICY_AGENT');
+  const monteCarloSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'QUANT_MONTE_CARLO_AGENT');
+  const newsMomentumSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'ECONOMIC_NEWS_MOMENTUM_AGENT');
 
   const specialistAgentsList: ExtendedAgent[] = [
     {
@@ -123,7 +136,9 @@ export default function AgentsDirectoryPage() {
       provenanceBadge: sentinelSpec?.provenanceBadge || 'LIVE',
       evidenceTrustScore: sentinelSpec?.evidenceTrust || 95,
       systemMandate: 'Verify broker socket ticks, payload structure, staleness limits, and provider health continuously.',
-      telemetry: { memoryMb: 128, tokensPerSec: 0, sampleCount: 84200, uptime: '100.00%' }
+      telemetry: { memoryMb: 128, tokensPerSec: 0, sampleCount: 84200, uptime: '100.00%' },
+      availableInputs: sentinelSpec?.evidence.map((e) => e.claim) || ['Broker Quote Stream', 'Transport Ping'],
+      missingInputs: sentinelSpec?.missingEvidence || [],
     },
     {
       type: 'RATES_SPECIALIST' as any,
@@ -144,7 +159,9 @@ export default function AgentsDirectoryPage() {
       provenanceBadge: ratesSpec?.provenanceBadge || 'INDEPENDENT',
       evidenceTrustScore: ratesSpec?.evidenceTrust || 85,
       systemMandate: 'Deconstruct sovereign yields, 10Y-2Y yield curve inversions, and FOMC target corridor dynamics.',
-      telemetry: { memoryMb: 256, tokensPerSec: 45, sampleCount: 12400, uptime: '99.98%' }
+      telemetry: { memoryMb: 256, tokensPerSec: 45, sampleCount: 12400, uptime: '99.98%' },
+      availableInputs: ratesSpec?.evidence.map((e) => e.claim) || [],
+      missingInputs: ratesSpec?.missingEvidence || [],
     },
     {
       type: 'INFLATION_SPECIALIST' as any,
@@ -165,7 +182,9 @@ export default function AgentsDirectoryPage() {
       provenanceBadge: inflationSpec?.provenanceBadge || 'INDEPENDENT',
       evidenceTrustScore: inflationSpec?.evidenceTrust || 90,
       systemMandate: 'Analyze TIPS real yields and market-implied breakeven inflation to evaluate the fundamental opportunity cost of holding non-yielding bullion.',
-      telemetry: { memoryMb: 210, tokensPerSec: 38, sampleCount: 9600, uptime: '99.97%' }
+      telemetry: { memoryMb: 210, tokensPerSec: 38, sampleCount: 9600, uptime: '99.97%' },
+      availableInputs: inflationSpec?.evidence.map((e) => e.claim) || [],
+      missingInputs: inflationSpec?.missingEvidence || [],
     },
     {
       type: 'CROSS_ASSET_SPECIALIST' as any,
@@ -186,7 +205,9 @@ export default function AgentsDirectoryPage() {
       provenanceBadge: crossSpec?.provenanceBadge || 'DERIVED',
       evidenceTrustScore: crossSpec?.evidenceTrust || 80,
       systemMandate: 'Calculate rolling Pearson correlation across aligned time series for yields, equities, and commodities without synthetic approximations.',
-      telemetry: { memoryMb: 320, tokensPerSec: 52, sampleCount: 18200, uptime: '99.95%' }
+      telemetry: { memoryMb: 320, tokensPerSec: 52, sampleCount: 18200, uptime: '99.95%' },
+      availableInputs: crossSpec?.evidence.map((e) => e.claim) || [],
+      missingInputs: crossSpec?.missingEvidence || [],
     },
     {
       type: 'VOLATILITY_SPECIALIST' as any,
@@ -207,7 +228,9 @@ export default function AgentsDirectoryPage() {
       provenanceBadge: volSpec?.provenanceBadge || 'DERIVED',
       evidenceTrustScore: volSpec?.evidenceTrust || 80,
       systemMandate: 'Classify volatility regimes between High Volatility, Normal Volatility, and Low Volatility using ATR multiples and historical bands.',
-      telemetry: { memoryMb: 190, tokensPerSec: 60, sampleCount: 11000, uptime: '99.99%' }
+      telemetry: { memoryMb: 190, tokensPerSec: 60, sampleCount: 11000, uptime: '99.99%' },
+      availableInputs: volSpec?.evidence.map((e) => e.claim) || [],
+      missingInputs: volSpec?.missingEvidence || [],
     },
     {
       type: 'QUANT_SPECIALIST' as any,
@@ -228,7 +251,262 @@ export default function AgentsDirectoryPage() {
       provenanceBadge: quantSpec?.provenanceBadge || 'DERIVED',
       evidenceTrustScore: quantSpec?.evidenceTrust || 80,
       systemMandate: 'Compute annualized volatility, drawdowns, and match past multi-dimensional regime periods with forward median returns and sample size validation.',
-      telemetry: { memoryMb: 450, tokensPerSec: 72, sampleCount: 14800, uptime: '99.92%' }
+      telemetry: { memoryMb: 450, tokensPerSec: 72, sampleCount: 14800, uptime: '99.92%' },
+      availableInputs: quantSpec?.evidence.map((e) => e.claim) || [],
+      missingInputs: quantSpec?.missingEvidence || [],
+    },
+    {
+      type: 'MACRO_CORRELATOR_SPECIALIST' as any,
+      name: macroCorrelatorSpec?.agentName || 'Macro Correlator Specialist',
+      role: macroCorrelatorSpec?.role || 'Yield Beta & Cross-Asset Sensitivity',
+      bias: macroCorrelatorSpec?.direction || 'NEUTRAL',
+      confidence: macroCorrelatorSpec?.confidence || 75,
+      status: (macroCorrelatorSpec?.readiness === 'READY' ? 'ONLINE' : macroCorrelatorSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: macroCorrelatorSpec?.primaryThesis || 'Analyzing cross-asset sensitivity against 10Y yields.',
+      evidence: macroCorrelatorSpec?.evidence?.map((e) => e.claim) || ['10Y Yield correlation tracking active'],
+      keyRisk: macroCorrelatorSpec?.keyRisk || 'Uncorrelated yield shock',
+      invalidation: macroCorrelatorSpec?.invalidation || 'Yield divergence > 2.5 sigma',
+      id: 'spec-macro-correlator',
+      group: 'MACRO',
+      model: 'Multi-Asset Yield Beta Engine',
+      weight: 1.6,
+      latencyMs: 24,
+      provenanceBadge: macroCorrelatorSpec?.provenanceBadge || 'DERIVED',
+      evidenceTrustScore: macroCorrelatorSpec?.evidenceTrust || 80,
+      systemMandate: 'Evaluates cross-asset sensitivities against 10Y Treasury yields and intermarket beta relationships to assess macro headwinds and tailwinds.',
+      telemetry: { memoryMb: 280, tokensPerSec: 54, sampleCount: 16400, uptime: '99.96%' },
+      availableInputs: macroCorrelatorSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: macroCorrelatorSpec?.missingEvidence || [],
+    },
+    {
+      type: 'CROSS_ASSET_LEAD_LAG_SPECIALIST' as any,
+      name: leadLagSpec?.agentName || 'Cross-Asset Lead-Lag Specialist',
+      role: leadLagSpec?.role || 'Intermarket Lead-Lag & Spillover Dynamics',
+      bias: leadLagSpec?.direction || 'NEUTRAL',
+      confidence: leadLagSpec?.confidence || 70,
+      status: (leadLagSpec?.readiness === 'READY' ? 'ONLINE' : leadLagSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: leadLagSpec?.primaryThesis || 'Monitoring lead-lag spillover dynamics across benchmark assets.',
+      evidence: leadLagSpec?.evidence?.map((e) => e.claim) || ['Cross-asset lead-lag transmission active'],
+      keyRisk: leadLagSpec?.keyRisk || 'Lead-lag breakdown or asynchronous regime drift',
+      invalidation: leadLagSpec?.invalidation || 'Lead asset reversal > 1.8% intraday',
+      id: 'spec-lead-lag',
+      group: 'QUANT',
+      model: 'High-Frequency Cross-Correlation Matrix',
+      weight: 1.5,
+      latencyMs: 28,
+      provenanceBadge: leadLagSpec?.provenanceBadge || 'DERIVED',
+      evidenceTrustScore: leadLagSpec?.evidenceTrust || 75,
+      systemMandate: 'Detects directional lead-lag spillover from global market leaders (BTC for crypto, US100 for global tech equities) to anticipate flow transitions.',
+      telemetry: { memoryMb: 310, tokensPerSec: 62, sampleCount: 19500, uptime: '99.94%' },
+      availableInputs: leadLagSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: leadLagSpec?.missingEvidence || [],
+    },
+    {
+      type: 'VOLATILITY_SQUEEZE_SPECIALIST' as any,
+      name: volSqueezeSpec?.agentName || 'Volatility Squeeze Specialist',
+      role: volSqueezeSpec?.role || 'Bollinger / Keltner Squeeze & Breakout Velocity',
+      bias: volSqueezeSpec?.direction || 'NEUTRAL',
+      confidence: volSqueezeSpec?.confidence || 80,
+      status: (volSqueezeSpec?.readiness === 'READY' ? 'ONLINE' : volSqueezeSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: volSqueezeSpec?.primaryThesis || 'Evaluating Bollinger Band / Keltner Channel compression state.',
+      evidence: volSqueezeSpec?.evidence?.map((e) => e.claim) || ['Dual-channel volatility squeeze computed'],
+      keyRisk: volSqueezeSpec?.keyRisk || 'False breakout head-fake into consolidation',
+      invalidation: volSqueezeSpec?.invalidation || 'Band expansion opposite momentum vector',
+      id: 'spec-vol-squeeze',
+      group: 'QUANT',
+      model: 'Bollinger-Keltner Dual Compression Engine',
+      weight: 1.7,
+      latencyMs: 19,
+      provenanceBadge: volSqueezeSpec?.provenanceBadge || 'DERIVED',
+      evidenceTrustScore: volSqueezeSpec?.evidenceTrust || 85,
+      systemMandate: 'Identifies pre-breakout compression regimes where Bollinger Bands compress inside Keltner Channels, quantifying impending directional energy release.',
+      telemetry: { memoryMb: 220, tokensPerSec: 68, sampleCount: 14200, uptime: '99.98%' },
+      availableInputs: volSqueezeSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: volSqueezeSpec?.missingEvidence || [],
+    },
+    {
+      type: 'CURRENCY_STRENGTH_SPECIALIST' as any,
+      name: currencyStrengthSpec?.agentName || 'Currency Strength Matrix Specialist',
+      role: currencyStrengthSpec?.role || 'G8 Currency Strength Vector & Relative Momentum',
+      bias: currencyStrengthSpec?.direction || 'NEUTRAL',
+      confidence: currencyStrengthSpec?.confidence || 80,
+      status: (currencyStrengthSpec?.readiness === 'READY' ? 'ONLINE' : currencyStrengthSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: currencyStrengthSpec?.primaryThesis || 'Relative currency strength vector tracking active across 7 major currencies.',
+      evidence: currencyStrengthSpec?.evidence?.map((e) => e.claim) || ['24h rolling currency returns evaluated'],
+      keyRisk: currencyStrengthSpec?.keyRisk || 'Central bank intervention or currency flash crash',
+      invalidation: currencyStrengthSpec?.invalidation || 'Relative strength vector reversal > 1.2%',
+      id: 'spec-currency-strength',
+      group: 'MARKET',
+      model: 'G8 Real-Time Currency Strength Vector',
+      weight: 1.8,
+      latencyMs: 21,
+      provenanceBadge: currencyStrengthSpec?.provenanceBadge || 'DERIVED',
+      evidenceTrustScore: currencyStrengthSpec?.evidenceTrust || 80,
+      systemMandate: 'Computes rolling relative strength metrics across the 7 major global currencies (USD, EUR, GBP, JPY, AUD, CAD, NZD) to isolate institutional capital flows.',
+      telemetry: { memoryMb: 260, tokensPerSec: 50, sampleCount: 15300, uptime: '99.97%' },
+      availableInputs: currencyStrengthSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: currencyStrengthSpec?.missingEvidence || [],
+    },
+    {
+      type: 'ANCHORED_VWAP_SPECIALIST' as any,
+      name: anchoredVwapSpec?.agentName || 'Anchored VWAP Specialist',
+      role: anchoredVwapSpec?.role || 'Session & Swing Anchored VWAP Benchmarking',
+      bias: anchoredVwapSpec?.direction || 'NEUTRAL',
+      confidence: anchoredVwapSpec?.confidence || 85,
+      status: (anchoredVwapSpec?.readiness === 'READY' ? 'ONLINE' : anchoredVwapSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: anchoredVwapSpec?.primaryThesis || 'Anchored VWAP fair value benchmark tracking active.',
+      evidence: anchoredVwapSpec?.evidence?.map((e) => e.claim) || ['Multi-anchor volume-weighted benchmark evaluated'],
+      keyRisk: anchoredVwapSpec?.keyRisk || 'High-volume institutional displacement through standard deviation bands',
+      invalidation: anchoredVwapSpec?.invalidation || 'Price closing beyond 2.0 standard deviation band',
+      id: 'spec-anchored-vwap',
+      group: 'QUANT',
+      model: 'Volume-Weighted Institutional Benchmark',
+      weight: 1.6,
+      latencyMs: 16,
+      provenanceBadge: anchoredVwapSpec?.provenanceBadge || 'DERIVED',
+      evidenceTrustScore: anchoredVwapSpec?.evidenceTrust || 85,
+      systemMandate: 'Calculates institutional volume-weighted average price anchored to session opens, major swing highs/lows, and structural displacement points.',
+      telemetry: { memoryMb: 240, tokensPerSec: 75, sampleCount: 17800, uptime: '99.99%' },
+      availableInputs: anchoredVwapSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: anchoredVwapSpec?.missingEvidence || [],
+    },
+    {
+      type: 'MARKET_REGIME_CLASSIFIER_SPECIALIST' as any,
+      name: regimeClassifierSpec?.agentName || 'Market Regime Classifier',
+      role: regimeClassifierSpec?.role || 'Statistical Trend & Volatility State Machine',
+      bias: regimeClassifierSpec?.direction || 'NEUTRAL',
+      confidence: regimeClassifierSpec?.confidence || 80,
+      status: (regimeClassifierSpec?.readiness === 'READY' ? 'ONLINE' : regimeClassifierSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: regimeClassifierSpec?.primaryThesis || 'Statistical market regime state machine active.',
+      evidence: regimeClassifierSpec?.evidence?.map((e) => e.claim) || ['ADX trend strength and ATR volatility state mapped'],
+      keyRisk: regimeClassifierSpec?.keyRisk || 'Regime transition during major session overlaps',
+      invalidation: regimeClassifierSpec?.invalidation || 'ADX collapse below 18 indicating transition to chop',
+      id: 'spec-regime-classifier',
+      group: 'QUANT',
+      model: 'Statistical Trend & Volatility State Machine',
+      weight: 1.9,
+      latencyMs: 23,
+      provenanceBadge: regimeClassifierSpec?.provenanceBadge || 'DERIVED',
+      evidenceTrustScore: regimeClassifierSpec?.evidenceTrust || 80,
+      systemMandate: 'Classifies market state into four discrete quantitative regimes (Trending Bull, Trending Bear, Volatile Chop, Mean-Reverting) to modulate strategy weights.',
+      telemetry: { memoryMb: 275, tokensPerSec: 58, sampleCount: 16900, uptime: '99.95%' },
+      availableInputs: regimeClassifierSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: regimeClassifierSpec?.missingEvidence || [],
+    },
+    {
+      type: 'ORDER_FLOW_DELTA_SPECIALIST' as any,
+      name: orderFlowDeltaSpec?.agentName || 'Order Flow Delta Specialist',
+      role: orderFlowDeltaSpec?.role || 'Cumulative Volume Delta & Aggressor Absorption',
+      bias: orderFlowDeltaSpec?.direction || 'NEUTRAL',
+      confidence: orderFlowDeltaSpec?.confidence || 75,
+      status: (orderFlowDeltaSpec?.readiness === 'READY' ? 'ONLINE' : orderFlowDeltaSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: orderFlowDeltaSpec?.primaryThesis || 'Order flow delta and volume absorption analysis active.',
+      evidence: orderFlowDeltaSpec?.evidence?.map((e) => e.claim) || ['Intraday buyer/seller tick volume delta monitored'],
+      keyRisk: orderFlowDeltaSpec?.keyRisk || 'Limit order absorption failure at key levels',
+      invalidation: orderFlowDeltaSpec?.invalidation || 'CVD divergence exceeding 35% of cumulative bar volume',
+      id: 'spec-order-flow-delta',
+      group: 'MARKET',
+      model: 'CVD & Volume Absorption Analyzer',
+      weight: 2.0,
+      latencyMs: 17,
+      provenanceBadge: orderFlowDeltaSpec?.provenanceBadge || 'BROKER_TICK_VOLUME_PROXY',
+      evidenceTrustScore: orderFlowDeltaSpec?.evidenceTrust || 75,
+      systemMandate: 'Analyzes tick volume delta imbalances, cumulative volume delta (CVD) divergences, and passive institutional limit absorption at key SMC levels.',
+      telemetry: { memoryMb: 290, tokensPerSec: 82, sampleCount: 22100, uptime: '99.98%' },
+      availableInputs: orderFlowDeltaSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: orderFlowDeltaSpec?.missingEvidence || [],
+    },
+    {
+      type: 'COT_POSITIONING_SPECIALIST' as any,
+      name: cotPositioningSpec?.agentName || 'COT Institutional Positioning Specialist',
+      role: cotPositioningSpec?.role || 'CFTC Commitments of Traders Non-Commercial Positioning',
+      bias: cotPositioningSpec?.direction || 'NEUTRAL',
+      confidence: cotPositioningSpec?.confidence || 75,
+      status: (cotPositioningSpec?.readiness === 'READY' ? 'ONLINE' : cotPositioningSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: cotPositioningSpec?.primaryThesis || 'CFTC Commitments of Traders institutional positioning benchmark active.',
+      evidence: cotPositioningSpec?.evidence?.map((e) => e.claim) || ['Non-commercial smart money percentile analyzed'],
+      keyRisk: cotPositioningSpec?.keyRisk || 'Crowded institutional positioning unwinding rapidly',
+      invalidation: cotPositioningSpec?.invalidation || 'COT net positioning percentile crossing 50th percentile threshold',
+      id: 'spec-cot-positioning',
+      group: 'MACRO',
+      model: 'CFTC Institutional Flow & Percentile Model',
+      weight: 1.5,
+      latencyMs: 33,
+      provenanceBadge: cotPositioningSpec?.provenanceBadge || 'DERIVED_FROM_VERIFIED',
+      evidenceTrustScore: cotPositioningSpec?.evidenceTrust || 80,
+      systemMandate: 'Evaluates non-commercial (speculator) smart money net positioning percentiles to identify institutional accumulation or crowded extremes.',
+      telemetry: { memoryMb: 340, tokensPerSec: 42, sampleCount: 8900, uptime: '99.92%' },
+      availableInputs: cotPositioningSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: cotPositioningSpec?.missingEvidence || [],
+    },
+    {
+      type: 'CENTRAL_BANK_POLICY_SPECIALIST' as any,
+      name: centralBankSpec?.agentName || 'Central Bank Policy Specialist',
+      role: centralBankSpec?.role || 'Global Central Bank Policy Rate Differentials & Forward Guidance',
+      bias: centralBankSpec?.direction || 'NEUTRAL',
+      confidence: centralBankSpec?.confidence || 80,
+      status: (centralBankSpec?.readiness === 'READY' ? 'ONLINE' : centralBankSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: centralBankSpec?.primaryThesis || 'Central bank policy rate differentials and monetary policy stance active.',
+      evidence: centralBankSpec?.evidence?.map((e) => e.claim) || ['Policy rate differential vector analyzed'],
+      keyRisk: centralBankSpec?.keyRisk || 'Emergency rate hike/cut or surprise hawkish/dovish pivot',
+      invalidation: centralBankSpec?.invalidation || 'Central bank inter-meeting rate decision announcement',
+      id: 'spec-central-bank',
+      group: 'MACRO',
+      model: 'Central Bank Interest Rate Differential Matrix',
+      weight: 1.8,
+      latencyMs: 27,
+      provenanceBadge: centralBankSpec?.provenanceBadge || 'DERIVED_FROM_VERIFIED',
+      evidenceTrustScore: centralBankSpec?.evidenceTrust || 85,
+      systemMandate: 'Analyzes policy interest rates across major central banks (Fed, ECB, BOE, BOJ, RBA, BOC) to determine fundamental macro tailwinds and yield carry advantage.',
+      telemetry: { memoryMb: 260, tokensPerSec: 46, sampleCount: 10400, uptime: '99.96%' },
+      availableInputs: centralBankSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: centralBankSpec?.missingEvidence || [],
+    },
+    {
+      type: 'QUANT_MONTE_CARLO_SPECIALIST' as any,
+      name: monteCarloSpec?.agentName || 'Quant Monte Carlo Stress Specialist',
+      role: monteCarloSpec?.role || 'Geometric Brownian Motion Trade Stress & Ruin Probability',
+      bias: monteCarloSpec?.direction || 'NEUTRAL',
+      confidence: monteCarloSpec?.confidence || 80,
+      status: (monteCarloSpec?.readiness === 'READY' ? 'ONLINE' : monteCarloSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: monteCarloSpec?.primaryThesis || 'Monte Carlo 10,000-path stochastic trajectory simulation active.',
+      evidence: monteCarloSpec?.evidence?.map((e) => e.claim) || ['Stochastic drift and volatility ruin probabilities simulated'],
+      keyRisk: monteCarloSpec?.keyRisk || 'High stop-loss breach probability exceeding risk tolerance threshold',
+      invalidation: monteCarloSpec?.invalidation || 'Empirical volatility shock shifting probability distribution',
+      id: 'spec-monte-carlo',
+      group: 'QUANT',
+      model: '10,000-Path Geometric Brownian Motion Engine',
+      weight: 2.2,
+      latencyMs: 42,
+      provenanceBadge: monteCarloSpec?.provenanceBadge || 'DERIVED',
+      evidenceTrustScore: monteCarloSpec?.evidenceTrust || 85,
+      systemMandate: 'Simulates 10,000 forward price paths using empirical drift and volatility to compute stop loss breach probability before TP1 is reached.',
+      telemetry: { memoryMb: 520, tokensPerSec: 90, sampleCount: 28400, uptime: '99.91%' },
+      availableInputs: monteCarloSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: monteCarloSpec?.missingEvidence || [],
+    },
+    {
+      type: 'ECONOMIC_NEWS_MOMENTUM_SPECIALIST' as any,
+      name: newsMomentumSpec?.agentName || 'Economic News Momentum Specialist',
+      role: newsMomentumSpec?.role || 'Real-Time Macro Impact & Headline Volatility Filter',
+      bias: newsMomentumSpec?.direction || 'NEUTRAL',
+      confidence: newsMomentumSpec?.confidence || 80,
+      status: (newsMomentumSpec?.readiness === 'READY' ? 'ONLINE' : newsMomentumSpec?.readiness === 'PARTIAL' ? 'ACTIVE' : 'DATA LIMITED') as any,
+      lastOpinion: newsMomentumSpec?.primaryThesis || 'Scheduled macroeconomic event proximity and headline momentum tracking active.',
+      evidence: newsMomentumSpec?.evidence?.map((e) => e.claim) || ['Economic calendar high-impact risk buffer monitored'],
+      keyRisk: newsMomentumSpec?.keyRisk || 'Imminent tier-1 economic event release (CPI, NFP, FOMC)',
+      invalidation: newsMomentumSpec?.invalidation || 'High-impact release window within 30-minute buffer',
+      id: 'spec-economic-news',
+      group: 'EVENT',
+      model: 'Real-Time Macro Impact & Headline Volatility Filter',
+      weight: 1.7,
+      latencyMs: 20,
+      provenanceBadge: newsMomentumSpec?.provenanceBadge || 'LIVE_EXTERNAL',
+      evidenceTrustScore: newsMomentumSpec?.evidenceTrust || 85,
+      systemMandate: 'Monitors scheduled macroeconomic releases and news headline momentum, enforcing risk blackout windows around tier-1 events.',
+      telemetry: { memoryMb: 230, tokensPerSec: 64, sampleCount: 13600, uptime: '99.98%' },
+      availableInputs: newsMomentumSpec?.evidence?.map((e) => e.claim) || [],
+      missingInputs: newsMomentumSpec?.missingEvidence || [],
     },
   ];
 
@@ -249,12 +527,13 @@ export default function AgentsDirectoryPage() {
 
   return (
     <div className="relative min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black overflow-x-hidden">
-      {/* Dynamic Background */}
+      {/* Static Premium CORTEX Visual Foundation */}
       <BackgroundLiveChart symbol={activeSymbol} isPositive={true} />
 
       {/* Main Layout Container */}
       <div className="relative z-10 flex flex-col p-2 sm:p-4 space-y-4 w-full max-w-[1920px] mx-auto">
         <MasterTopNav />
+        <MarketCategoryFilterBar />
 
         {/* Page Header */}
         <div className="ghost-glass-panel rounded-2xl p-5 font-sans space-y-4">
@@ -265,7 +544,7 @@ export default function AgentsDirectoryPage() {
                   AUTONOMOUS AGENT COUNCIL REGISTRY
                 </h1>
                 <span className="text-[9px] bg-cyan-950/60 text-[#22D3EE] border border-cyan-500/40 px-2 py-0.5 rounded font-mono font-bold">
-                  20 AGENTS ONLINE &bull; {activeSymbol} FOCUS
+                  {fullCouncil.length} AGENTS ONLINE &bull; {activeSymbol} FOCUS
                 </span>
                 <MarketStatusBadge symbol={activeSymbol} sessionState={assetProfile.sessionState} size="xs" />
                 <ExecutabilityBadge executable={assetProfile.tradeExecutable} size="xs" />
@@ -282,7 +561,7 @@ export default function AgentsDirectoryPage() {
                 )}
               </div>
               <p className="text-xs text-[#94A3B8] mt-1 font-sans">
-                Multi-Agent Cognitive Architecture &bull; {assetProfile.agents.length} Voting Council Members + {fullCouncil.length - assetProfile.agents.length} Specialist Observers ({fullCouncil.length} Total Specialists) &bull; Setup Quality: <span className="font-mono text-cyan-300 font-bold">{assetProfile.setupQuality}/100</span>
+                Multi-Agent Cognitive Architecture &bull; {assetProfile.agents.length} Voting Council Members + {fullCouncil.length - assetProfile.agents.length} Specialist Observers ({fullCouncil.length} Total Swarm Agents) &bull; Setup Quality: <span className="font-mono text-cyan-300 font-bold">{assetProfile.setupQuality}/100</span>
                 {!assetProfile.tradeExecutable && (
                   <span suppressHydrationWarning className="text-rose-400 font-mono ml-2 font-bold">
                     [MARKET CLOSED — DELIBERATIONS REFERENCE ONLY • OPENS IN {assetProfile.sessionState?.nextOpenCountdown || 'SCHEDULED'}]
@@ -340,7 +619,7 @@ export default function AgentsDirectoryPage() {
             {/* Stance Filter */}
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               <span className="text-gray-400 mr-2 text-[10px] uppercase">STANCE FILTER:</span>
-              {['ALL', 'BULLISH', 'BEARISH', 'NEUTRAL', 'CAUTION'].map((bias) => (
+              {['ALL', 'BULLISH', 'BEARISH', 'NEUTRAL', 'CAUTION', 'DATA LIMITED'].map((bias) => (
                 <button
                   key={bias}
                   onClick={() => setFilterBias(bias)}
@@ -379,17 +658,27 @@ export default function AgentsDirectoryPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <h3 className="font-bold text-sm text-white flex items-center space-x-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          (ag.status as string) === 'ONLINE' || (ag.status as string) === 'ACTIVE'
+                            ? 'bg-emerald-400 animate-pulse'
+                            : (ag.status as string) === 'DATA LIMITED'
+                            ? 'bg-purple-400'
+                            : 'bg-slate-500'
+                        }`} />
                         <span className="truncate">{ag.name}</span>
                       </h3>
                       <p className="text-[10px] text-gray-400 mt-0.5">{ag.role}</p>
                     </div>
-                    <span className={`text-[9px] px-2 py-0.5 rounded font-bold border ${
+                    <span className={`text-[9px] px-2 py-0.5 rounded font-bold border flex-shrink-0 ${
                       ag.bias === 'BULLISH'
                         ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                         : ag.bias === 'BEARISH'
                         ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
-                        : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                        : ag.bias === 'CAUTION'
+                        ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                        : (ag.bias as string) === 'DATA LIMITED'
+                        ? 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+                        : 'bg-slate-500/10 text-slate-300 border-slate-500/30'
                     }`}>
                       {ag.bias}
                     </span>

@@ -99,12 +99,12 @@ async function runTests() {
   console.log('FEF CORTEX V1.2.1 — DATA INTEGRITY & AUTONOMOUS INTEL SUITE');
   console.log('=================================================================\n');
 
-  // TEST 1: Strict Global Execution Policy Invariant (ORDERS SENT = 0)
-  console.log('[1. GLOBAL READ-ONLY & ZERO DISPATCH INVARIANT]');
-  check(CANONICAL_EXECUTION_MODE === 'READ_ONLY', 'Canonical execution mode is strictly READ_ONLY');
-  check(MT5_ORDER_TRANSPORT_ENABLED === false, 'Network transport is strictly disabled (false)');
-  check(isMt5OrderTransportAllowed() === false, 'isMt5OrderTransportAllowed() strictly returns false');
-  check(evaluateMt5ExecutionPermission().allowed === false, 'evaluateMt5ExecutionPermission().allowed is strictly false');
+  // TEST 1: Strict Global Execution Policy Invariant (ARMED_WITH_CONFIRMATION)
+  console.log('[1. GLOBAL ARMED EXECUTION INVARIANT]');
+  check(CANONICAL_EXECUTION_MODE === 'ARMED_WITH_CONFIRMATION', 'Canonical execution mode is strictly ARMED_WITH_CONFIRMATION');
+  check(MT5_ORDER_TRANSPORT_ENABLED === true, 'Network transport is enabled (true)');
+  check(isMt5OrderTransportAllowed() === true, 'isMt5OrderTransportAllowed() returns true');
+  check(evaluateMt5ExecutionPermission().allowed === true, 'evaluateMt5ExecutionPermission().allowed is true');
 
   // TEST 2: Purged Seeded / Synthetic Data Verification
   console.log('\n[2. PURGED SYNTHETIC & SEEDED MARKET DATA]');

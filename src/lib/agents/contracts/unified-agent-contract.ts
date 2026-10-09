@@ -34,7 +34,11 @@ export type EvidenceDomainFamily =
   | 'HISTORICAL_ANALOGUE'
   | 'PORTFOLIO_EXPOSURE'
   | 'RISK_GEOMETRY'
-  | 'SYSTEM_INTEGRITY';
+  | 'SYSTEM_INTEGRITY'
+  | 'CURRENCY_STRENGTH'
+  | 'INSTITUTIONAL'
+  | 'RISK_GUARDIAN'
+  | 'NEWS_WIRE';
 
 export type EvidencePolarity = 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'CAUTION';
 

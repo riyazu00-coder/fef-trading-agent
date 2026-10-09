@@ -732,11 +732,11 @@ runTest('9. Zero fabricated universal freshnessMs: 5000 in production multi-asse
   assert(!pipelineSource.includes('freshnessMs: 5000'), 'Found fabricated universal freshnessMs: 5000 in multi-asset-pipeline.ts');
 });
 
-// 10. Existing READ_ONLY execution lock remains unchanged
-runTest('10. Existing READ_ONLY execution lock and MT5_ORDER_TRANSPORT_ENABLED remain intact', () => {
+// 10. Canonical execution policy verification
+runTest('10. Canonical execution policy is ARMED_WITH_CONFIRMATION and MT5_ORDER_TRANSPORT_ENABLED is true', () => {
   const execPolicySource = fs.readFileSync(path.resolve(__dirname, '../src/lib/execution/execution-policy.ts'), 'utf8');
-  assert(execPolicySource.includes("CANONICAL_EXECUTION_MODE = 'READ_ONLY'"), 'CANONICAL_EXECUTION_MODE must remain READ_ONLY');
-  assert(execPolicySource.includes("MT5_ORDER_TRANSPORT_ENABLED = false"), 'MT5_ORDER_TRANSPORT_ENABLED must remain false');
+  assert(execPolicySource.includes("CANONICAL_EXECUTION_MODE = 'ARMED_WITH_CONFIRMATION'"), 'CANONICAL_EXECUTION_MODE must be ARMED_WITH_CONFIRMATION');
+  assert(execPolicySource.includes("MT5_ORDER_TRANSPORT_ENABLED = true"), 'MT5_ORDER_TRANSPORT_ENABLED must be true');
 });
 
 // 11. normalizeEvidenceFreshnessMs: missing, invalid, NaN, negative, or non-finite freshnessMs fails closed
@@ -1079,19 +1079,18 @@ runTest('8. CurrentAiDecision renders Review Trade Setup and SETUP REVIEWED (REA
   assert(!decisionCode.includes('Approve & Execute'), 'CurrentAiDecision must not contain "Approve & Execute"');
 });
 
-// 9. Execution page header renders 'BROKER TELEMETRY CONNECTED (READ-ONLY)' and displays 'GLOBAL READ-ONLY • ORDER TRANSPORT LOCKED'
-runTest('9. Execution page renders BROKER TELEMETRY CONNECTED (READ-ONLY) and global lock badge', () => {
+// 9. Execution page header renders 'MT5 ORDER TRANSPORT: ARMED' and active broker telemetry
+runTest('9. Execution page renders MT5 ORDER TRANSPORT: ARMED and broker telemetry', () => {
   const execPage = fs.readFileSync(path.resolve(__dirname, '../src/app/execution/page.tsx'), 'utf8');
-  assert(execPage.includes('BROKER TELEMETRY CONNECTED (READ-ONLY)'), 'Execution page must render "BROKER TELEMETRY CONNECTED (READ-ONLY)"');
-  assert(execPage.includes('GLOBAL READ-ONLY • ORDER TRANSPORT LOCKED'), 'Execution page must render "GLOBAL READ-ONLY • ORDER TRANSPORT LOCKED"');
+  assert(execPage.includes('MT5 ORDER TRANSPORT: ARMED'), 'Execution page must render "MT5 ORDER TRANSPORT: ARMED"');
+  assert(execPage.includes('BROKER TELEMETRY CONNECTED'), 'Execution page must render "BROKER TELEMETRY CONNECTED"');
   assert(!execPage.includes('UNIVERSAL EXECUTION (ANY BROKER)'), 'Execution page must not render "UNIVERSAL EXECUTION (ANY BROKER)"');
 });
 
-// 10. Execution pre-trade modal displays 'SUBMIT PRE-TRADE REVIEW (DEMO)' and shows explicit read-only disclaimer
-runTest('10. Execution pre-trade modal displays SUBMIT PRE-TRADE REVIEW (DEMO) and read-only disclaimer', () => {
+// 10. Execution pre-trade modal displays 'CONFIRM & DISPATCH TO MT5 ⚡'
+runTest('10. Execution pre-trade modal displays CONFIRM & DISPATCH TO MT5 ⚡', () => {
   const execPage = fs.readFileSync(path.resolve(__dirname, '../src/app/execution/page.tsx'), 'utf8');
-  assert(execPage.includes('SUBMIT PRE-TRADE REVIEW (DEMO)'), 'Modal button must be "SUBMIT PRE-TRADE REVIEW (DEMO)"');
-  assert(execPage.includes('READ_ONLY execution mode is canonically locked'), 'Modal must include explicit read-only disclaimer');
+  assert(execPage.includes('CONFIRM & DISPATCH TO MT5 ⚡'), 'Modal button must be "CONFIRM & DISPATCH TO MT5 ⚡"');
 });
 
 // 11. Order flow agent uses truthful 'EXCHANGE_VOLUME_DELTA' / 'BROKER_FLOW_PROXY' labels, not fake L2 book

@@ -13,7 +13,7 @@ export const BRAND_CONFIG = {
 export interface SupportChannel {
   id: string;
   name: string;
-  status: 'ONLINE' | 'COMING_SOON' | 'ACTIVE_24_7';
+  status: 'ONLINE' | 'COMING_SOON' | 'AVAILABLE' | 'CONFIGURATION_REQUIRED';
   statusLabel: string;
   description: string;
   actionType: 'mailto' | 'link' | 'none';
@@ -21,6 +21,37 @@ export interface SupportChannel {
   badgeColor: string;
   icon: string;
 }
+
+/**
+ * Authoritative FEF CORTEX WhatsApp Onboarding & EA Access Configuration.
+ * 
+ * Invariant: If NEXT_PUBLIC_SUPPORT_WHATSAPP is not provided in environment,
+ * status is flagged as REQUIRED_CONFIGURATION and URL returns null rather than
+ * inventing or using a placeholder phone number.
+ */
+const rawEnvWhatsApp = process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP?.trim() || '';
+const sanitizedDigits = rawEnvWhatsApp.replace(/[^0-9]/g, '');
+
+const isWhatsAppConfigured = Boolean(
+  rawEnvWhatsApp && 
+  sanitizedDigits.length >= 8 && 
+  !rawEnvWhatsApp.includes('1800') &&
+  !rawEnvWhatsApp.includes('800')
+);
+
+export const CORTEX_WHATSAPP_CONFIG = {
+  isConfigured: isWhatsAppConfigured,
+  phoneNumber: isWhatsAppConfigured ? rawEnvWhatsApp : 'REQUIRED_CONFIGURATION',
+  status: isWhatsAppConfigured ? ('CONFIGURED' as const) : ('REQUIRED_CONFIGURATION' as const),
+  prefilledMessage: 
+    'Hello FEF Trading Solutions,\nI would like to get access to FEF CORTEX and the official MT5 EA.\nPlease help me with onboarding and setup.',
+  getWhatsAppUrl(): string | null {
+    if (!isWhatsAppConfigured) return null;
+    const digits = rawEnvWhatsApp.replace(/[^0-9]/g, '');
+    const encoded = encodeURIComponent(this.prefilledMessage);
+    return `https://wa.me/${digits}?text=${encoded}`;
+  },
+};
 
 export const SUPPORT_CONFIG: {
   deskStatus: string;
@@ -31,32 +62,32 @@ export const SUPPORT_CONFIG: {
   safetyDisclaimer: string;
   channels: SupportChannel[];
 } = {
-  deskStatus: '24/7 ACTIVE DESK',
+  deskStatus: 'ACTIVE DESK',
   supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'support@feftradingsolutions.com',
-  supportWhatsApp: process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP || '+1 (800) 333-8723',
+  supportWhatsApp: isWhatsAppConfigured ? rawEnvWhatsApp : 'REQUIRED_CONFIGURATION',
   supportUrl: process.env.NEXT_PUBLIC_SUPPORT_URL || 'https://feftradingsolutions.com/support',
   supportMessage:
-    'Need help with FEF Trading Solutions? Our support channels are available 24/7 for platform operations and account assistance.',
+    'Need help with FEF Trading Solutions? Our technical team is available for platform onboarding and account assistance.',
   safetyDisclaimer:
     'Support is strictly for platform operations, account assistance, and technical diagnostics. FEF Trading Solutions does NOT provide guaranteed financial advice or investment signals.',
   channels: [
     {
       id: 'whatsapp',
-      name: 'WhatsApp Risk Hotline',
-      status: 'ACTIVE_24_7',
-      statusLabel: 'Online 24/7',
-      description: 'Immediate mobile escalation for trade anomalies, connectivity, and risk alerts.',
+      name: 'WhatsApp Support Desk',
+      status: isWhatsAppConfigured ? 'AVAILABLE' : 'CONFIGURATION_REQUIRED',
+      statusLabel: isWhatsAppConfigured ? 'Direct Hotline' : 'Config Required',
+      description: 'Direct mobile communication for CORTEX onboarding, EA provisioning, and connectivity setup.',
       actionType: 'link',
-      destination: 'https://wa.me/18003338723',
-      badgeColor: 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40',
+      destination: isWhatsAppConfigured ? CORTEX_WHATSAPP_CONFIG.getWhatsAppUrl() || undefined : undefined,
+      badgeColor: isWhatsAppConfigured ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40' : 'bg-amber-950/60 text-amber-300 border-amber-500/40',
       icon: '💬',
     },
     {
       id: 'email',
-      name: 'Direct Priority Desk (Email)',
-      status: 'ACTIVE_24_7',
-      statusLabel: '24/7 Available',
-      description: 'Response SLA: < 15 minutes for verified institutional accounts.',
+      name: 'Direct Support Desk (Email)',
+      status: 'AVAILABLE',
+      statusLabel: 'Email Desk',
+      description: 'Support desk for account assistance, technical inquiries, and general platform queries.',
       actionType: 'mailto',
       destination: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'support@feftradingsolutions.com',
       badgeColor: 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40',
@@ -64,9 +95,9 @@ export const SUPPORT_CONFIG: {
     },
     {
       id: 'bug_report',
-      name: 'Report a Technical Problem',
-      status: 'ACTIVE_24_7',
-      statusLabel: 'Ticket Tracker',
+      name: 'Report a Technical Issue',
+      status: 'AVAILABLE',
+      statusLabel: 'Issue Tracker',
       description: 'Submit tick discrepancies, vision misclassifications, or UI incident logs.',
       actionType: 'mailto',
       destination: `mailto:${process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'bugs@feftradingsolutions.com'}?subject=[Bug/Technical%20Report]%20FEF%20Cockpit`,
@@ -75,35 +106,25 @@ export const SUPPORT_CONFIG: {
     },
     {
       id: 'platform_help',
-      name: 'Trading Platform Help',
-      status: 'ACTIVE_24_7',
-      statusLabel: 'Knowledge Base',
-      description: 'Guides on Chart Analyzer, 15-Agent Council interpretations, and Risk Guardian.',
+      name: 'Platform Knowledge Base',
+      status: 'AVAILABLE',
+      statusLabel: 'Documentation',
+      description: 'Guides on CORTEX intelligence, MT5 EA installation, and Risk Guardian principles.',
       actionType: 'link',
-      destination: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://feftradingsolutions.com'}/docs`,
+      destination: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://feftradingsolutions.com'}/how-to-use`,
       badgeColor: 'bg-blue-950/60 text-blue-300 border-blue-500/40',
       icon: '📘',
     },
     {
-      id: 'billing_help',
-      name: 'Account & Subscription Help',
-      status: 'ACTIVE_24_7',
-      statusLabel: 'Account Desk',
-      description: 'Subscription tier management, MT5 API key provisioning, and seat licenses.',
-      actionType: 'mailto',
-      destination: `mailto:${process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'billing@feftradingsolutions.com'}?subject=[Account/Subscription%20Query]%20FEF%20Cockpit`,
-      badgeColor: 'bg-purple-950/60 text-purple-300 border-purple-500/40',
-      icon: '💳',
-    },
-    {
       id: 'livechat',
-      name: 'Cockpit Terminal Live Chat',
+      name: 'In-Terminal Live Chat',
       status: 'COMING_SOON',
-      statusLabel: 'Coming Soon in V1.1',
-      description: 'Native in-cockpit WebSocket chat with quantitative analysts & engineers.',
+      statusLabel: 'Coming in V1.1',
+      description: 'Integrated terminal messaging with technical support specialists.',
       actionType: 'none',
       badgeColor: 'bg-gray-800/60 text-gray-400 border-gray-700',
       icon: '⚡',
     },
   ],
 };
+

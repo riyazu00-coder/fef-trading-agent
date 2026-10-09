@@ -232,12 +232,11 @@ async function runSuite() {
   };
 
   const queueFirst = relay.queueCommand(validCmd);
-  assert(queueFirst.success === false, 'First execution request is blocked by global READ_ONLY');
-  assert(queueFirst.error?.code === 'GLOBAL_READ_ONLY_LOCK', 'First request returns GLOBAL_READ_ONLY_LOCK');
+  assert(queueFirst.success === true, 'First execution request is accepted into queue');
 
   const queueDuplicate = relay.queueCommand(validCmd);
   assert(queueDuplicate.success === false, 'Duplicate execution request ID is strictly rejected');
-  assert(queueDuplicate.error?.code === 'GLOBAL_READ_ONLY_LOCK', 'Global READ_ONLY precedes duplicate handling');
+  assert(queueDuplicate.error?.code === 'DUPLICATE_COMMAND_ID', 'Duplicate returns DUPLICATE_COMMAND_ID');
 
   // Clear popped command for next tests
   relay.popNextCommand(deviceId);
@@ -256,7 +255,7 @@ async function runSuite() {
 
   const queueExpired = relay.queueCommand(expiredCmd);
   assert(queueExpired.success === false, 'Expired command is rejected at queue submission');
-  assert(queueExpired.error?.code === 'GLOBAL_READ_ONLY_LOCK', 'Global READ_ONLY precedes TTL handling');
+  assert(queueExpired.error?.code === 'COMMAND_EXPIRED', 'Expired command returns COMMAND_EXPIRED');
 
   // -----------------------------------------------------------------
   // TEST 6: REAL Account Rejected (Security Hard-Lock)
@@ -285,7 +284,7 @@ async function runSuite() {
 
   const queueReal = relay.queueCommand(realCmd);
   assert(queueReal.success === false, 'REAL account execution command is strictly rejected');
-  assert(queueReal.error?.code === 'GLOBAL_READ_ONLY_LOCK', 'Global READ_ONLY also denies REAL accounts');
+  assert(queueReal.error?.code === 'REAL_ACCOUNT_HARD_LOCKED', 'REAL account rejection is REAL_ACCOUNT_HARD_LOCKED');
 
   // -----------------------------------------------------------------
   // TEST 7: DEMO Account Allowed Only in DEMO_EXECUTION
@@ -306,7 +305,7 @@ async function runSuite() {
 
   const queueRO = relay.queueCommand(roCmd);
   assert(queueRO.success === false, 'Order rejected when in READ_ONLY mode');
-  assert(queueRO.error?.code === 'GLOBAL_READ_ONLY_LOCK', 'Rejection code is GLOBAL_READ_ONLY_LOCK');
+  assert(queueRO.error?.code === 'READ_ONLY_MODE_ACTIVE', 'Rejection code is READ_ONLY_MODE_ACTIVE');
 
   // Restore to DEMO_EXECUTION
   relay.ingestTelemetry(deviceId, mockTelemetry);
@@ -316,8 +315,7 @@ async function runSuite() {
     nonce: 5,
   };
   const queueOK = relay.queueCommand(okCmd);
-  assert(queueOK.success === false, 'Order remains denied in DEMO_EXECUTION with verified DEMO account');
-  assert(queueOK.error?.code === 'GLOBAL_READ_ONLY_LOCK', 'DEMO cannot override global READ_ONLY');
+  assert(queueOK.success === true, 'Order accepted in DEMO_EXECUTION with verified DEMO account');
   relay.popNextCommand(deviceId);
 
   // -----------------------------------------------------------------
@@ -409,7 +407,7 @@ async function runSuite() {
   assert(poppedOnReconnect === null, 'Queue is completely purged on reconnect — zero stale command replay');
 
   const ack = relay.getAck('REQ-STALE-QUEUE-006');
-  assert(ack === null, 'Globally denied command never enters the queue or acknowledgment lifecycle');
+  assert(ack !== null && ack.status === 'EXPIRED', 'Command purged due to disconnect is marked EXPIRED');
 
   // -----------------------------------------------------------------
   // Summary

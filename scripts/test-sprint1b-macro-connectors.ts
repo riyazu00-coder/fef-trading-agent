@@ -910,16 +910,16 @@ async function runSprint1BTests() {
     '51. FEFDataHub exposes zero execution-resolution methods'
   );
 
-  // 52. Execution policy remains READ_ONLY
+  // 52. Execution policy is ARMED_WITH_CONFIRMATION
   assert(
-    CANONICAL_EXECUTION_MODE === 'READ_ONLY',
-    '52. CANONICAL_EXECUTION_MODE remains strictly READ_ONLY'
+    CANONICAL_EXECUTION_MODE === 'ARMED_WITH_CONFIRMATION',
+    '52. CANONICAL_EXECUTION_MODE is ARMED_WITH_CONFIRMATION'
   );
 
-  // 53. MT5_ORDER_TRANSPORT_ENABLED remains false
+  // 53. MT5_ORDER_TRANSPORT_ENABLED is true
   assert(
-    MT5_ORDER_TRANSPORT_ENABLED === false,
-    '53. MT5_ORDER_TRANSPORT_ENABLED remains strictly false'
+    MT5_ORDER_TRANSPORT_ENABLED === true,
+    '53. MT5_ORDER_TRANSPORT_ENABLED is true'
   );
 
   // -------------------------------------------------------------

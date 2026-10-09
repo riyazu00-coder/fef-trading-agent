@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
+import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
@@ -85,7 +86,7 @@ export default function SettingsPage() {
           mt5Connected: mt5Online,
           message: mt5Online
             ? `✓ Connected: Local HTTP Bridge & MetaTrader 5 live (Heartbeat: ${heartbeatStr})`
-            : `⚠ Local HTTP Bridge is ONLINE (127.0.0.1:${mt5Port}), but MetaTrader 5 terminal is not connected. Attach FEF_HTTP_Bridge.mq5 in MT5.`,
+            : `⚠ Bridge relay is ONLINE, but MetaTrader 5 terminal is not connected. Attach Official FEF CORTEX EA in MT5.`,
           terminal: localProbeStatus.terminal || telemetry.terminal,
           account: localProbeStatus.account || telemetry.account,
           latencyMs: localProbeStatus.localBridgeLatencyMs ?? null,
@@ -149,7 +150,7 @@ export default function SettingsPage() {
         localBridgeOnline: false,
         localBridgeDiagnostic: 'OFFLINE / UNREACHABLE',
         mt5Connected: false,
-        message: `MT5 is disconnected: Local HTTP bridge (127.0.0.1:${mt5Port}) and Remote Relay are offline. Verify 'com.fef.mt5-connectivity' background service.`,
+        message: 'MT5 is disconnected: Bridge endpoint and Remote Relay are offline. Please verify MT5 terminal connectivity and network permissions.',
         latencyMs: null,
         heartbeatAgeMs: null,
         transport: 'HTTP / WEBREQUEST',
@@ -176,12 +177,13 @@ export default function SettingsPage() {
 
   return (
     <div className="relative min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black overflow-x-hidden">
-      {/* Background Aurora */}
+      {/* Static Premium CORTEX Visual Foundation */}
       <BackgroundLiveChart symbol={activeSymbol} isPositive={true} />
 
       {/* Main Container */}
       <div className="relative z-10 flex flex-col p-2 sm:p-4 space-y-4 w-full max-w-[1920px] mx-auto">
         <MasterTopNav />
+        <MarketCategoryFilterBar />
 
         {/* Top Header */}
         <div className="ghost-glass-panel rounded-2xl p-5 space-y-2">
@@ -452,7 +454,7 @@ export default function SettingsPage() {
 
                   {!mt5TestResult.success && (
                     <p className="text-[10px] text-gray-400 pt-1 border-t border-white/10">
-                      Tip: Open MetaTrader 5, verify that <code className="text-cyan-300 font-mono">FEF_HTTP_Bridge.mq5</code> is attached to any chart and ensure <code className="text-cyan-300 font-mono">http://127.0.0.1:5556</code> is added to Tools &rarr; Options &rarr; Expert Advisors &rarr; Allow WebRequest.
+                      Tip: Open MetaTrader 5, verify that the Official FEF CORTEX EA is attached to any chart and ensure your designated bridge endpoint is added to Tools &rarr; Options &rarr; Expert Advisors &rarr; Allow WebRequest.
                     </p>
                   )}
                 </div>
@@ -566,16 +568,16 @@ export default function SettingsPage() {
                   </button>
                 </div>
 
-                {/* Haptic / Animation */}
+                {/* Visual Foundation */}
                 <div className="flex items-center justify-between pt-2 border-t border-white/5">
                   <div>
-                    <span className="text-gray-300 font-bold block">AURORA MOTION ENGINE</span>
+                    <span className="text-gray-300 font-bold block">CORTEX VISUAL FOUNDATION</span>
                     <span className="text-[10px] text-gray-500">
-                      GPU accelerated undulating background ambient video
+                      Static institutional dark glass &amp; event-driven interactive glass (0% GPU baseline)
                     </span>
                   </div>
-                  <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-bold">
-                    60 FPS ACTIVE
+                  <span className="text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-bold">
+                    EFFICIENCY MODE
                   </span>
                 </div>
               </div>

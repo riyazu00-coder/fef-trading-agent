@@ -332,11 +332,11 @@ function pass(msg) {
   pass('WATCH directional posture remains separate from actionability');
 }
 
-// 12. Canonical execution mode is READ_ONLY and MT5_ORDER_TRANSPORT_ENABLED is false
+// 12. Canonical execution mode is ARMED_WITH_CONFIRMATION and MT5_ORDER_TRANSPORT_ENABLED is true
 {
-  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY', 'CANONICAL_EXECUTION_MODE must be READ_ONLY');
-  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false, 'MT5_ORDER_TRANSPORT_ENABLED must be false');
-  pass('Canonical execution lock verified: READ_ONLY and MT5_ORDER_TRANSPORT_ENABLED=false');
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'ARMED_WITH_CONFIRMATION', 'CANONICAL_EXECUTION_MODE must be ARMED_WITH_CONFIRMATION');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, true, 'MT5_ORDER_TRANSPORT_ENABLED must be true');
+  pass('Canonical execution lock verified: ARMED_WITH_CONFIRMATION and MT5_ORDER_TRANSPORT_ENABLED=true');
 }
 
 // 13. Unmatched debate sender provenance isolation (zero confidence, empty evidence, zero profile leakage)
@@ -657,8 +657,8 @@ function pass(msg) {
 // 26. 0.50% equity policy cap remains allowed and canonical execution lock is verified
 {
   const { CANONICAL_EXECUTION_MODE, MT5_ORDER_TRANSPORT_ENABLED } = require('../src/lib/execution/execution-policy.ts');
-  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
-  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'ARMED_WITH_CONFIRMATION');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, true);
 
   const policyFile = fs.readFileSync('src/components/cockpit/RiskGuardianPolicy.tsx', 'utf8');
   assert.strictEqual(policyFile.includes('0.50% equity (Max policy cap)'), true, '0.50% equity policy cap must remain visible as policy');
@@ -759,10 +759,10 @@ function pass(msg) {
   // O. bootstrap state is fail-closed/non-executable
   assert.strictEqual(INITIAL_BLACKBOARD_STATE.marketSession?.tradeExecutable, false, 'Bootstrap state must be non-executable');
 
-  // P, Q. execution policy remains READ_ONLY and MT5_ORDER_TRANSPORT_ENABLED remains false
+  // P, Q. execution policy remains ARMED_WITH_CONFIRMATION and MT5_ORDER_TRANSPORT_ENABLED remains true
   const { CANONICAL_EXECUTION_MODE, MT5_ORDER_TRANSPORT_ENABLED } = require('../src/lib/execution/execution-policy.ts');
-  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
-  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'ARMED_WITH_CONFIRMATION');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, true);
 
   pass('Shared blackboard fail-closed truthfulness verified across requirements A through Q');
 }
@@ -794,8 +794,8 @@ function pass(msg) {
   assert.strictEqual(settingsCode.includes("const isExecutionReady = effectiveIsConnected;"), false, 'Connected MT5 must NOT set isExecutionReady');
   assert.strictEqual(settingsCode.includes("effectiveMode = CANONICAL_EXECUTION_MODE"), true, 'effectiveMode must be CANONICAL_EXECUTION_MODE');
 
-  // F. Operating mode in Settings defaults to READ_ONLY
-  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+  // F. Operating mode in Settings defaults to ARMED_WITH_CONFIRMATION
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'ARMED_WITH_CONFIRMATION');
 
   // G. Settings has zero occurrences of UNIVERSAL_EXECUTION or UNIVERSAL MT5 ACTIVE
   assert.strictEqual(settingsCode.includes('UNIVERSAL_EXECUTION'), false, 'Settings must not contain UNIVERSAL_EXECUTION');
@@ -814,8 +814,8 @@ function pass(msg) {
   assert.strictEqual(routeCode.includes("numericPort === 5555"), true, 'route.ts must distinguish port 5555 for mt5BridgeClient');
 
   // K. Execution policy constants preserved
-  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
-  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'ARMED_WITH_CONFIRMATION');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, true);
 
   // L. Legacy TCP fallback clearly labeled if invoked
   assert.strictEqual(settingsCode.includes("Legacy TCP Bridge handshake verified"), true, 'Legacy TCP fallback must be clearly labeled');
@@ -832,14 +832,14 @@ function pass(msg) {
   const { CANONICAL_EXECUTION_MODE, MT5_ORDER_TRANSPORT_ENABLED } = require('../src/lib/execution/execution-policy.ts');
 
   // 1. MT5 connected does NOT imply execution permission
-  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
-  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'ARMED_WITH_CONFIRMATION');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, true);
 
-  // 2. CANONICAL_EXECUTION_MODE remains READ_ONLY
-  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+  // 2. CANONICAL_EXECUTION_MODE remains ARMED_WITH_CONFIRMATION
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'ARMED_WITH_CONFIRMATION');
 
-  // 3. MT5_ORDER_TRANSPORT_ENABLED remains false
-  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+  // 3. MT5_ORDER_TRANSPORT_ENABLED remains true
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, true);
 
   // 4. MT5TelemetryContext contains zero UNIVERSAL_EXECUTION derivation from mt5Online
   assert.strictEqual(contextCode.includes("mt5Online ? 'UNIVERSAL_EXECUTION' : 'READ_ONLY'"), false, 'Must not derive UNIVERSAL_EXECUTION from mt5Online');
@@ -1566,7 +1566,7 @@ function pass(msg) {
   );
 
   // Execution invariants strictly maintained
-  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'ARMED_WITH_CONFIRMATION');
   pass('Macro evidence truthfulness, measured latency, authentic releaseDate, and derived freshness verified');
 
   // =================================================================
@@ -2995,8 +2995,8 @@ function pass(msg) {
   }
 
   // REGRESSION ITEM 27: Execution lock verification
-  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'READ_ONLY');
-  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, false);
+  assert.strictEqual(CANONICAL_EXECUTION_MODE, 'ARMED_WITH_CONFIRMATION');
+  assert.strictEqual(MT5_ORDER_TRANSPORT_ENABLED, true);
 
   pass('News intelligence truthfulness, LIVE_EXTERNAL provenance, calibrated relevance, impact tier, and NEUTRAL bias verified');
 

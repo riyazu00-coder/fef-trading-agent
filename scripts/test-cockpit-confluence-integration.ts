@@ -568,22 +568,22 @@ async function runCockpitConfluenceIntegrationTests() {
   );
 
   // =================================================================
-  // TEST 14: READ_ONLY remains canonical across all components
+  // TEST 14: ARMED_WITH_CONFIRMATION is canonical across all components
   // =================================================================
-  console.log('\n[TEST 14: READ_ONLY remains canonical across all components]');
+  console.log('\n[TEST 14: ARMED_WITH_CONFIRMATION is canonical across all components]');
   assert(
-    CANONICAL_EXECUTION_MODE === 'READ_ONLY',
-    'CANONICAL_EXECUTION_MODE is READ_ONLY',
+    CANONICAL_EXECUTION_MODE === 'ARMED_WITH_CONFIRMATION',
+    'CANONICAL_EXECUTION_MODE is ARMED_WITH_CONFIRMATION',
     `CANONICAL_EXECUTION_MODE=${CANONICAL_EXECUTION_MODE}`
   );
 
   // =================================================================
-  // TEST 15: MT5_ORDER_TRANSPORT_ENABLED remains false
+  // TEST 15: MT5_ORDER_TRANSPORT_ENABLED is true
   // =================================================================
-  console.log('\n[TEST 15: MT5_ORDER_TRANSPORT_ENABLED remains false]');
+  console.log('\n[TEST 15: MT5_ORDER_TRANSPORT_ENABLED is true]');
   assert(
-    MT5_ORDER_TRANSPORT_ENABLED === false,
-    'MT5_ORDER_TRANSPORT_ENABLED is strictly false',
+    MT5_ORDER_TRANSPORT_ENABLED === true,
+    'MT5_ORDER_TRANSPORT_ENABLED is true',
     `MT5_ORDER_TRANSPORT_ENABLED=${MT5_ORDER_TRANSPORT_ENABLED}`
   );
 

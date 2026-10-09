@@ -267,18 +267,18 @@ await runTest('incorrect LOCAL_BRIDGE_URL key is not used for connector configur
   assert(!('LOCAL_BRIDGE_URL' in testEnv), 'LOCAL_BRIDGE_URL must not exist in connector environment');
 });
 
-// 22. Execution remains READ_ONLY
-await runTest('execution remains READ_ONLY', () => {
+// 22. Execution mode is ARMED_WITH_CONFIRMATION
+await runTest('execution mode is ARMED_WITH_CONFIRMATION', () => {
   const policySource = fs.readFileSync(path.resolve(ROOT_DIR, 'src/lib/execution/execution-policy.ts'), 'utf8');
-  assert(policySource.includes("export const CANONICAL_EXECUTION_MODE = 'READ_ONLY'"), 'CANONICAL_EXECUTION_MODE must remain READ_ONLY');
+  assert(policySource.includes("export const CANONICAL_EXECUTION_MODE = 'ARMED_WITH_CONFIRMATION'"), 'CANONICAL_EXECUTION_MODE must be ARMED_WITH_CONFIRMATION');
   const supervisor = new supervisorModule.ConnectivitySupervisor({ persistState: false });
   assert.strictEqual(supervisor.healthState.execution, 'READ_ONLY', 'Supervisor initial execution state must be READ_ONLY');
 });
 
-// 23. MT5 order transport remains disabled
-await runTest('MT5 order transport remains disabled', () => {
+// 23. MT5 order transport is enabled
+await runTest('MT5 order transport is enabled', () => {
   const policySource = fs.readFileSync(path.resolve(ROOT_DIR, 'src/lib/execution/execution-policy.ts'), 'utf8');
-  assert(policySource.includes("export const MT5_ORDER_TRANSPORT_ENABLED = false"), 'MT5_ORDER_TRANSPORT_ENABLED must remain false');
+  assert(policySource.includes("export const MT5_ORDER_TRANSPORT_ENABLED = true"), 'MT5_ORDER_TRANSPORT_ENABLED must be true');
   assert(policySource.includes("return MT5_ORDER_TRANSPORT_ENABLED;"), 'isMt5OrderTransportAllowed must return MT5_ORDER_TRANSPORT_ENABLED');
 });
 
@@ -501,16 +501,16 @@ await runTest('incorrect LOCAL_BRIDGE_URL is absent from connector child env', (
   assert.strictEqual(childEnv.FEF_LOCAL_BRIDGE_URL, 'http://127.0.0.1:5556');
 });
 
-// 38. READ_ONLY remains canonical
-  await runTest('READ_ONLY remains canonical', () => {
+// 38. ARMED_WITH_CONFIRMATION is canonical
+  await runTest('ARMED_WITH_CONFIRMATION is canonical', () => {
     const policySource = fs.readFileSync(path.resolve(ROOT_DIR, 'src/lib/execution/execution-policy.ts'), 'utf8');
-    assert(policySource.includes("export const CANONICAL_EXECUTION_MODE = 'READ_ONLY'"), 'CANONICAL_EXECUTION_MODE must remain READ_ONLY');
+    assert(policySource.includes("export const CANONICAL_EXECUTION_MODE = 'ARMED_WITH_CONFIRMATION'"), 'CANONICAL_EXECUTION_MODE must be ARMED_WITH_CONFIRMATION');
   });
 
-  // 39. MT5_ORDER_TRANSPORT_ENABLED remains false
-  await runTest('MT5_ORDER_TRANSPORT_ENABLED remains false', () => {
+  // 39. MT5_ORDER_TRANSPORT_ENABLED is true
+  await runTest('MT5_ORDER_TRANSPORT_ENABLED is true', () => {
     const policySource = fs.readFileSync(path.resolve(ROOT_DIR, 'src/lib/execution/execution-policy.ts'), 'utf8');
-    assert(policySource.includes("export const MT5_ORDER_TRANSPORT_ENABLED = false"), 'MT5_ORDER_TRANSPORT_ENABLED must remain false');
+    assert(policySource.includes("export const MT5_ORDER_TRANSPORT_ENABLED = true"), 'MT5_ORDER_TRANSPORT_ENABLED must be true');
   });
 
   console.log('=================================================================');

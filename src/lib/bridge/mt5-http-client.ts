@@ -21,7 +21,7 @@ import {
   DemoExecutionResult
 } from './mt5-bridge-protocol';
 import { symbolDirectory } from './symbol-mapper';
-import { READ_ONLY_EXECUTION_ERROR } from '../execution/execution-policy';
+import { READ_ONLY_EXECUTION_ERROR, isMt5OrderTransportAllowed } from '../execution/execution-policy';
 
 export interface MT5HttpClientConfig {
   baseUrl: string;
@@ -60,8 +60,8 @@ export class MT5HttpClient {
     params?: Record<string, any>,
     symbol?: string
   ): Promise<BridgeResponsePayload<T>> {
-    // 1. Reject live execution and unauthorized mutating commands
-    if (RESTRICTED_EXECUTION_COMMANDS.has(command)) {
+    // 1. Reject live execution and unauthorized mutating commands if order transport is locked
+    if (RESTRICTED_EXECUTION_COMMANDS.has(command) && !isMt5OrderTransportAllowed()) {
       return {
         reqId: `req-${Date.now()}`,
         command,

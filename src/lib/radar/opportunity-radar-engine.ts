@@ -12,9 +12,12 @@
 
 import { LiveMarketAsset, INITIAL_LIVE_ASSETS } from '../providers/real-market-api';
 import { generateAssetIntelligence, AssetIntelligenceProfile } from '../agents/multi-asset-pipeline';
-import { MarketCategory } from '../registry/market-registry';
+import { MarketCategory, getAllMarkets, getMarketDefinition } from '../registry/market-registry';
 import { OHLCCandle } from '../market/canonical-market-snapshot';
 import { EvidenceClassification } from '../evidence/agent-evidence';
+import { FastOpportunityEngine, FastOpportunityEvaluation } from './fast-opportunity-engine';
+import { SetupLifecycleEngine } from '../trading/setup-lifecycle-engine';
+import { SetupLifecycleState } from '../trading/setup-lifecycle-types';
 
 export type RadarOpportunityState =
   | 'STRONG BUY OPPORTUNITY'
@@ -66,6 +69,7 @@ export interface RadarOpportunityItem {
   verifiedAgentCount?: number;
   feedStatus?: string;
   isDataLimited?: boolean;
+  setupLifecycleState?: SetupLifecycleState;
 }
 
 export interface AttentionQueueItem {
@@ -109,7 +113,7 @@ export interface RegimeMapItem {
 export interface GlobalRadarIntelligence {
   timestamp: string;
   activeScanCount: number;
-  topOpportunity: RadarOpportunityItem;
+  topOpportunity: RadarOpportunityItem | null;
   rankedOpportunities: RadarOpportunityItem[];
   attentionQueue: AttentionQueueItem[];
   developingSetups: DevelopingSetupItem[];
@@ -224,7 +228,7 @@ export function calculateOpportunityScore(
     score += 4;
   }
 
-  // 5. Event Risk / Shock Filter Penalty (up to 10 pts)
+  // Event Risk / Shock Filter Penalty (up to 10 pts)
   const newsRisk = profile.newsRisk.toLowerCase();
   let riskLevel: RadarRiskLevel = 'MEDIUM';
   if (newsRisk.includes('low') || newsRisk.includes('clear') || newsRisk.includes('safe')) {
@@ -244,16 +248,56 @@ export function calculateOpportunityScore(
     reasons.push(`Clean regime confluence: ${profile.regime}`);
   }
 
+  // 6. Fast Opportunity Engine & M15/M30 Candle-Close Trigger Integration
+  const isSessionExecutable = profile.tradeExecutable ?? (profile.sessionState ? profile.sessionState.tradeExecutable : true);
+  const sessionState = profile.sessionState;
+  const marketState = sessionState?.marketState || (isSessionExecutable ? 'OPEN' : 'CLOSED');
+  const isInvalidated =
+    profile.setupLifecycle?.state === 'INVALIDATED' ||
+    profile.blueprint?.state === 'INVALIDATED' ||
+    (profile.blueprint?.setupId ? SetupLifecycleEngine.isSetupInvalidated(profile.blueprint.setupId) : false);
+
+  let fastEval: FastOpportunityEvaluation | null = null;
+  if (profile.blueprint && profile.triggerEvidence && !isInvalidated) {
+    const hasVerifiedBrokerPrice = (asset.price > 0 && asset.feedStatus !== 'OFFLINE' && (asset.feedStatus as string) !== 'UNAVAILABLE') || asset.provider === 'MT5';
+    const spreadQuality = asset.spread !== undefined && asset.spread > 0
+      ? (asset.spread <= 25 ? 'TIGHT' : 'NORMAL')
+      : 'NORMAL';
+
+    fastEval = FastOpportunityEngine.evaluateFastOpportunity({
+      symbol: profile.symbol,
+      currentPrice: asset.price,
+      triggerEvidence: profile.triggerEvidence,
+      blueprint: profile.blueprint,
+      marketStructure: profile.marketStructure || null,
+      sessionExecutable: isSessionExecutable,
+      spreadQuality,
+      hasVerifiedBrokerPrice,
+      macroCoverage: {
+        isRatesAvailable: true,
+        isRealYieldAvailable: true,
+        isDxyAvailable: false,
+      },
+    });
+
+    if (fastEval.isTriggerConfirmed) {
+      score += 20;
+      score = Math.max(score, fastEval.rankingScore);
+      reasons.unshift(fastEval.reasoning);
+    }
+  }
+
+  if (isInvalidated) {
+    score = Math.min(score, 35);
+    reasons.unshift(`[INVALIDATED] Setup invalidated: ${profile.setupLifecycle?.invalidationReason || 'Structural violation'}`);
+  }
+
   // Clamp score strictly to 0 - 100 (Setup Quality)
   const setupQuality = Math.max(10, Math.min(99, Math.round(score)));
 
   // Derive Radar Opportunity State & Session Executability
   const isBullishDominant = bullishAgents > bearishAgents;
   let state: RadarOpportunityState = 'WAIT';
-
-  const isSessionExecutable = profile.tradeExecutable ?? (profile.sessionState ? profile.sessionState.tradeExecutable : true);
-  const sessionState = profile.sessionState;
-  const marketState = sessionState?.marketState || (isSessionExecutable ? 'OPEN' : 'CLOSED');
 
   if (!isSessionExecutable) {
     // Market is CLOSED, PRE_OPEN, DAILY_BREAK, WEEKEND_CLOSED, etc.
@@ -268,8 +312,13 @@ export function calculateOpportunityScore(
     const countdown = sessionState?.nextOpenCountdown ? ` in ${sessionState.nextOpenCountdown}` : '';
     reasons.unshift(`[MARKET ${sessionState?.statusLabel || 'CLOSED'}] Analysis active; execution gated until session opens${countdown}`);
   } else {
-    // If the swarm profile has an established setup direction, adhere to it without flapping
-    if (profile.setupDirection === 'WATCH FOR BUY' || profile.setupDirection === 'BUY OPPORTUNITY') {
+    const isFastBuyTrigger = fastEval?.isTriggerConfirmed && fastEval.direction === 'BUY';
+    const isFastSellTrigger = fastEval?.isTriggerConfirmed && fastEval.direction === 'SELL';
+
+    if (isInvalidated) {
+      state = 'WAIT';
+      riskLevel = 'HIGH';
+    } else if (profile.setupDirection === 'WATCH FOR BUY' || profile.setupDirection === 'BUY OPPORTUNITY' || isFastBuyTrigger) {
       if (setupQuality >= 84) {
         state = 'STRONG BUY OPPORTUNITY';
         riskLevel = 'LOW';
@@ -280,7 +329,7 @@ export function calculateOpportunityScore(
         state = 'WATCH FOR BUY';
         riskLevel = 'MEDIUM';
       }
-    } else if (profile.setupDirection === 'WATCH FOR SELL' || profile.setupDirection === 'SELL OPPORTUNITY') {
+    } else if (profile.setupDirection === 'WATCH FOR SELL' || profile.setupDirection === 'SELL OPPORTUNITY' || isFastSellTrigger) {
       if (setupQuality >= 84) {
         state = 'STRONG SELL OPPORTUNITY';
         riskLevel = 'LOW';
@@ -362,12 +411,62 @@ export function generateGlobalRadarIntelligence(
   },
   multiAssetCandles?: Record<string, SymbolCandleFeed>
 ): GlobalRadarIntelligence {
-  const symbols = Object.keys(assets);
+  if (!assets || Object.keys(assets).length === 0) {
+    return {
+      timestamp: new Date().toLocaleTimeString(),
+      activeScanCount: 0,
+      topOpportunity: null,
+      rankedOpportunities: [],
+      attentionQueue: [],
+      developingSetups: [],
+      recentlyInvalidated: [],
+      regimeMap: [],
+      summaryStats: {
+        totalScanned: 0,
+        buyOpportunities: 0,
+        sellOpportunities: 0,
+        watchlistCount: 0,
+        highestScoreAsset: 'NONE',
+        highestScore: 0,
+      },
+    };
+  }
 
-  const opportunities: RadarOpportunityItem[] = symbols.map((sym) => {
-    const liveAsset = assets[sym];
-    const isMatched = activeCandles && activeCandles.symbol === sym && Array.isArray(activeCandles.candles) && activeCandles.candles.length >= 10;
-    const multiFeed = multiAssetCandles && multiAssetCandles[sym];
+  const canonicalMarkets = getAllMarkets();
+
+  // Create lookup for incoming assets normalized to canonical symbols
+  const resolvedAssets: Record<string, LiveMarketAsset> = {};
+  for (const [key, val] of Object.entries(assets)) {
+    const marketDef = getMarketDefinition(key);
+    const canonicalKey = marketDef ? marketDef.symbol : key.toUpperCase().trim();
+    // Prioritize direct canonical match, or adopt alias quote
+    if (!resolvedAssets[canonicalKey] || key === canonicalKey) {
+      resolvedAssets[canonicalKey] = {
+        ...val,
+        symbol: canonicalKey,
+      };
+    }
+  }
+
+  // Iterate strictly across the canonical 26 universe without duplicating aliases
+  const opportunities: RadarOpportunityItem[] = canonicalMarkets.map((canonicalDef) => {
+    const sym = canonicalDef.symbol;
+    const isLiveAssetPresent = Boolean(resolvedAssets[sym]);
+    const liveAsset: LiveMarketAsset = resolvedAssets[sym] || {
+      symbol: sym,
+      name: canonicalDef.displayName,
+      price: canonicalDef.basePrice || 0,
+      change24h: 0,
+      volume24h: 0,
+      high24h: canonicalDef.basePrice || 0,
+      low24h: canonicalDef.basePrice || 0,
+      lastUpdated: new Date().toISOString(),
+      provider: 'UNAVAILABLE',
+      feedStatus: 'OFFLINE',
+    };
+
+    const isMatched = activeCandles && (activeCandles.symbol === sym || getMarketDefinition(activeCandles.symbol)?.symbol === sym) && Array.isArray(activeCandles.candles) && activeCandles.candles.length >= 10;
+    const multiFeed = multiAssetCandles && (multiAssetCandles[sym] || (canonicalDef.brokerAliases && canonicalDef.brokerAliases.map(ba => multiAssetCandles[ba]).find(Boolean)));
     const hasMultiCandles = multiFeed && Array.isArray(multiFeed.candles) && multiFeed.candles.length >= 10;
 
     let profile: AssetIntelligenceProfile;
@@ -383,6 +482,11 @@ export function generateGlobalRadarIntelligence(
 
     const { score, setupQuality, tradeExecutable, marketState, state, riskLevel, timeframe, whyReasons } = calculateOpportunityScore(profile, liveAsset);
 
+    const isUnsupportedOrOffline = !isLiveAssetPresent || liveAsset.feedStatus === 'OFFLINE' || (liveAsset.feedStatus as string) === 'UNAVAILABLE';
+    const effectiveState = isUnsupportedOrOffline ? 'DATA LIMITED' : state;
+    const effectiveScore = isUnsupportedOrOffline ? 0 : score;
+    const effectiveExecutable = isUnsupportedOrOffline ? false : tradeExecutable;
+
     return {
       rank: 0,
       symbol: sym,
@@ -390,31 +494,32 @@ export function generateGlobalRadarIntelligence(
       category: profile.category as RadarCategory,
       price: liveAsset.price,
       change24h: liveAsset.change24h,
-      state,
-      opportunityScore: score,
-      setupQuality,
-      tradeExecutable,
-      executabilityScore: tradeExecutable ? 100 : 0,
-      marketState,
+      state: effectiveState,
+      opportunityScore: effectiveScore,
+      setupQuality: isUnsupportedOrOffline ? 0 : setupQuality,
+      tradeExecutable: effectiveExecutable,
+      executabilityScore: effectiveExecutable ? 100 : 0,
+      marketState: isUnsupportedOrOffline ? 'UNAVAILABLE' : marketState,
       sessionCountdown: profile.sessionState?.nextOpenCountdown,
-      aiConfidence: profile.confidence,
+      aiConfidence: isUnsupportedOrOffline ? 0 : profile.confidence,
       timeframe,
-      riskLevel,
+      riskLevel: isUnsupportedOrOffline ? 'HIGH' : riskLevel,
       entryZone: profile.entryZone,
       stopLoss: profile.stopLoss,
       tp1: profile.tp1,
       tp2: profile.tp2,
       tp3: profile.tp3,
       rr: profile.rr,
-      regime: profile.regime,
-      catalysts: profile.whyThisTrade,
+      regime: isUnsupportedOrOffline ? 'DATA LIMITED — Broker Feed Unavailable' : profile.regime,
+      catalysts: isUnsupportedOrOffline ? ['Broker unsupported / instrument unavailable'] : profile.whyThisTrade,
       invalidation: profile.invalidation,
-      whyRankedReasons: whyReasons,
-      evidenceTrust: profile.evidenceTrust,
-      actionabilityState: profile.actionabilityState,
-      verifiedAgentCount: profile.verifiedAgentCount,
+      whyRankedReasons: isUnsupportedOrOffline ? ['Broker unsupported / instrument unavailable'] : whyReasons,
+      evidenceTrust: isUnsupportedOrOffline ? 0 : profile.evidenceTrust,
+      actionabilityState: isUnsupportedOrOffline ? 'INSUFFICIENT_INFORMATION' : profile.actionabilityState,
+      verifiedAgentCount: isUnsupportedOrOffline ? 0 : profile.verifiedAgentCount,
       feedStatus: liveAsset.feedStatus,
-      isDataLimited: liveAsset.feedStatus === 'DATA LIMITED' || liveAsset.feedStatus === 'DEMO' || liveAsset.feedStatus === 'OFFLINE'
+      isDataLimited: isUnsupportedOrOffline || liveAsset.feedStatus === 'DATA LIMITED' || liveAsset.feedStatus === 'DEMO' || liveAsset.feedStatus === 'OFFLINE',
+      setupLifecycleState: profile.setupLifecycle?.state || (profile.blueprint ? 'ARMED' : 'FORMING')
     };
   });
 
@@ -486,9 +591,14 @@ export function generateGlobalRadarIntelligence(
       direction: (o.state.includes('BUY') ? 'LONG' : o.state.includes('SELL') ? 'SHORT' : 'UNDETERMINED') as 'LONG' | 'SHORT' | 'UNDETERMINED',
     }));
 
-  // Phase 2D: Recently invalidated is always empty at startup.
-  // Only real-time engine lifecycle updates populate this list.
-  const recentlyInvalidated: InvalidatedSetupItem[] = [];
+  // Populated from SetupLifecycleEngine real-time invalidation records
+  const recentlyInvalidated: InvalidatedSetupItem[] = SetupLifecycleEngine.getRecentlyInvalidated(5).map((inv) => ({
+    symbol: inv.symbol,
+    setupName: `${inv.symbol} ${inv.direction} Setup`,
+    invalidatedAt: new Date(inv.invalidatedAt).toLocaleTimeString(),
+    reason: inv.invalidationReason,
+    lossMitigation: `Structural exit at ${inv.invalidatedPrice.toFixed(2)}`,
+  }));
 
   // Market Regime Map — derived from real opportunities only
   const regimeMap: RegimeMapItem[] = opportunities.map((opp) => {

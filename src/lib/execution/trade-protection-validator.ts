@@ -118,6 +118,92 @@ export function calculateRR(
   };
 }
 
+export interface ReanchorLevelsInput {
+  direction: 'BUY' | 'SELL';
+  plannedEntry: number;
+  freshEntry: number;
+  sl: number;
+  tp1: number;
+  tp2?: number;
+  tp3?: number;
+  digits?: number;
+}
+
+export interface ReanchoredLevelsResult {
+  entry: number;
+  sl: number;
+  tp1: number;
+  tp2?: number;
+  tp3?: number;
+  slDistance: number;
+  tp1Distance: number;
+  tp2Distance?: number;
+  tp3Distance?: number;
+}
+
+/**
+ * Dynamically re-anchors relative stop loss and take profit distances to a fresh live execution price.
+ * 
+ * Preserves the exact user/system intended pip distances and R:R ratio while guaranteeing valid
+ * directional geometry (BUY: SL < Entry < TP; SELL: SL > Entry > TP) regardless of market drift.
+ */
+export function reanchorProtectionLevels(input: ReanchorLevelsInput): ReanchoredLevelsResult {
+  const { direction, plannedEntry, freshEntry, sl, tp1, tp2, tp3, digits = 5 } = input;
+  const targetEntry = freshEntry > 0 ? freshEntry : plannedEntry;
+  const refEntry = plannedEntry > 0 ? plannedEntry : targetEntry;
+
+  const slDist = Math.abs(refEntry - sl);
+  const tp1Dist = Math.abs(refEntry - tp1);
+
+  // TP2 and TP3 must strictly cascade beyond TP1 (distance from entry must be strictly greater)
+  // If secondary targets fail cascading geometry, gracefully drop them instead of rejecting the order
+  let validTp2Dist: number | undefined;
+  if (tp2 != null && tp2 > 0) {
+    const candidateDist = Math.abs(refEntry - tp2);
+    if (candidateDist > tp1Dist) {
+      validTp2Dist = candidateDist;
+    }
+  }
+
+  let validTp3Dist: number | undefined;
+  if (tp3 != null && tp3 > 0) {
+    const candidateDist = Math.abs(refEntry - tp3);
+    const priorDist = validTp2Dist ?? tp1Dist;
+    if (candidateDist > priorDist) {
+      validTp3Dist = candidateDist;
+    }
+  }
+
+  let reanchoredSl: number;
+  let reanchoredTp1: number;
+  let reanchoredTp2: number | undefined;
+  let reanchoredTp3: number | undefined;
+
+  if (direction === 'BUY') {
+    reanchoredSl = Number((targetEntry - slDist).toFixed(digits));
+    reanchoredTp1 = Number((targetEntry + tp1Dist).toFixed(digits));
+    reanchoredTp2 = validTp2Dist != null ? Number((targetEntry + validTp2Dist).toFixed(digits)) : undefined;
+    reanchoredTp3 = validTp3Dist != null ? Number((targetEntry + validTp3Dist).toFixed(digits)) : undefined;
+  } else {
+    reanchoredSl = Number((targetEntry + slDist).toFixed(digits));
+    reanchoredTp1 = Number((targetEntry - tp1Dist).toFixed(digits));
+    reanchoredTp2 = validTp2Dist != null ? Number((targetEntry - validTp2Dist).toFixed(digits)) : undefined;
+    reanchoredTp3 = validTp3Dist != null ? Number((targetEntry - validTp3Dist).toFixed(digits)) : undefined;
+  }
+
+  return {
+    entry: targetEntry,
+    sl: reanchoredSl,
+    tp1: reanchoredTp1,
+    tp2: reanchoredTp2,
+    tp3: reanchoredTp3,
+    slDistance: slDist,
+    tp1Distance: tp1Dist,
+    tp2Distance: validTp2Dist,
+    tp3Distance: validTp3Dist,
+  };
+}
+
 /**
  * Central Protection Validator
  * Validates trade geometry, presence of mandatory SL/TP1, broker stop/freeze levels, and price freshness.
@@ -267,7 +353,7 @@ export function validateTradeProtection(input: TradeProtectionInput): TradeProte
       };
     }
 
-    const maxAge = input.maxQuoteAgeMs || 5000;
+    const maxAge = input.maxQuoteAgeMs || 15000;
     const quoteAge = brokerQuote.ageMs ?? (brokerQuote.timestamp ? Math.max(0, Date.now() - brokerQuote.timestamp) : 0);
     if (brokerQuote.isStale || brokerQuote.freshness === 'STALE' || quoteAge > maxAge) {
       return {

@@ -13,6 +13,8 @@
  * - CRYPTO (BTCUSD, ETHUSD, SOLUSD): 24/7 market-data streams.
  */
 
+import { getMarketDefinition, isAsset24x7 } from '../registry/market-registry';
+
 export type MarketState = 
   | 'OPEN'
   | 'CLOSED'
@@ -73,17 +75,30 @@ export function clearBrokerSessionOverrides(): void {
  * Resolves the asset class category for a canonical or broker symbol
  */
 export function resolveAssetClass(symbol: string): AssetClassCategory {
-  const s = symbol.toUpperCase();
+  if (!symbol) return 'FOREX';
+  const s = symbol.toUpperCase().trim();
+  if (isAsset24x7(s)) {
+    return 'CRYPTO';
+  }
+  const def = getMarketDefinition(s);
+  if (def) {
+    if (def.category === 'METALS') return 'METALS';
+    if (def.category === 'CRYPTO') return 'CRYPTO';
+    if (def.category === 'INDICES') return 'INDICES';
+    if (def.category === 'COMMODITIES') return 'ENERGIES';
+    if (def.category === 'FOREX') return 'FOREX';
+  }
+  // Fallback heuristics for custom or broker symbols
   if (s.startsWith('XAU') || s.startsWith('XAG') || s.includes('GOLD') || s.includes('SILVER')) {
     return 'METALS';
   }
-  if (s.startsWith('BTC') || s.startsWith('ETH') || s.startsWith('SOL') || s.includes('CRYPTO')) {
+  if (s.startsWith('BTC') || s.startsWith('ETH') || s.startsWith('SOL') || s.startsWith('XRP') || s.startsWith('BNB') || s.includes('CRYPTO')) {
     return 'CRYPTO';
   }
-  if (s.startsWith('US30') || s.startsWith('US100') || s.startsWith('US500') || s.includes('USTEC') || s.includes('SPX')) {
+  if (s.startsWith('US30') || s.startsWith('US100') || s.startsWith('US500') || s.startsWith('GER40') || s.startsWith('UK100') || s.startsWith('JP225') || s.includes('USTEC') || s.includes('SPX') || s.includes('DAX') || s.includes('FTSE') || s.includes('NIKKEI')) {
     return 'INDICES';
   }
-  if (s.includes('OIL') || s.includes('BRENT') || s.includes('WTI') || s.startsWith('USOIL')) {
+  if (s.includes('OIL') || s.includes('BRENT') || s.includes('WTI') || s.startsWith('USOIL') || s.includes('GAS') || s.includes('NATGAS')) {
     return 'ENERGIES';
   }
   return 'FOREX';

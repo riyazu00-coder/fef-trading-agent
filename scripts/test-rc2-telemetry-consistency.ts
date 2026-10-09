@@ -251,30 +251,30 @@ async function runSuite() {
   console.log('\n[TEST 8: Execution Safety Gate -> Stale / Closed Quote / Read-Only Blocks Execution]');
   
   // Verify STALE quote cannot be used for execution
-  const staleQuoteBlocked = (quote: MT5QuoteData | null, opMode: string) => {
+  const staleQuoteBlocked = (quote: MT5QuoteData | null, opMode: string, evalTimeMs?: number) => {
     if (!MT5_ORDER_TRANSPORT_ENABLED) return { canExecute: false, reason: 'GLOBAL_READ_ONLY_LOCK' };
-    if (opMode !== 'DEMO_EXECUTION') return { canExecute: false, reason: 'NOT_DEMO_EXECUTION' };
+    if (opMode !== 'DEMO_EXECUTION' && opMode !== 'ARMED_WITH_CONFIRMATION') return { canExecute: false, reason: 'NOT_ARMED_EXECUTION' };
     if (!quote || quote.bid <= 0 || quote.ask <= 0) return { canExecute: false, reason: 'QUOTE_UNAVAILABLE' };
     const sym = quote.canonicalSymbol || quote.brokerSymbol;
-    const evalRes = evaluateQuoteFreshness(sym, quote, Date.now());
+    const evalRes = evaluateQuoteFreshness(sym, quote, evalTimeMs || Date.now());
     if (evalRes.freshness === 'SESSION_CLOSED') return { canExecute: false, reason: 'SESSION_CLOSED' };
     if (evalRes.freshness === 'STALE' || evalRes.isStale) return { canExecute: false, reason: 'STALE_QUOTE' };
     return { canExecute: true, reason: 'OK' };
   };
 
   // Test with closed session quote
-  const closedGateResult = staleQuoteBlocked(fridayCloseXauQuote, 'DEMO_EXECUTION');
+  const closedGateResult = staleQuoteBlocked(fridayCloseXauQuote, 'ARMED_WITH_CONFIRMATION', satMs);
   assert(closedGateResult.canExecute === false, 'Safety gate blocks order on closed session quote');
-  assert(closedGateResult.reason === 'GLOBAL_READ_ONLY_LOCK', 'Global READ_ONLY gate precedes quote validation');
+  assert(closedGateResult.reason === 'SESSION_CLOSED', 'Closed session quote triggers SESSION_CLOSED rejection');
 
   // Test with READ_ONLY mode
   const readOnlyGateResult = staleQuoteBlocked(btcQuote, 'READ_ONLY');
   assert(readOnlyGateResult.canExecute === false, 'Safety gate blocks order when operatingMode is READ_ONLY');
-  assert(readOnlyGateResult.reason === 'GLOBAL_READ_ONLY_LOCK', 'Rejection reason is GLOBAL_READ_ONLY_LOCK');
+  assert(readOnlyGateResult.reason === 'NOT_ARMED_EXECUTION', 'Rejection reason is NOT_ARMED_EXECUTION');
 
-  // Test with fresh BTC quote on DEMO_EXECUTION
-  const freshBtcGateResult = staleQuoteBlocked(btcQuote, 'DEMO_EXECUTION');
-  assert(freshBtcGateResult.canExecute === false && freshBtcGateResult.reason === 'GLOBAL_READ_ONLY_LOCK', 'Fresh BTC quote remains non-executable in DEMO_EXECUTION');
+  // Test with fresh BTC quote on ARMED_WITH_CONFIRMATION
+  const freshBtcGateResult = staleQuoteBlocked(btcQuote, 'ARMED_WITH_CONFIRMATION');
+  assert(freshBtcGateResult.canExecute === true && freshBtcGateResult.reason === 'OK', 'Fresh BTC quote is executable in ARMED_WITH_CONFIRMATION mode');
 
   console.log('\n================================================================');
   console.log(`TEST RESULTS: ${passCount} PASSED, ${failCount} FAILED`);

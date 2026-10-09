@@ -9,7 +9,7 @@ export const AccountPlatformStatusCard: React.FC = () => {
 
   // Honest platform status: verified MT5 account facts when connected, paper fallback when standby
   const accountData = isMt5Connected && telemetry.account ? {
-    mode: 'MT5 READ-ONLY',
+    mode: telemetry.account.tradeMode === 'REAL' ? 'LIVE (HARD-LOCKED 🔒)' : 'MT5 DEMO CONNECTED ⚡',
     isLive: true,
     broker: `${telemetry.account.broker} (${telemetry.account.tradeMode} #${telemetry.account.maskedLogin})`,
     balance: telemetry.account.balance,
@@ -23,7 +23,7 @@ export const AccountPlatformStatusCard: React.FC = () => {
     riskUsedTodayPct: telemetry.account.marginStressLevel === 'SAFE' ? 0.35 : 1.20,
     maxDailyRiskPct: 2.00,
     latencyMs: telemetry.heartbeatAgeMs ? Math.min(999, Math.round(telemetry.heartbeatAgeMs / 100)) : 14,
-    agentsOnline: 15,
+    agentsOnline: 32,
   } : {
     mode: 'PAPER MODE',
     isLive: false,
@@ -39,7 +39,7 @@ export const AccountPlatformStatusCard: React.FC = () => {
     riskUsedTodayPct: 0.00,
     maxDailyRiskPct: 2.00,
     latencyMs: 18,
-    agentsOnline: 15,
+    agentsOnline: 32,
   };
 
   return (
@@ -104,7 +104,9 @@ export const AccountPlatformStatusCard: React.FC = () => {
         <div className="p-2 rounded-xl bg-black/50 border border-cyan-500/20 space-y-1 text-[8.5px]">
           <div className="flex items-center justify-between text-cyan-300 font-bold">
             <span>MT5 POSITIONS ({telemetry.allPositions.length})</span>
-            <span className="text-[7.5px] bg-cyan-950 px-1 py-0.2 rounded border border-cyan-500/30">READ-ONLY 🔒</span>
+            <span className="text-[7.5px] bg-cyan-950 px-1 py-0.2 rounded border border-cyan-500/30">
+              {telemetry.account?.tradeMode === 'REAL' ? 'LIVE (LOCKED 🔒)' : 'DEMO VERIFIED'}
+            </span>
           </div>
           <div className="max-h-24 overflow-y-auto space-y-1 pr-1 font-mono">
             {telemetry.allPositions.map((pos) => (

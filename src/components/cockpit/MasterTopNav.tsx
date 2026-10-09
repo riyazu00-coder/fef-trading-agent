@@ -11,6 +11,7 @@ import { BRAND_CONFIG } from '@/lib/config/support-config';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 import { evaluateMarketSession } from '@/lib/session/market-session-engine';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { TradingViewWorkbenchModal } from '@/components/charts/TradingViewWorkbenchModal';
 
 export const MasterTopNav: React.FC = () => {
   const pathname = usePathname();
@@ -22,9 +23,15 @@ export const MasterTopNav: React.FC = () => {
   const [isThinking, setIsThinking] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [isTradingViewOpen, setIsTradingViewOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
+
+  const brokerNameRaw = telemetry.account?.broker || telemetry.terminal?.brokerName || '';
+  const brokerDisplay = brokerNameRaw
+    ? (brokerNameRaw.toLowerCase().includes('exness') ? 'EXNESS' : brokerNameRaw.split(' ')[0].toUpperCase())
+    : (telemetry.isRemote ? 'RELAY' : 'LIVE');
 
   useEffect(() => {
     setIsMobileMenuOpen(false);
@@ -63,9 +70,12 @@ export const MasterTopNav: React.FC = () => {
     { name: 'Cockpit', path: '/cockpit' },
     { name: 'Agents', path: '/agents' },
     { name: 'Markets', path: '/markets' },
+    { name: 'TradingView', path: '/tradingview' },
     { name: 'Chart Analyzer', path: '/chart-analyzer' },
     { name: 'Execution', path: '/execution' },
     { name: 'Journal', path: '/journal' },
+    { name: 'About', path: '/about' },
+    { name: 'Community', path: '/community' },
     { name: 'Settings', path: '/settings' },
   ];
 
@@ -124,7 +134,7 @@ export const MasterTopNav: React.FC = () => {
           ? assetProfile.opposingRisks.map((r, i) => `${i + 1}) ${r}`).join(' ')
           : `Market structure invalidation and liquidity sweeps against stop loss level at ${assetProfile.stopLoss}.`;
         setAiAnswer(
-          `Risk Guardian Parameters for ${activeSymbol}: Stop Loss is pegged at ${assetProfile.stopLoss} (Risk/Reward ${assetProfile.rr}). Active Opposing Risks identified by Council: ${risks} Max mathematical portfolio allocation policy cap: 0.50% equity.${sessionClosedNotice}`
+          `Risk Guardian Parameters for ${activeSymbol}: Stop Loss is pegged at ${assetProfile.stopLoss} (Risk/Reward ${assetProfile.rr}). Active Opposing Risks identified by Council: ${risks} Configured risk policy limit (default 0.50% equity).${sessionClosedNotice}`
         );
       } else if (q.includes('level') || q.includes('target') || q.includes('entry') || q.includes('tp')) {
         setAiAnswer(
@@ -146,7 +156,7 @@ export const MasterTopNav: React.FC = () => {
         const topReason = assetProfile.whyThisTrade?.[0] || `Order flow and institutional liquidity aligning with ${assetProfile.setupDirection}.`;
         const topRisk = assetProfile.opposingRisks?.[0] || `Market volatility buffer and structure preservation.`;
         setAiAnswer(
-          `FEF AI Swarm Analysis for "${searchQuery}": Council evidence trust: ${assetProfile.confidence}% on ${activeSymbol} (${currentPriceFmt}) with posture ${assetProfile.setupDirection}. Primary Thesis: "${topReason}". Risk Constraint: "${topRisk}". Risk Guardian limit: Max policy cap 0.50% equity.${sessionClosedNotice}`
+          `CORTEX Market Context for "${searchQuery}": Council evidence trust: ${assetProfile.confidence}% on ${activeSymbol} (${currentPriceFmt}) with posture ${assetProfile.setupDirection}. Primary Thesis: "${topReason}". Risk Constraint: "${topRisk}". Risk Guardian constraint: Configured account risk policy (default 0.50% equity).${sessionClosedNotice}`
         );
       }
     }, 500);
@@ -154,149 +164,255 @@ export const MasterTopNav: React.FC = () => {
 
   return (
     <>
-      <header className="ghost-glass-panel rounded-2xl px-3 sm:px-4 py-2 flex items-center justify-between gap-2.5 sm:gap-4 text-xs relative z-30 min-h-[58px]">
+      <header className="ghost-glass-panel rounded-2xl px-2.5 sm:px-3.5 py-1.5 flex items-center justify-between gap-1.5 sm:gap-2.5 text-xs relative z-30 min-h-[52px] w-full">
         {/* =========================================================================
-            LEFT: APPROVED BRAND LOCKUP
-            [ EXISTING FEF ROUND LOGO ]  FEF
-                                         TRADING INTELLIGENCE
-                                         AI • MARKETS • RISK • EXECUTION
+            SECTION 1 (LEFT): BRAND LOCKUP + COMPACT SEARCH + MARKET STATUS
            ========================================================================= */}
-        <Link
-          href="/cockpit"
-          className="flex items-center space-x-3 sm:space-x-3.5 select-none flex-shrink-0 group/brand cursor-pointer py-0.5"
-          title="FEF Trading Intelligence Cockpit"
-        >
-          {/* Circular FEF Logo (Original intact, prominent, directly LEFT of typography) */}
-          <div className="relative w-[50px] h-[50px] sm:w-[54px] sm:h-[54px] flex-shrink-0 flex items-center justify-center">
-            <div className="absolute inset-0 rounded-full bg-cyan-400/25 blur-md group-hover/brand:bg-cyan-400/40 transition-all pointer-events-none" />
-            <img
-              src="/images/fef-logo.png"
-              alt="FEF Trading Intelligence Logo"
-              className="w-full h-full object-contain relative z-10 drop-shadow-[0_0_12px_rgba(34,211,238,0.5)] group-hover/brand:scale-105 transition-transform duration-200"
-            />
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0">
+          <div className="flex items-center space-x-2 sm:space-x-2.5 select-none flex-shrink-0 group/brand py-0.5">
+            {/* Circular FEF Logo (Compact, crisp, directly LEFT of typography) */}
+            <Link
+              href="/cockpit"
+              className="relative w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0 flex items-center justify-center cursor-pointer"
+              title="FEF Trading Intelligence Cockpit"
+            >
+              <div className="absolute inset-0 rounded-full bg-cyan-400/25 blur-md group-hover/brand:bg-cyan-400/40 transition-all pointer-events-none" />
+              <img
+                src="/images/fef-logo.png"
+                alt="FEF Trading Intelligence Logo"
+                className="w-full h-full object-contain relative z-10 drop-shadow-[0_0_12px_rgba(34,211,238,0.5)] group-hover/brand:scale-105 transition-transform duration-200"
+              />
+            </Link>
+
+            {/* Brand Typography Block */}
+            <div className="flex flex-col justify-center text-left select-none">
+              {/* Line 1: FEF CORTEX (Dominant, clean futuristic geometric lettering, cyan/ice-blue/white glow) */}
+              <Link
+                href="/cockpit"
+                className="text-[16px] sm:text-[18px] font-black tracking-[0.12em] font-sans uppercase leading-none text-transparent bg-clip-text bg-gradient-to-r from-white via-[#F0F9FF] to-[#67E8F9] drop-shadow-[0_0_14px_rgba(34,211,238,0.5)] flex items-center space-x-1 cursor-pointer"
+                title="FEF Trading Intelligence Cockpit"
+              >
+                <span>FEF</span>
+                <span className="text-[#38BDF8] tracking-[0.16em]">CORTEX</span>
+              </Link>
+
+              {/* Line 2: AUTONOMOUS TRADING INTELLIGENCE (High-tech cyan) */}
+              <div className="text-[7.5px] sm:text-[8.5px] font-black tracking-[0.18em] font-sans uppercase text-[#38BDF8] group-hover/brand:text-[#67E8F9] transition-colors leading-none mt-0.5">
+                AUTONOMOUS TRADING INTELLIGENCE
+              </div>
+
+              {/* Line 3: AI • MARKETS • RISK • EXECUTION (Descriptor, muted ice-blue/grey) */}
+              <div className="text-[6px] sm:text-[7px] font-semibold tracking-[0.18em] font-mono text-[#94A3B8] group-hover/brand:text-[#CBD5E1] transition-colors leading-none mt-0.5 block">
+                AI • MARKETS • RISK • EXECUTION
+              </div>
+
+              {/* Line 4: Product Ownership / Domain Link (Official Institutional Line) */}
+              <div className="text-[10px] sm:text-[10.5px] font-medium tracking-[0.08em] font-mono leading-none mt-1.5 flex items-center space-x-1.5">
+                <span className="text-[#E2E8F0] font-semibold">FEF Trading Solutions</span>
+                <span className="text-cyan-400/60 font-bold">•</span>
+                <a
+                  href="https://www.feftradingsolutions.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-300 hover:text-white hover:underline focus:outline-none focus:ring-1 focus:ring-cyan-400 rounded px-0.5 transition-all font-semibold tracking-[0.06em] drop-shadow-[0_0_8px_rgba(34,211,238,0.45)]"
+                >
+                  www.feftradingsolutions.com
+                </a>
+              </div>
+            </div>
           </div>
 
-          {/* Brand Typography Block */}
-          <div className="flex flex-col justify-center text-left select-none">
-            {/* Line 1: FEF CORTEX (Dominant, clean futuristic geometric lettering, extended tracking, cyan/ice-blue/white glow) */}
-            <div className="text-[20px] sm:text-[23px] font-black tracking-[0.14em] font-sans uppercase leading-none text-transparent bg-clip-text bg-gradient-to-r from-white via-[#F0F9FF] to-[#67E8F9] drop-shadow-[0_0_14px_rgba(34,211,238,0.5)] flex items-center space-x-1.5">
-              <span>FEF</span>
-              <span className="text-[#38BDF8] tracking-[0.18em]">CORTEX</span>
-            </div>
-
-            {/* Line 2: AUTONOMOUS TRADING INTELLIGENCE (Prominent, wide tracking, high-tech cyan) */}
-            <div className="text-[9px] sm:text-[10px] font-black tracking-[0.20em] font-sans uppercase text-[#38BDF8] group-hover/brand:text-[#67E8F9] transition-colors leading-none mt-1">
-              AUTONOMOUS TRADING INTELLIGENCE
-            </div>
-
-            {/* Line 3: AI • MARKETS • RISK • EXECUTION (Visible descriptor, wide tracking, muted ice-blue/grey) */}
-            <div className="text-[7px] sm:text-[8px] font-semibold tracking-[0.20em] font-mono text-[#94A3B8] group-hover/brand:text-[#CBD5E1] transition-colors leading-none mt-1 block">
-              AI • MARKETS • RISK • EXECUTION
-            </div>
-          </div>
-        </Link>
-
-        {/* =========================================================================
-            CENTER / FLEXIBLE AREA: SEARCH & OPERATIONAL CONTROLS
-           ========================================================================= */}
-        <div className="flex items-center space-x-2 sm:space-x-2.5 flex-shrink">
-          {/* Ask FEF AI Search Field (Dark glass, cyan accent) */}
-          <form onSubmit={handleSearchSubmit} className="relative hidden md:flex items-center">
+          {/* Ask FEF AI Search Field (Clean non-absolute flex row, compact fixed width) */}
+          <form onSubmit={handleSearchSubmit} className="relative hidden md:flex items-center flex-shrink-0">
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Ask FEF AI anything..."
-              className="bg-black/50 border border-white/10 hover:border-cyan-500/30 focus:border-cyan-400/70 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] rounded-xl pl-8 pr-7 py-1 text-[11px] text-gray-200 placeholder-gray-500 w-36 lg:w-44 xl:w-56 focus:w-64 transition-all outline-none"
+              placeholder="Search CORTEX context..."
+              className="bg-black/50 border border-white/10 hover:border-cyan-500/30 focus:border-cyan-400/70 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] rounded-xl pl-7 pr-6 py-1 text-[11px] text-gray-200 placeholder-gray-500 w-32 sm:w-36 lg:w-40 flex-shrink-0 transition-all outline-none"
             />
-            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <button
               type="submit"
-              className="absolute right-2 px-1.5 py-0.2 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[9px] text-cyan-300 font-mono transition-colors"
+              className="absolute right-1.5 px-1 py-0.2 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[8.5px] text-cyan-300 font-mono transition-colors"
               title="Press / anywhere to search"
             >
               /
             </button>
           </form>
 
-          {/* Operational Indicators */}
-          {/* 1. Market / Session Status */}
+          {/* Market / Session Status (Rendered alongside the search bar, non-overlapping) */}
           <MarketStatusBadge
             symbol={activeSymbol}
             sessionState={assetProfile.sessionState}
             size="xs"
-            className="hidden sm:inline-flex"
+            className="hidden sm:inline-flex flex-shrink-0"
           />
+        </div>
 
-          {/* 2. Canonical MT5 Status Pill */}
+        {/* =========================================================================
+            SECTION 2 (CENTER / RIGHT): FULL UNTRUNCATED TELEMETRY BADGES
+           ========================================================================= */}
+        <div className="hidden md:flex items-center gap-1.5 sm:gap-2 flex-shrink-0 justify-end ml-auto">
+          {/* 1. Canonical MT5 Status Pill */}
           {isMt5Connected ? (
             <Link
               href="/execution"
-              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(160,240,255,0.2)]"
-              title="MT5 Telemetry Connected (READ-ONLY)"
+              className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.2)] whitespace-nowrap flex-shrink-0"
+              title={
+                telemetry.connectionStatus === 'DEGRADED'
+                  ? `MT5 Telemetry Connected • Syncing: ${telemetry.statusLabel || 'Degraded Heartbeat'}`
+                  : `MT5 Telemetry Connected (${telemetry.account?.tradeMode || (telemetry.operatingMode === 'LIVE_EXECUTION' ? 'REAL' : 'DEMO')}) • Broker: ${brokerNameRaw || (telemetry.isRemote ? 'RELAY' : 'LIVE')}`
+              }
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-bold tracking-wider">MT5 CONNECTED ({telemetry.account?.broker || (telemetry.isRemote ? 'RELAY' : 'LIVE')})</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+              <span className="font-bold tracking-wider">
+                MT5: {brokerDisplay}
+              </span>
             </Link>
           ) : (
             <Link
               href="/settings"
-              className="hidden xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/40 text-gray-400 hover:text-gray-200 font-mono text-[9px] transition-all cursor-pointer"
+              className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/40 text-gray-400 hover:text-gray-200 font-mono text-[9px] transition-all cursor-pointer whitespace-nowrap flex-shrink-0"
               title="MT5 Bridge Standby • Connect in Settings"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-500 flex-shrink-0" />
               <span className="font-bold tracking-wider">MT5 STANDBY</span>
             </Link>
           )}
 
-          {/* 3. Data Sentinel System Integrity Badge */}
-          <div
-            className={`hidden 2xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] border ${
-              isMt5Connected
-                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
+          {/* 2. Data Sentinel System Integrity Badge (Clickable to System Integrity deck) */}
+          <Link
+            href="/cockpit#sentinel-deck"
+            className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] border whitespace-nowrap flex-shrink-0 cursor-pointer transition-all ${
+              assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
+                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:border-emerald-400'
+                : telemetry.connectionStatus === 'DEGRADED'
+                ? 'bg-amber-950/40 border-amber-500/40 text-amber-300 hover:border-amber-400'
+                : 'bg-black/40 border-white/10 text-gray-400 hover:border-cyan-400'
             }`}
-            title="Data Sentinel: Non-directional system integrity & feed auditor"
+            title={`Data Sentinel: System integrity auditor (${
+              assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected
+                ? 'Healthy Telemetry Stream'
+                : telemetry.connectionStatus === 'DEGRADED'
+                ? 'Degraded Latency'
+                : 'Data Limited'
+            }) • Click to inspect Sentinel Deck`}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${isMt5Connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-            <span className="font-bold tracking-wider">SENTINEL: {isMt5Connected ? 'HEALTHY' : 'DATA LIMITED'}</span>
-          </div>
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+              assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
+                ? 'bg-emerald-400 animate-pulse'
+                : telemetry.connectionStatus === 'DEGRADED'
+                ? 'bg-amber-400 animate-pulse'
+                : 'bg-slate-500'
+            }`} />
+            <span className="font-bold tracking-wider">SENTINEL: {
+              assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
+                ? 'HEALTHY'
+                : telemetry.connectionStatus === 'DEGRADED'
+                ? 'DEGRADED'
+                : 'DATA LIMITED'
+            }</span>
+          </Link>
 
-          {/* 4. Overall Data Readiness Badge */}
+          {/* 3. Overall Data Readiness Badge */}
           <div
-            className="hidden 2xl:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] bg-cyan-950/40 border border-cyan-500/40 text-cyan-300"
+            className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] bg-cyan-950/40 border border-cyan-500/40 text-cyan-300 whitespace-nowrap flex-shrink-0"
             title="Cortex Data Readiness State"
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 flex-shrink-0" />
             <span className="font-bold tracking-wider">DATA: {assetProfile.confluence?.dataReadiness || 'PARTIAL'}</span>
           </div>
 
-          {/* 5. Canonical READ_ONLY Execution Badge */}
+          {/* 4. Canonical Execution Badge (Derived from Authoritative Telemetry) */}
           <div
-            className="hidden lg:inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl font-mono text-[9px] bg-purple-950/40 border border-purple-500/40 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.15)]"
-            title="Canonical Execution Mode: READ_ONLY (Transport strictly disabled)"
+            className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] whitespace-nowrap flex-shrink-0 border ${
+              !isMt5Connected
+                ? 'bg-black/40 border-white/10 text-gray-400'
+                : telemetry.operatingMode === 'LIVE_EXECUTION'
+                ? 'bg-rose-950/50 border-rose-500/50 text-rose-300'
+                : telemetry.operatingMode === 'DEMO_EXECUTION'
+                ? 'bg-amber-950/40 border-amber-500/50 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                : telemetry.operatingMode === 'READ_ONLY'
+                ? 'bg-cyan-950/40 border-cyan-500/40 text-cyan-300'
+                : 'bg-rose-950/40 border-rose-500/40 text-rose-400'
+            }`}
+            title={`Execution State: ${
+              !isMt5Connected
+                ? 'STANDBY / PAPER GATE'
+                : telemetry.operatingMode === 'LIVE_EXECUTION'
+                ? 'REAL ACCOUNT (HARD-LOCKED)'
+                : telemetry.operatingMode === 'DEMO_EXECUTION'
+                ? 'DEMO EXECUTION (ONE-CLICK GUARD)'
+                : telemetry.operatingMode === 'READ_ONLY'
+                ? 'READ ONLY (ANALYSIS ONLY)'
+                : 'ACCOUNT UNKNOWN / EXECUTION BLOCKED'
+            }`}
           >
-            <span>🔒</span>
-            <span className="font-bold tracking-wider">READ_ONLY</span>
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+              !isMt5Connected
+                ? 'bg-slate-500'
+                : telemetry.operatingMode === 'LIVE_EXECUTION'
+                ? 'bg-rose-400'
+                : telemetry.operatingMode === 'DEMO_EXECUTION'
+                ? 'bg-amber-400 animate-pulse'
+                : 'bg-cyan-400'
+            }`} />
+            <span className="font-bold tracking-wider">EXECUTION: {
+              !isMt5Connected
+                ? 'STANDBY'
+                : telemetry.operatingMode === 'LIVE_EXECUTION'
+                ? 'REAL — LOCKED 🔒'
+                : telemetry.operatingMode === 'DEMO_EXECUTION'
+                ? 'DEMO EXECUTION'
+                : telemetry.operatingMode === 'READ_ONLY'
+                ? 'READ ONLY'
+                : 'BLOCKED'
+            }</span>
           </div>
 
-          {/* 6. 24/7 Institutional Support Desk */}
+          {/* 5. Real Interactive TradingView Advanced Chart Workbench Trigger */}
+          <Link
+            href="/tradingview"
+            className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] bg-cyan-950/40 border border-cyan-400/50 hover:border-cyan-300 text-cyan-200 hover:text-white shadow-[0_0_10px_rgba(34,211,238,0.2)] whitespace-nowrap flex-shrink-0 cursor-pointer transition-all"
+            title="Open Dedicated Full-Screen TradingView Advanced Chart Workspace (/tradingview)"
+          >
+            <span className="text-[10px]">📈</span>
+            <span className="font-bold tracking-wider">TRADINGVIEW</span>
+          </Link>
+        </div>
+
+        {/* =========================================================================
+            SECTION 3 (FAR RIGHT): ACTIONS (BELL + AVATAR + MOBILE HAMBURGER)
+           ========================================================================= */}
+        <div className="flex items-center gap-1.5 border-l border-white/10 pl-2 sm:pl-2.5 ml-1.5 sm:ml-2 flex-shrink-0">
+          {/* How to Use / Onboarding Quick Help Trigger */}
+          <Link
+            href="/how-to-use"
+            className="inline-flex items-center space-x-1 px-2 py-1 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white font-mono text-[9px] font-bold transition-all cursor-pointer shadow-[0_0_8px_rgba(34,211,238,0.15)] flex-shrink-0"
+            title="How to Use FEF CORTEX • Onboarding Guide & System Philosophy"
+          >
+            <span className="text-cyan-400 font-extrabold text-[10px]">?</span>
+            <span>GUIDE</span>
+          </Link>
+
+          {/* Official Contact & Support Desk Trigger */}
           <button
             onClick={() => setIsSupportOpen(true)}
-            className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-cyan-950/40 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white transition-all cursor-pointer font-mono text-[9.5px] shadow-[0_0_10px_rgba(0,240,255,0.12)]"
-            title="24/7 Institutional Support Desk"
+            className="inline-flex items-center space-x-1 px-2 py-1 rounded-xl bg-black/45 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-cyan-200 font-mono text-[9px] font-bold transition-all cursor-pointer shadow-sm flex-shrink-0"
+            title="Official FEF Contact Desk (WhatsApp, Telegram, Email, Website)"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-bold tracking-wider">24/7 SUPPORT</span>
+            <span>CONTACT</span>
           </button>
 
-          {/* 4. Notification Bell & Radar Alert Trigger */}
+          {/* Notification Bell & Radar Alert Trigger */}
           <button
             onClick={() => setIsDrawerOpen((prev) => !prev)}
-            className="relative p-1.5 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-white transition-all cursor-pointer"
+            className="relative p-1.5 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-white transition-all cursor-pointer flex-shrink-0"
             title="Opportunity Radar & Risk Notifications"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -311,62 +427,12 @@ export const MasterTopNav: React.FC = () => {
             )}
           </button>
 
-          {/* 5. Round FEF Support/Settings Icon */}
-          <Link
-            href="/settings"
-            className="flex items-center hover:opacity-90 transition-opacity cursor-pointer flex-shrink-0"
-            title="Settings & System Diagnostics"
-          >
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-600 to-blue-800 border border-cyan-400/40 flex items-center justify-center font-bold text-[10px] text-white shadow-sm hover:border-cyan-400 transition-colors">
-              FEF
-            </div>
-          </Link>
-        </div>
 
-        {/* =========================================================================
-            RIGHT: OPERATIONAL ROUTE NAVIGATION TABS
-            Brought down to the exact SAME HORIZONTAL LEVEL as the operational controls
-           ========================================================================= */}
-        <div className="flex items-center space-x-1.5 sm:space-x-2">
-          <nav className="hidden lg:flex items-center space-x-1 bg-black/40 p-1 rounded-xl border border-white/10 font-sans">
-            {navTabs.map((tab) => {
-              const isRoot = pathname === '/' && tab.path === '/cockpit';
-              const isActive = pathname === tab.path || pathname.startsWith(tab.path + '/') || isRoot;
-
-              return (
-                <Link
-                  key={tab.name}
-                  href={tab.path}
-                  className={`px-2.5 xl:px-3 py-1 rounded-lg font-medium transition-all text-xs flex items-center space-x-1.5 ${
-                    isActive
-                      ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50 shadow-[0_0_12px_rgba(34,211,238,0.35)] font-bold'
-                      : 'text-[#94A3B8] hover:text-[#CBD5E1] hover:bg-white/5 border border-transparent'
-                  }`}
-                >
-                  <span>{tab.name}</span>
-                  {tab.path === '/execution' && (
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        isMt5Connected
-                          ? 'bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(16,185,129,0.8)]'
-                          : 'bg-slate-500'
-                      }`}
-                      title={
-                        isMt5Connected
-                          ? `MT5 Connected (${telemetry.account?.broker || 'Ready'})`
-                          : 'MT5 Standby'
-                      }
-                    />
-                  )}
-                </Link>
-              );
-            })}
-          </nav>
 
           {/* Mobile Hamburger Menu Trigger */}
           <button
             onClick={() => setIsMobileMenuOpen((prev) => !prev)}
-            className="lg:hidden p-2 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-white transition-all cursor-pointer"
+            className="lg:hidden p-2 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-white transition-all cursor-pointer flex-shrink-0"
             aria-label="Toggle Navigation Menu"
             title="Toggle Navigation Menu"
           >
@@ -425,7 +491,7 @@ export const MasterTopNav: React.FC = () => {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Ask FEF AI anything..."
+              placeholder="Search CORTEX context..."
               className="w-full bg-black/60 border border-white/10 focus:border-cyan-400/60 rounded-xl pl-9 pr-12 py-2 text-xs text-gray-200 placeholder-gray-500 transition-all outline-none"
             />
             <svg className="w-3.5 h-3.5 text-gray-400 absolute left-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -435,27 +501,62 @@ export const MasterTopNav: React.FC = () => {
               type="submit"
               className="absolute right-2 px-2 py-0.5 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[10px] text-cyan-300 font-mono"
             >
-              ASK
+              VIEW
             </button>
           </form>
 
           {/* Mobile Status Strip & Shortcuts */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10 text-xs font-mono">
             {/* Live MT5 Status */}
-            {telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected ? (
-              <span className="inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>DEMO EXECUTION (ACTIVE)</span>
+            {isMt5Connected ? (
+              <span className={`inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold ${
+                telemetry.operatingMode === 'LIVE_EXECUTION'
+                  ? 'bg-rose-950/70 border-rose-500/50 text-rose-300'
+                  : telemetry.operatingMode === 'DEMO_EXECUTION'
+                  ? 'bg-amber-950/70 border-amber-500/50 text-amber-300'
+                  : 'bg-cyan-950/70 border-cyan-500/40 text-cyan-300'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  telemetry.operatingMode === 'DEMO_EXECUTION'
+                    ? 'bg-amber-400 animate-pulse'
+                    : telemetry.operatingMode === 'LIVE_EXECUTION'
+                    ? 'bg-rose-400'
+                    : 'bg-cyan-400'
+                }`} />
+                <span>{`${brokerDisplay} (${
+                  telemetry.operatingMode === 'LIVE_EXECUTION'
+                    ? 'REAL — LOCKED 🔒'
+                    : telemetry.operatingMode === 'DEMO_EXECUTION'
+                    ? 'DEMO'
+                    : 'READ ONLY'
+                })`}</span>
               </span>
             ) : (
-              <span className="inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-amber-950/70 border border-amber-500/40 text-amber-300 text-[10px] font-bold">
-                <span className={`w-1.5 h-1.5 rounded-full ${isMt5Connected ? 'bg-amber-400' : 'bg-slate-500'}`} />
-                <span>{isMt5Connected ? `${telemetry.account?.broker || telemetry.terminal?.brokerName || 'BROKER'} MT5 (READ ONLY 🔒)` : 'MT5 STANDBY'}</span>
+              <span className="inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-black/60 border border-white/10 text-gray-400 text-[10px] font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                <span>MT5 STANDBY</span>
               </span>
             )}
 
             {/* Quick action buttons */}
             <div className="flex items-center space-x-2">
+              <Link
+                href="/how-to-use"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
+              >
+                <span>📖</span>
+                <span>GUIDE</span>
+              </Link>
+              <Link
+                href="/settings"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
+                aria-label="Settings & System Diagnostics"
+              >
+                <span>⚙️</span>
+                <span>SETTINGS</span>
+              </Link>
               <button
                 onClick={() => {
                   setIsMobileMenuOpen(false);
@@ -464,7 +565,7 @@ export const MasterTopNav: React.FC = () => {
                 className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>24/7 SUPPORT</span>
+                <span>SUPPORT</span>
               </button>
               <button
                 onClick={() => {
@@ -495,7 +596,7 @@ export const MasterTopNav: React.FC = () => {
                   ⚡
                 </div>
                 <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                  FEF AI ORCHESTRATOR SYNTHESIS
+                  CORTEX MARKET CONTEXT
                 </h3>
               </div>
               <button
@@ -518,13 +619,13 @@ export const MasterTopNav: React.FC = () => {
               {isThinking ? (
                 <div className="flex items-center space-x-2 py-4 justify-center text-cyan-300 text-xs">
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-                  <span>Synthesizing live blackboard memory &amp; 15 council nodes...</span>
+                  <span>Evaluating market context &amp; agent evidence...</span>
                 </div>
               ) : (
                 <div className="bg-[#040814] p-3.5 rounded-xl border border-cyan-500/30 text-[11px] text-gray-200 leading-relaxed space-y-2">
-                  <div className="flex items-center space-x-1.5 text-emerald-400 text-[10px] font-bold">
+                  <div className="flex items-center space-x-1.5 text-cyan-400 text-[10px] font-bold">
                     <span>●</span>
-                    <span>VERIFIED LIVE REASONING</span>
+                    <span>CORTEX CONTEXT SYNTHESIS</span>
                   </div>
                   <p>{aiAnswer}</p>
                 </div>
@@ -532,7 +633,7 @@ export const MasterTopNav: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-between pt-2 text-[9px] text-gray-400 border-t border-white/5">
-              <span>Source: Shared Agent Blackboard &bull; Broker Live</span>
+              <span>Source: CORTEX market state &bull; broker telemetry</span>
               <button
                 onClick={() => {
                   setShowAiModal(false);
@@ -553,10 +654,16 @@ export const MasterTopNav: React.FC = () => {
         onClose={() => setIsDrawerOpen(false)}
       />
 
-      {/* 24/7 Institutional Support Desk Modal */}
+      {/* Institutional Support Desk Modal */}
       <SupportModal
         isOpen={isSupportOpen}
         onClose={() => setIsSupportOpen(false)}
+      />
+
+      {/* Real Interactive TradingView Advanced Chart Workbench Modal */}
+      <TradingViewWorkbenchModal
+        isOpen={isTradingViewOpen}
+        onClose={() => setIsTradingViewOpen(false)}
       />
     </>
   );

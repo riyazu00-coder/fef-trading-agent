@@ -305,3 +305,104 @@ export function getTruthfulLiveMessages(profile: AssetIntelligenceProfile): HubL
     };
   });
 }
+
+export type VisibleNodeStatus = 'CONTRIBUTING' | 'DATA_LIMITED' | 'OFFLINE' | 'ERROR' | 'UNAVAILABLE';
+
+export interface VisibleNodeClassification {
+  id: string;
+  name: string;
+  status: VisibleNodeStatus;
+  isSpecialist: boolean;
+  heartbeatOffsetSec: number;
+}
+
+export interface VisibleNodeBreakdown {
+  visibleNodeCount: number; // 21
+  contributingCount: number;
+  dataLimitedCount: number;
+  offlineCount: number;
+  errorCount: number;
+  unavailableCount: number;
+}
+
+/**
+ * Classifies the 21 visible nodes (15 Council + 6 Specialists)
+ * into truthful runtime states without arithmetic fabrication.
+ */
+export function classifyVisibleNodes(
+  councilAgents: AgentState[],
+  specialistAgents: { agentId: string; readiness?: string }[]
+): {
+  classifications: VisibleNodeClassification[];
+  breakdown: VisibleNodeBreakdown;
+} {
+  const classifications: VisibleNodeClassification[] = [];
+
+  // 15 Council Nodes (0..14)
+  councilAgents.slice(0, 15).forEach((ag, idx) => {
+    let nodeStatus: VisibleNodeStatus = 'CONTRIBUTING';
+    if (ag.status === 'ERROR') {
+      nodeStatus = 'ERROR';
+    } else if (ag.status === 'OFFLINE') {
+      nodeStatus = 'OFFLINE';
+    } else if (ag.status === 'DATA LIMITED') {
+      nodeStatus = 'DATA_LIMITED';
+    }
+    classifications.push({
+      id: ag.type,
+      name: ag.name,
+      status: nodeStatus,
+      isSpecialist: false,
+      heartbeatOffsetSec: +( (idx * 0.55) % 6.0 ).toFixed(2),
+    });
+  });
+
+  // 6 Surfaced Specialists
+  const SURFACED_SPECIALIST_IDS = [
+    'MARKET_REGIME_CLASSIFIER_AGENT',
+    'CURRENCY_STRENGTH_AGENT',
+    'COT_POSITIONING_AGENT',
+    'RATES_AGENT',
+    'VOLATILITY_AGENT',
+    'CENTRAL_BANK_POLICY_AGENT',
+  ];
+
+  SURFACED_SPECIALIST_IDS.forEach((specId, idx) => {
+    const found = specialistAgents.find(s => s.agentId === specId);
+    let nodeStatus: VisibleNodeStatus = 'CONTRIBUTING';
+    if (!found || found.readiness === 'DATA_LIMITED') {
+      nodeStatus = 'DATA_LIMITED';
+    } else if (found.readiness === 'UNAVAILABLE') {
+      nodeStatus = 'UNAVAILABLE';
+    } else if (found.readiness === 'READY' || found.readiness === 'PARTIAL') {
+      nodeStatus = 'CONTRIBUTING';
+    } else {
+      nodeStatus = 'DATA_LIMITED';
+    }
+    classifications.push({
+      id: specId,
+      name: specId.replace(/_/g, ' '),
+      status: nodeStatus,
+      isSpecialist: true,
+      heartbeatOffsetSec: +( ((idx + 15) * 0.55) % 6.0 ).toFixed(2),
+    });
+  });
+
+  const contributingCount = classifications.filter(c => c.status === 'CONTRIBUTING').length;
+  const dataLimitedCount = classifications.filter(c => c.status === 'DATA_LIMITED').length;
+  const offlineCount = classifications.filter(c => c.status === 'OFFLINE').length;
+  const errorCount = classifications.filter(c => c.status === 'ERROR').length;
+  const unavailableCount = classifications.filter(c => c.status === 'UNAVAILABLE').length;
+
+  return {
+    classifications,
+    breakdown: {
+      visibleNodeCount: classifications.length,
+      contributingCount,
+      dataLimitedCount,
+      offlineCount,
+      errorCount,
+      unavailableCount,
+    },
+  };
+}

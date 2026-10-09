@@ -23,7 +23,7 @@ import {
 } from './mt5-bridge-protocol';
 import { symbolDirectory } from './symbol-mapper';
 import { evaluateMarketSession } from '../session/market-session-engine';
-import { READ_ONLY_EXECUTION_ERROR } from '../execution/execution-policy';
+import { READ_ONLY_EXECUTION_ERROR, isMt5OrderTransportAllowed } from '../execution/execution-policy';
 
 export interface MT5ClientConfig {
   host: string;
@@ -74,7 +74,7 @@ export class MT5BridgeClient {
     symbol?: string
   ): Promise<BridgeResponsePayload<T>> {
     // 1. Safety Gate: Reject write commands unless execution is explicitly enabled
-    if (RESTRICTED_EXECUTION_COMMANDS.has(command)) {
+    if (RESTRICTED_EXECUTION_COMMANDS.has(command) && (!this.config.executionEnabled || !isMt5OrderTransportAllowed())) {
       return {
         reqId: `req-${Date.now()}`,
         command,

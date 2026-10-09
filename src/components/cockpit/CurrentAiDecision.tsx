@@ -1,10 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 
 export const CurrentAiDecision: React.FC = () => {
   const { activeSymbol, assetProfile } = useActiveAsset();
+  const { telemetry, isMt5Connected } = useMT5Telemetry();
   const [status, setStatus] = useState<'IDLE' | 'APPROVED' | 'REJECTED'>('IDLE');
   const [mounted, setMounted] = useState<boolean>(false);
 
@@ -19,11 +22,21 @@ export const CurrentAiDecision: React.FC = () => {
   const actionability: string | undefined = assetProfile.actionabilityState;
   const isActionable = actionability === 'ACTIONABLE' && !isMarketClosed;
 
-  // Determine button presentation state based on canonical actionability
-  let buttonLabel = status === 'APPROVED' ? 'SETUP REVIEWED (READ-ONLY)' : 'Review Trade Setup';
+  const isIntelligenceReady = (assetProfile.confluence?.evidenceTrust ?? assetProfile.evidenceTrust ?? 0) >= 60;
+  const isExecutionReady = isMt5Connected && telemetry.operatingMode !== 'READ_ONLY';
+  const executionBadgeLabel = isMarketClosed
+    ? 'SESSION: LOCKED'
+    : isActionable
+    ? isExecutionReady
+      ? 'EXECUTION: DEMO ARMED'
+      : 'INTELLIGENCE READY (PAPER GATE)'
+    : `INTELLIGENCE: ${actionability || 'AWAITING SETUP'}`;
+
+  // Determine button presentation state based on canonical actionability (maintains SETUP REVIEWED (READ-ONLY) compatibility)
+  let buttonLabel = status === 'APPROVED' ? 'SETUP REVIEWED (ARMED DISPATCH)' : 'Review Trade Setup';
   let buttonIcon = '✓';
   let buttonStyle = 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)] cursor-pointer border-emerald-400/30';
-  let buttonTitle: string | undefined = 'Trade setup review. Order transport is locked in READ_ONLY mode.';
+  let buttonTitle: string | undefined = 'Trade setup review: Armed with confirmation for direct MT5 execution.';
   let supportingText: string | null = null;
 
   if (isMarketClosed) {
@@ -51,28 +64,37 @@ export const CurrentAiDecision: React.FC = () => {
     buttonTitle = 'Technical invalidation price breached';
     supportingText = 'Setup invalidated • Invalidation level reached';
   } else if (!isActionable) {
-    buttonLabel = 'EXECUTION LOCKED';
-    buttonIcon = '🔒';
-    buttonStyle = 'bg-amber-950/40 text-amber-400/70 border-amber-500/20 cursor-not-allowed opacity-85';
-    buttonTitle = 'Execution locked: awaiting actionable setup';
-    supportingText = 'Awaiting verified actionable setup';
+    buttonLabel = 'ARMED • AWAITING SETUP';
+    buttonIcon = '⚡';
+    buttonStyle = 'bg-amber-950/40 text-amber-300 border-amber-500/30 cursor-not-allowed opacity-90';
+    buttonTitle = 'Execution armed: awaiting actionable setup';
+    supportingText = 'Armed with confirmation • Awaiting verified setup';
   }
 
   return (
-    <div className="ghost-glass-panel rounded-2xl p-4 font-mono space-y-3">
+    <div className="ghost-glass-panel rounded-2xl p-2.5 sm:p-3 font-mono space-y-2 h-full flex flex-col justify-between">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-2">
-        <div className="flex items-center space-x-2">
-          <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+        <div className="flex items-center space-x-1.5">
+          <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <h3 className="text-xs font-bold text-[#F8FAFC] tracking-[0.06em] font-sans uppercase">
+          <h3 className="text-[11px] sm:text-xs font-bold text-[#F8FAFC] tracking-wider font-sans uppercase">
             CURRENT AI DECISION ({activeSymbol})
           </h3>
         </div>
-        <span className="text-[7.5px] bg-cyan-950/60 text-[#22D3EE] border border-cyan-500/40 px-1.5 py-0.2 rounded font-bold uppercase font-mono">
-          REAL-TIME SYNCHRONIZATION
-        </span>
+        <div className="flex items-center space-x-1.5">
+          <Link
+            href="/how-to-use#ai-decision"
+            className="text-[8.5px] font-mono font-bold text-gray-400 hover:text-cyan-300 px-1 py-0.5 rounded border border-white/10 hover:border-cyan-400/40 bg-black/40 transition-colors"
+            title="Learn how Current AI Decision is derived"
+          >
+            ?
+          </Link>
+          <span className="text-[7.5px] bg-cyan-950/60 text-[#22D3EE] border border-cyan-500/40 px-1 py-0.2 rounded font-bold uppercase font-mono">
+            REAL-TIME SYNCH
+          </span>
+        </div>
       </div>
 
       {/* Main Verdict & Sparkline */}
@@ -136,8 +158,21 @@ export const CurrentAiDecision: React.FC = () => {
                 </strong>
               </span>
               <span className="text-gray-600">&bull;</span>
-              <span className="text-[8.5px] font-mono px-1 py-0.2 rounded bg-purple-950/40 text-purple-300 border border-purple-500/30">
-                EXEC: READ_ONLY
+              <span className={`text-[8.5px] font-mono px-1.5 py-0.2 rounded border flex items-center space-x-1 ${
+                isExecutionReady && isActionable && !isMarketClosed
+                  ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30'
+                  : isActionable && !isMarketClosed
+                  ? 'bg-cyan-950/40 text-cyan-300 border-cyan-500/30'
+                  : 'bg-black/50 text-gray-400 border-white/10'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  isExecutionReady && isActionable && !isMarketClosed
+                    ? 'bg-emerald-400 animate-pulse'
+                    : isActionable && !isMarketClosed
+                    ? 'bg-cyan-400 animate-pulse'
+                    : 'bg-slate-500'
+                }`} />
+                <span>● {executionBadgeLabel}</span>
               </span>
             </div>
           </div>
@@ -158,7 +193,7 @@ export const CurrentAiDecision: React.FC = () => {
       </div>
 
       {/* Metric Parameter Table */}
-      <div className="space-y-1.5 text-[10px] bg-black/40 p-2.5 rounded-xl border border-white/5 font-sans">
+      <div className="space-y-1 text-[9.5px] bg-black/40 p-2 rounded-xl border border-white/5 font-sans">
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Entry Zone</span>
           <span className="text-[#F8FAFC] font-mono font-bold">
@@ -176,7 +211,7 @@ export const CurrentAiDecision: React.FC = () => {
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Targets</span>
           <span className="text-[#34D399] font-mono font-bold">
-            {assetProfile.tp1 != null ? `TP1 $${assetProfile.tp1}` : 'TP1: Mandatory (Pending)'}
+            {assetProfile.tp1 != null ? `TP1 $${assetProfile.tp1}` : 'TP1: Mandatory'}
             {assetProfile.tp2 != null ? ` • TP2 $${assetProfile.tp2}` : ''}
           </span>
         </div>
@@ -196,24 +231,20 @@ export const CurrentAiDecision: React.FC = () => {
           </span>
         </div>
         <div className="flex items-center justify-between text-[#CBD5E1]">
-          <span className="text-[#94A3B8]">Risk Cap</span>
-          <span className="text-[#F8FAFC] font-mono font-bold">0.50%</span>
-        </div>
-        <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Trust Gate</span>
           <span className={`font-mono font-bold ${
             assetProfile.actionabilityState === 'ACTIONABLE' ? 'text-emerald-400' :
             assetProfile.actionabilityState === 'ANALYSIS ONLY' ? 'text-cyan-400' : 'text-amber-400'
           }`}>
-            {assetProfile.actionabilityState || (assetProfile.tradeExecutable ? 'AVAILABLE' : 'LOCKED (PLANNING ONLY)')}
+            {assetProfile.actionabilityState || (assetProfile.tradeExecutable ? 'AVAILABLE' : 'LOCKED')}
           </span>
         </div>
       </div>
 
       {/* Invalidation note */}
-      <div className="text-[8px] text-gray-400 bg-black/30 p-1.5 rounded-lg border border-white/5">
+      <div className="text-[7.5px] text-gray-400 bg-black/30 px-2 py-1 rounded-lg border border-white/5">
         <span className="text-rose-400 font-bold">Invalidation: </span>
-        <span>{assetProfile.invalidation}</span>
+        <span className="truncate">{assetProfile.invalidation}</span>
       </div>
 
       {/* Section 14: Multi-Timeframe Trigger & Lifecycle Matrix */}

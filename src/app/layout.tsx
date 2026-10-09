@@ -2,6 +2,7 @@ import '../styles/globals.css';
 import { ActiveAssetProvider } from '@/context/ActiveAssetContext';
 import { MT5TelemetryProvider } from '@/context/MT5TelemetryContext';
 import { TradeOpportunityPopup } from '@/components/cockpit/TradeOpportunityPopup';
+import { InteractiveGlassProvider } from '@/components/common/InteractiveGlassProvider';
 
 export const metadata = {
   title: 'FEF CORTEX | Autonomous AI Trading Intelligence Operating System',
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <MT5TelemetryProvider>
             {children}
             <TradeOpportunityPopup />
+            <InteractiveGlassProvider />
           </MT5TelemetryProvider>
         </ActiveAssetProvider>
       </body>

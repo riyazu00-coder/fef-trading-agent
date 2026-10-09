@@ -17,6 +17,7 @@ export type EvidenceClassification =
   | 'INDEPENDENT_VERIFIED' // Measured directly via verified independent public market feed (Binance spot, Yahoo FX/Indices)
   | 'INDEPENDENT_REFERENCE'// Reference/proxy market feed (e.g. PAXG proxy for gold, CME futures proxy) — strictly non-executable
   | 'DERIVED_FROM_VERIFIED'// Mathematically computed from verified independent OHLC or telemetry
+  | 'BROKER_TICK_VOLUME_PROXY' // Measured via broker CFD tick volume rather than centralized exchange volume
   | 'LIVE_EXTERNAL'       // Measured via connected public market API (Gold-API, Binance, open.er-api)
   | 'DELAYED_EXTERNAL'    // Public API feed with known timestamp delay (> 60s)
   | 'CACHED'              // Cached memory snapshot within acceptable TTL
@@ -65,6 +66,7 @@ export const FRESHNESS_POLICIES: Record<EvidenceClassification, number> = {
   INDEPENDENT_VERIFIED: 120_000, // 2 minutes for verified independent public market feeds
   INDEPENDENT_REFERENCE: 300_000,// 5 minutes for reference/proxy feeds (PAXG, CME Futures)
   DERIVED_FROM_VERIFIED: 300_000,// 5 minutes for mathematical analysis derived from verified OHLC
+  BROKER_TICK_VOLUME_PROXY: 300_000, // 5 minutes for broker tick volume proxy analysis
   LIVE_EXTERNAL: 120_000,         // 2 minutes for public price feeds
   DELAYED_EXTERNAL: 900_000,      // 15 minutes for delayed wire/macro data
   CACHED: 300_000,                // 5 minutes for cached profiles
@@ -124,7 +126,8 @@ export function isEvidenceDecisionEligible(
     }
 
     case 'DERIVED':
-    case 'DERIVED_FROM_VERIFIED': {
+    case 'DERIVED_FROM_VERIFIED':
+    case 'BROKER_TICK_VOLUME_PROXY': {
       const maxAge = FRESHNESS_POLICIES[classification];
       if (safeFreshness > maxAge) {
         return {
@@ -228,6 +231,7 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
         break;
       case 'DERIVED_FROM_VERIFIED':
       case 'DERIVED':
+      case 'BROKER_TICK_VOLUME_PROXY':
         if (isCanonicallyVerified) {
           earnedScore += 0.90;
           verifiedCount += 1;

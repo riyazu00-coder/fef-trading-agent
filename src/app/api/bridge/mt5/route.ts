@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { mt5HttpClient } from '@/lib/bridge/mt5-http-client';
 import { mt5BridgeClient } from '@/lib/bridge/mt5-client';
+import { executionBridgeV2Client } from '@/lib/bridge/execution-bridge-v2-client';
 import { BridgeCommand, RESTRICTED_EXECUTION_COMMANDS } from '@/lib/bridge/mt5-bridge-protocol';
 import { symbolDirectory } from '@/lib/bridge/symbol-mapper';
 import { evaluateMarketSession } from '@/lib/session/market-session-engine';
-import { validateTradeProtection } from '@/lib/execution/trade-protection-validator';
+import { validateTradeProtection, reanchorProtectionLevels } from '@/lib/execution/trade-protection-validator';
 import { CANONICAL_EXECUTION_MODE, READ_ONLY_EXECUTION_ERROR } from '@/lib/execution/execution-policy';
 
 export const dynamic = 'force-dynamic';
@@ -35,8 +36,19 @@ export async function GET(req: NextRequest) {
   const rawAction = searchParams.get('action') || 'PING';
   const symbol = searchParams.get('symbol') || undefined;
 
+  // 1. Try Bridge V2 (:5560) first for live MT5 telemetry
+  const v2Telemetry = await executionBridgeV2Client.getUnifiedTelemetry();
+  const isV2Connected = Boolean(v2Telemetry && v2Telemetry.mt5Connected);
+
   // Dedicated status query for detailed telemetry & heartbeat age
   if (rawAction.toUpperCase() === 'STATUS' || rawAction.toUpperCase() === 'TELEMETRY') {
+    if (isV2Connected && v2Telemetry) {
+      return NextResponse.json({
+        ...v2Telemetry,
+        resolvedMap: symbolDirectory.getResolvedMap(),
+      });
+    }
+
     const status = await mt5HttpClient.getStatus();
     if (status && Array.isArray(status.symbols) && status.symbols.length > 0) {
       symbolDirectory.discoverFromBrokerSymbols(status.symbols);
@@ -52,18 +64,56 @@ export async function GET(req: NextRequest) {
   try {
     switch (action) {
       case 'PING': {
+        if (isV2Connected && v2Telemetry) {
+          return NextResponse.json({
+            success: true,
+            state: v2Telemetry.state,
+            transport: 'EXECUTION BRIDGE V2 (HTTP / WEBREQUEST)',
+            data: { status: 'PONG' },
+            timestamp: Date.now(),
+          });
+        }
         const res = await dispatchCommand('PING');
         return NextResponse.json(res);
       }
       case 'GET_TERMINAL_STATUS': {
+        if (isV2Connected && v2Telemetry) {
+          return NextResponse.json({
+            success: true,
+            state: v2Telemetry.state,
+            transport: 'EXECUTION BRIDGE V2 (HTTP / WEBREQUEST)',
+            data: v2Telemetry.terminal,
+            timestamp: Date.now(),
+          });
+        }
         const res = await dispatchCommand('GET_TERMINAL_STATUS');
         return NextResponse.json(res);
       }
       case 'GET_ACCOUNT': {
+        if (isV2Connected && v2Telemetry && v2Telemetry.account) {
+          return NextResponse.json({
+            success: true,
+            state: v2Telemetry.state,
+            transport: 'EXECUTION BRIDGE V2 (HTTP / WEBREQUEST)',
+            data: v2Telemetry.account,
+            timestamp: Date.now(),
+          });
+        }
         const res = await dispatchCommand('GET_ACCOUNT');
         return NextResponse.json(res);
       }
       case 'GET_SYMBOLS': {
+        if (isV2Connected && v2Telemetry) {
+          const syms = Object.keys(v2Telemetry.allQuotes);
+          return NextResponse.json({
+            success: true,
+            state: v2Telemetry.state,
+            transport: 'EXECUTION BRIDGE V2 (HTTP / WEBREQUEST)',
+            data: { symbols: syms },
+            resolvedMap: symbolDirectory.getResolvedMap(),
+            timestamp: Date.now(),
+          });
+        }
         const res = await dispatchCommand('GET_SYMBOLS');
         return NextResponse.json({
           ...res,
@@ -87,10 +137,28 @@ export async function GET(req: NextRequest) {
             { status: 400 }
           );
         }
+        if (isV2Connected && v2Telemetry && v2Telemetry.allQuotes[symbol.toUpperCase()]) {
+          return NextResponse.json({
+            success: true,
+            state: v2Telemetry.state,
+            transport: 'EXECUTION BRIDGE V2 (HTTP / WEBREQUEST)',
+            data: v2Telemetry.allQuotes[symbol.toUpperCase()],
+            timestamp: Date.now(),
+          });
+        }
         const res = await dispatchCommand('GET_QUOTE', undefined, symbol);
         return NextResponse.json(res);
       }
       case 'GET_POSITIONS': {
+        if (isV2Connected && v2Telemetry) {
+          return NextResponse.json({
+            success: true,
+            state: v2Telemetry.state,
+            transport: 'EXECUTION BRIDGE V2 (HTTP / WEBREQUEST)',
+            data: { positions: v2Telemetry.allPositions },
+            timestamp: Date.now(),
+          });
+        }
         const res = await dispatchCommand('GET_POSITIONS');
         return NextResponse.json(res);
       }
@@ -134,7 +202,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { action, host, port, token, symbol, params } = body;
+    const rawAction = body.action || body.command || body.order?.action || body.params?.action;
+    const { host, port, token } = body;
+    const params = body.params || body.order || body;
+    const symbol = body.symbol || params?.symbol || params?.canonicalSymbol;
 
     // Optional configuration update from UI
     if (host || port) {
@@ -161,7 +232,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (!action) {
+    if (!rawAction && !params?.direction && !params?.orderType) {
       return NextResponse.json({
         success: true,
         message: 'Configuration updated',
@@ -175,7 +246,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const command = action.toUpperCase() as BridgeCommand;
+    const command = (rawAction || 'PLACE_ORDER').toUpperCase() as BridgeCommand;
 
     // MT5 Execution Gateway: Mutating commands are dispatched to connected MT5 terminal
     if (command === 'PLACE_ORDER') {
@@ -283,11 +354,67 @@ export async function POST(req: NextRequest) {
       if (!isEngineeringDemo) {
         const orderDirection = String(params?.direction || params?.orderType || 'BUY').toUpperCase() as 'BUY' | 'SELL';
         const quote = bridgeStatus?.quotes ? (bridgeStatus.quotes[targetSym] || bridgeStatus.quotes[params?.brokerSymbol || targetSym]) : null;
-        const entryPriceToValidate = Number(params?.price) || (quote ? (orderDirection === 'BUY' ? quote.ask : quote.bid) : 0);
-        const slToValidate = Number(params?.sl ?? params?.stopLoss ?? 0);
-        const tp1ToValidate = Number(params?.tp1 ?? params?.tp ?? params?.takeProfit ?? 0);
-        const tp2ToValidate = params?.tp2 != null ? Number(params.tp2) : undefined;
-        const tp3ToValidate = params?.tp3 != null ? Number(params.tp3) : undefined;
+        let entryPriceToValidate = Number(params?.price) || (quote ? (orderDirection === 'BUY' ? quote.ask : quote.bid) : 0);
+        let slToValidate = Number(params?.sl ?? params?.stopLoss ?? 0);
+        let tp1ToValidate = Number(params?.tp1 ?? params?.tp ?? params?.takeProfit ?? 0);
+        let tp2ToValidate = params?.tp2 != null ? Number(params.tp2) : undefined;
+        let tp3ToValidate = params?.tp3 != null ? Number(params.tp3) : undefined;
+
+        // If planned reference price is provided and live quote shifted, re-anchor dynamically
+        if (params?.plannedPrice && Number(params.plannedPrice) > 0 && entryPriceToValidate > 0) {
+          const reanchored = reanchorProtectionLevels({
+            direction: orderDirection,
+            plannedEntry: Number(params.plannedPrice),
+            freshEntry: entryPriceToValidate,
+            sl: slToValidate,
+            tp1: tp1ToValidate,
+            tp2: tp2ToValidate,
+            tp3: tp3ToValidate,
+            digits: quote?.digits ?? 5,
+          });
+          entryPriceToValidate = reanchored.entry;
+          slToValidate = reanchored.sl;
+          tp1ToValidate = reanchored.tp1;
+          tp2ToValidate = reanchored.tp2;
+          tp3ToValidate = reanchored.tp3;
+          if (params) {
+            params.price = reanchored.entry;
+            params.sl = reanchored.sl;
+            params.tp1 = reanchored.tp1;
+            if (reanchored.tp2 != null) params.tp2 = reanchored.tp2;
+            else delete params.tp2;
+            if (reanchored.tp3 != null) params.tp3 = reanchored.tp3;
+            else delete params.tp3;
+          }
+        }
+
+        // Gracefully decouple secondary partial targets (TP2/TP3) if non-cascading
+        // MT5 market tickets only take a single SL and TP1; secondary targets must never abort broker execution
+        if (orderDirection === 'BUY') {
+          if (tp2ToValidate != null && tp2ToValidate <= tp1ToValidate) {
+            tp2ToValidate = undefined;
+            if (params) delete params.tp2;
+          }
+          if (tp3ToValidate != null) {
+            const priorTp = tp2ToValidate ?? tp1ToValidate;
+            if (tp3ToValidate <= priorTp) {
+              tp3ToValidate = undefined;
+              if (params) delete params.tp3;
+            }
+          }
+        } else {
+          if (tp2ToValidate != null && tp2ToValidate >= tp1ToValidate) {
+            tp2ToValidate = undefined;
+            if (params) delete params.tp2;
+          }
+          if (tp3ToValidate != null) {
+            const priorTp = tp2ToValidate ?? tp1ToValidate;
+            if (tp3ToValidate >= priorTp) {
+              tp3ToValidate = undefined;
+              if (params) delete params.tp3;
+            }
+          }
+        }
 
         const protectionValidation = validateTradeProtection({
           symbol: targetSym,
@@ -298,6 +425,7 @@ export async function POST(req: NextRequest) {
           tp2: tp2ToValidate,
           tp3: tp3ToValidate,
           brokerQuote: quote,
+          maxQuoteAgeMs: 15000,
           symbolSpec: quote ? {
             point: quote.point,
             digits: quote.digits,
@@ -321,8 +449,26 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      if (params) {
+        params.allowOrderDispatch = true;
+        params.orderTransportEnabled = true;
+        if (params.tp1 != null && params.tp == null) params.tp = params.tp1;
+        if (params.tp != null && params.tp1 == null) params.tp1 = params.tp;
+        if (params.takeProfit != null && params.tp == null) params.tp = params.takeProfit;
+        if (params.tp != null && params.takeProfit == null) params.takeProfit = params.tp;
+      }
+
       const res = await dispatchCommand('PLACE_ORDER', params, symbol);
       return NextResponse.json(res);
+    }
+
+    if (params) {
+      params.allowOrderDispatch = true;
+      params.orderTransportEnabled = true;
+      if (params.tp1 != null && params.tp == null) params.tp = params.tp1;
+      if (params.tp != null && params.tp1 == null) params.tp1 = params.tp;
+      if (params.takeProfit != null && params.tp == null) params.tp = params.takeProfit;
+      if (params.tp != null && params.takeProfit == null) params.takeProfit = params.tp;
     }
 
     const res = await dispatchCommand(command, params, symbol);

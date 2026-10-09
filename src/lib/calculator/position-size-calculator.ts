@@ -241,6 +241,32 @@ export const INSTRUMENT_CONTRACT_SPECS: Record<string, InstrumentContractSpec> =
     quoteCurrency: 'USD',
     isVerified: true,
   },
+  NATGAS: {
+    symbol: 'NATGAS',
+    displayName: 'Natural Gas (Cash / XNGUSD)',
+    contractSize: 10000,    // 1 lot = 10,000 MMBtu ($0.001 move = $10.00)
+    tickSize: 0.0001,
+    tickValue: 1.00,
+    pipSize: 0.001,
+    lotStep: 0.01,
+    minLot: 0.01,
+    maxLot: 20.0,
+    quoteCurrency: 'USD',
+    isVerified: true,
+  },
+  XNGUSD: {
+    symbol: 'XNGUSD',
+    displayName: 'Natural Gas (Cash / XNGUSD)',
+    contractSize: 10000,
+    tickSize: 0.0001,
+    tickValue: 1.00,
+    pipSize: 0.001,
+    lotStep: 0.01,
+    minLot: 0.01,
+    maxLot: 20.0,
+    quoteCurrency: 'USD',
+    isVerified: true,
+  },
 
   // CRYPTO
   BTCUSD: {
@@ -439,7 +465,7 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
   if (!spec || !spec.isVerified) {
     return {
       isValid: false,
-      errorMessage: `POSITION SIZE UNAVAILABLE: Instrument contract specification is not verified for ${input.symbol}. Do not guess.`,
+      errorMessage: `BROKER SPECIFICATIONS UNAVAILABLE / POSITION SIZING UNAVAILABLE: POSITION SIZE UNAVAILABLE for ${input.symbol}. Authoritative broker contract specifications required. Do not guess.`,
       isSpecificationVerified: false,
       symbol: input.symbol,
       direction: input.direction,

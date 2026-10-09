@@ -32,6 +32,7 @@ export interface LiveMarketAsset {
   classification?: string;
   priceType?: CryptoPriceType;
   referencePrice?: number;
+  referenceProvider?: string;
 }
 
 /**

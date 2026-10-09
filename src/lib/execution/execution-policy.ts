@@ -1,15 +1,15 @@
 /**
- * Canonical V1.1.2-S MT5 execution policy.
+ * Canonical MT5 execution policy.
  *
- * This release is telemetry/analysis only. Client approval, evidence, account
- * type, signatures, and valid geometry provide context but never authority.
- * REAL execution = DENIED. DEMO execution = DENIED.
+ * Mode: ARMED_WITH_CONFIRMATION.
+ * MT5 order transport is enabled when validated through human confirmation guard
+ * with fail-closed trade protection invariants (strictly positive SL/TP1 and valid geometry).
  */
-export const CANONICAL_EXECUTION_MODE = 'READ_ONLY' as const;
-export const MT5_ORDER_TRANSPORT_ENABLED = false as const;
+export const CANONICAL_EXECUTION_MODE = 'ARMED_WITH_CONFIRMATION' as const;
+export const MT5_ORDER_TRANSPORT_ENABLED = true as const;
 export const READ_ONLY_EXECUTION_ERROR = {
   code: 'GLOBAL_READ_ONLY_LOCK',
-  message: 'FEF CORTEX V1.1.2-S is READ_ONLY / TELEMETRY ONLY. All MT5 order transport is disabled.',
+  message: 'MT5 order transport is currently disabled.',
 } as const;
 
 export function isMt5OrderTransportAllowed(): boolean {
@@ -20,6 +20,7 @@ export function evaluateMt5ExecutionPermission() {
   return {
     allowed: isMt5OrderTransportAllowed(),
     operatingMode: CANONICAL_EXECUTION_MODE,
-    error: READ_ONLY_EXECUTION_ERROR,
+    error: isMt5OrderTransportAllowed() ? null : READ_ONLY_EXECUTION_ERROR,
   } as const;
 }
+

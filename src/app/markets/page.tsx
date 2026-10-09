@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
+import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import {
@@ -37,12 +38,13 @@ export default function MarketsPage() {
 
   return (
     <div className="relative min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black overflow-x-hidden">
-      {/* Background Aurora Borealis Motion */}
+      {/* Static Premium CORTEX Visual Foundation */}
       <BackgroundLiveChart symbol={activeSymbol} isPositive={true} />
 
       {/* Main Content */}
       <div className="relative z-10 flex flex-col p-2 sm:p-4 space-y-4 w-full max-w-[1920px] mx-auto">
         <MasterTopNav />
+        <MarketCategoryFilterBar />
 
         {/* Page Header */}
         <div className="ghost-glass-panel rounded-2xl p-4 sm:p-5 space-y-4">

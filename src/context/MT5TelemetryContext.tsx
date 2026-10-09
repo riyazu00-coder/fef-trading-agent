@@ -11,6 +11,10 @@ import {
   filterOrdersForSymbol
 } from '@/lib/bridge/mt5-telemetry-state';
 import { symbolDirectory } from '@/lib/bridge/symbol-mapper';
+import {
+  ConnectivityState,
+  evaluateConnectivityStatus
+} from '@/lib/bridge/connectivity-policy';
 
 interface MT5TelemetryContextType {
   telemetry: MT5UnifiedTelemetry;
@@ -45,10 +49,17 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [telemetry, setTelemetry] = useState<MT5UnifiedTelemetry>(INITIAL_TELEMETRY);
   const isFetchingRef = useRef<boolean>(false);
 
-  // Single-flight fetch to retrieve complete status & telemetry
+  // Anti-flap tracking refs and generation guard
+  const consecutiveFailuresRef = useRef<number>(0);
+  const lastSuccessTimeRef = useRef<number>(Date.now());
+  const connectionStateRef = useRef<ConnectivityState>('OFFLINE');
+  const telemetryGenRef = useRef<number>(0);
+
+  // Single-flight fetch to retrieve complete status & telemetry with anti-flap hysteresis
   const refreshTelemetry = useCallback(async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
+    const currentGen = ++telemetryGenRef.current;
 
     try {
       let data: any = null;
@@ -92,32 +103,64 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
       }
 
-      if (!data) {
-        setTelemetry(prev => ({
-          ...prev,
-          localBridgeOnline: false,
-          mt5Connected: false,
-          state: 'MT5_OFFLINE',
-          operatingMode: 'READ_ONLY',
-          readOnlyLockActive: true,
-          lastSyncTimestamp: Date.now()
-        }));
-        return;
+      if (data) {
+        localOnline = isRemote ? false : (data.localBridge === 'ONLINE' || data.success === true);
+        mt5Online = isRemote ? Boolean(data.connected) : Boolean(data.mt5Connected);
       }
 
-      localOnline = isRemote ? false : (data.localBridge === 'ONLINE' || data.success === true);
-      mt5Online = isRemote ? Boolean(data.connected) : Boolean(data.mt5Connected);
+      // Check if bridge explicitly reported terminal disconnect
+      const explicitDisconnect = Boolean(
+        data && (
+          (data.terminal && (data.terminal.connected === false || data.terminal.terminalConnected === false)) ||
+          data.terminalConnected === false
+        )
+      );
 
-      if (!localOnline && !mt5Online) {
-        setTelemetry(prev => ({
-          ...prev,
-          localBridgeOnline: false,
-          mt5Connected: false,
-          state: 'MT5_OFFLINE',
-          operatingMode: 'READ_ONLY',
-          readOnlyLockActive: true,
-          lastSyncTimestamp: Date.now()
-        }));
+      // Evaluate connectivity through deterministic anti-flap hysteresis policy
+      const rawHeartbeatAge = data && typeof data.heartbeatAgeMs === 'number' ? data.heartbeatAgeMs : null;
+      const connEval = evaluateConnectivityStatus({
+        isAuthoritativeConnected: Boolean(data && mt5Online),
+        heartbeatAgeMs: rawHeartbeatAge,
+        previousState: connectionStateRef.current,
+        consecutiveFailures: consecutiveFailuresRef.current,
+        timeSinceLastSuccessMs: Date.now() - lastSuccessTimeRef.current,
+        explicitTerminalDisconnect: explicitDisconnect,
+      });
+
+      connectionStateRef.current = connEval.state;
+      consecutiveFailuresRef.current = connEval.consecutiveFailures;
+      if (connEval.state === 'ONLINE') {
+        lastSuccessTimeRef.current = Date.now();
+      }
+
+      // Drop stale out-of-order response
+      if (currentGen !== telemetryGenRef.current) return;
+
+      if (!data || (!localOnline && !mt5Online)) {
+        if (connEval.isInGracePeriod && connEval.isMt5Connected) {
+          // Grace period: keep previous telemetry alive, mark DEGRADED
+          setTelemetry(prev => ({
+            ...prev,
+            connectionStatus: 'DEGRADED',
+            statusLabel: connEval.statusLabel,
+            isInGracePeriod: true,
+            state: prev.mt5Connected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+            lastSyncTimestamp: Date.now()
+          }));
+        } else {
+          setTelemetry(prev => ({
+            ...prev,
+            localBridgeOnline: false,
+            mt5Connected: false,
+            connectionStatus: 'OFFLINE',
+            statusLabel: connEval.statusLabel,
+            isInGracePeriod: false,
+            state: 'MT5_OFFLINE',
+            operatingMode: 'READ_ONLY',
+            readOnlyLockActive: true,
+            lastSyncTimestamp: Date.now()
+          }));
+        }
         return;
       }
 
@@ -127,11 +170,13 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
 
       // Format quotes map
-      const allQuotes: Record<string, any> = data.quotes || {};
+      const allQuotes: Record<string, any> = data.allQuotes || data.quotes || {};
 
-      // Execution policy is canonically locked to READ_ONLY for this milestone
-      const opMode: 'READ_ONLY' = 'READ_ONLY';
-      const isReadOnly = true;
+      // Execution policy: Real accounts strictly HARD LOCKED to READ_ONLY.
+      // Demo accounts with V2 reflect DEMO_EXECUTION accurately.
+      const isRealAccount = data.account?.tradeMode === 'REAL' || data.accountMode === 'REAL' || (data.terminal && data.terminal.operatingMode === 'REAL');
+      const opMode: 'READ_ONLY' | 'DEMO_EXECUTION' = isRealAccount ? 'READ_ONLY' : (data.operatingMode || 'DEMO_EXECUTION');
+      const isReadOnly = isRealAccount || opMode === 'READ_ONLY';
 
       // Transform authentic account only when provided by upstream telemetry
       const rawAccount = data.account || (data.maskedAccount || data.balance != null ? {
@@ -147,7 +192,7 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
         tradeMode: data.tradeMode,
         tradeAllowed: data.tradeAllowed
       } : null);
-      const accountContext = deriveAccountRiskContext(rawAccount, data.positions, opMode);
+      const accountContext = deriveAccountRiskContext(rawAccount, data.positions || data.allPositions, opMode);
 
       // Terminal status: preserve authentic terminal telemetry if provided, otherwise null
       const terminalStatus = data.terminal ? {
@@ -162,44 +207,80 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
           ? data.terminal.pingToBrokerMs
           : (typeof data.terminal.ping === 'number' ? data.terminal.ping : 0),
         bridgeVersion: data.terminal.bridgeVersion || '',
-        operatingMode: 'READ_ONLY' as const,
+        operatingMode: opMode,
         lastHeartbeat: data.terminal.lastHeartbeat || data.lastHeartbeat || ''
       } : null;
 
-      const connectionState = (data.state && data.state !== 'CONNECTED_UNIVERSAL_EXECUTION')
-        ? (data.state === 'CONNECTED_DEMO_EXECUTION' || data.state === 'CONNECTED_LIVE_EXECUTION' ? 'CONNECTED_READ_ONLY' : data.state)
-        : (mt5Online ? 'CONNECTED_READ_ONLY' : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE');
+      const effectiveMt5Connected = connEval.isMt5Connected;
+      const connectionState = isRealAccount
+        ? 'CONNECTED_READ_ONLY'
+        : (data.state || (effectiveMt5Connected ? 'CONNECTED_DEMO_EXECUTION' : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE'));
 
       const transportLabel = isRemote
         ? (data.transport || 'SECURE_RELAY (WSS)')
         : (data.transport || 'HTTP / WEBREQUEST');
 
-      setTelemetry({
-        localBridgeOnline: localOnline,
-        mt5Connected: mt5Online,
-        isRemote,
-        state: connectionState,
-        transport: transportLabel,
-        heartbeatAgeMs: data.heartbeatAgeMs ?? null,
-        lastHeartbeat: data.lastHeartbeat ?? null,
-        terminal: terminalStatus,
-        account: accountContext,
-        allPositions: Array.isArray(data.positions) ? data.positions : [],
-        allPendingOrders: Array.isArray(data.orders) ? data.orders : [],
-        allQuotes,
-        operatingMode: opMode,
-        readOnlyLockActive: isReadOnly,
-        lastSyncTimestamp: Date.now()
+      setTelemetry(prev => {
+        const allPositions = Array.isArray(data.allPositions) ? data.allPositions : (Array.isArray(data.positions) ? data.positions : (prev.allPositions || []));
+        const allPendingOrders = Array.isArray(data.allPendingOrders) ? data.allPendingOrders : (Array.isArray(data.orders) ? data.orders : (prev.allPendingOrders || []));
+
+        return {
+          localBridgeOnline: localOnline,
+          mt5Connected: effectiveMt5Connected,
+          isRemote,
+          state: connectionState,
+          connectionStatus: connEval.state,
+          statusLabel: connEval.statusLabel,
+          isInGracePeriod: connEval.isInGracePeriod,
+          transport: transportLabel,
+          heartbeatAgeMs: data.heartbeatAgeMs ?? null,
+          lastHeartbeat: data.lastHeartbeat ?? null,
+          terminal: terminalStatus || (effectiveMt5Connected ? prev.terminal : null),
+          account: accountContext || (effectiveMt5Connected ? prev.account : null),
+          allPositions,
+          allPendingOrders,
+          allQuotes,
+          operatingMode: opMode,
+          readOnlyLockActive: isReadOnly,
+          lastSyncTimestamp: Date.now()
+        };
       });
     } catch {
-      setTelemetry((prev) => ({
-        ...prev,
-        localBridgeOnline: false,
-        mt5Connected: false,
-        isRemote: false,
-        state: 'BRIDGE_OFFLINE',
-        lastSyncTimestamp: Date.now()
-      }));
+      const connEval = evaluateConnectivityStatus({
+        isAuthoritativeConnected: false,
+        heartbeatAgeMs: null,
+        previousState: connectionStateRef.current,
+        consecutiveFailures: consecutiveFailuresRef.current,
+        timeSinceLastSuccessMs: Date.now() - lastSuccessTimeRef.current,
+      });
+
+      connectionStateRef.current = connEval.state;
+      consecutiveFailuresRef.current = connEval.consecutiveFailures;
+
+      if (currentGen !== telemetryGenRef.current) return;
+
+      if (connEval.isInGracePeriod && connEval.isMt5Connected) {
+        setTelemetry(prev => ({
+          ...prev,
+          connectionStatus: 'DEGRADED',
+          statusLabel: connEval.statusLabel,
+          isInGracePeriod: true,
+          state: prev.mt5Connected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+          lastSyncTimestamp: Date.now()
+        }));
+      } else {
+        setTelemetry((prev) => ({
+          ...prev,
+          localBridgeOnline: false,
+          mt5Connected: false,
+          isRemote: false,
+          connectionStatus: 'OFFLINE',
+          statusLabel: connEval.statusLabel,
+          isInGracePeriod: false,
+          state: 'BRIDGE_OFFLINE',
+          lastSyncTimestamp: Date.now()
+        }));
+      }
     } finally {
       isFetchingRef.current = false;
     }

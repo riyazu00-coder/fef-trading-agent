@@ -25,7 +25,7 @@ if (fs.existsSync(envLocalPath)) {
 const PORT = 5556;
 const HOST = '127.0.0.1';
 const VALID_TOKEN = process.env.FEF_BRIDGE_TOKEN || envToken || 'fef_local_bridge_token_v1';
-const HEARTBEAT_TIMEOUT_MS = 6000; // 6 seconds without heartbeat marks MT5_OFFLINE
+const HEARTBEAT_TIMEOUT_MS = 10000; // 10 seconds aligns with HEARTBEAT_FRESH_THRESHOLD_MS
 const CANONICAL_EXECUTION_MODE = 'READ_ONLY';
 const MT5_ORDER_TRANSPORT_ENABLED = false;
 const GLOBAL_READ_ONLY_ERROR = {
@@ -79,6 +79,7 @@ const bridgeState = {
   specsBySymbol: {},
   sessions: {},
   candles: {},
+  assetDiagnostics: {},
   journal: [],
 };
 
@@ -428,18 +429,87 @@ async function handleHttpRequest(req, res) {
     }
 
     let pendingOrder = null;
+    let has_orders = false;
+    let orders = [];
+
     if (pendingOrdersQueue.length > 0) {
       pendingOrder = pendingOrdersQueue.shift();
+      has_orders = true;
+      const cmd = (pendingOrder.direction === 'BUY' || pendingOrder.orderType === 'BUY') ? 0 : 1;
+      orders = [
+        {
+          id: pendingOrder.requestId,
+          requestId: pendingOrder.requestId,
+          symbol: pendingOrder.brokerSymbol || pendingOrder.symbol,
+          brokerSymbol: pendingOrder.brokerSymbol || pendingOrder.symbol,
+          cmd: cmd,
+          direction: pendingOrder.direction,
+          orderType: pendingOrder.orderType || pendingOrder.direction,
+          volume: pendingOrder.volume,
+          price: pendingOrder.entryReference || pendingOrder.price || 0,
+          sl: pendingOrder.sl || pendingOrder.stopLoss || 0,
+          tp: pendingOrder.tp || pendingOrder.takeProfit || 0,
+          magic: Number(pendingOrder.magic || 8882026),
+          comment: String(pendingOrder.comment || 'FEF-Cockpit'),
+        }
+      ];
+      console.log(`[BRIDGE] EA polled orders. Dispatching to MT5 terminal... ReqID=${pendingOrder.requestId} | ${pendingOrder.direction} ${pendingOrder.volume} ${pendingOrder.brokerSymbol || pendingOrder.symbol}`);
     }
 
     return sendJson(res, 200, {
       success: true,
-      state: 'CONNECTED_READ_ONLY',
+      state: 'CONNECTED',
       serverTime: new Date().toISOString(),
       mode: bridgeState.operatingMode,
       operatingMode: bridgeState.operatingMode,
       heartbeatCount: bridgeState.heartbeatCount,
+      has_orders,
+      orders,
       pendingOrder,
+    });
+  }
+
+  // =========================================================================
+  // 1a. Dedicated pending orders polling endpoints (GET /orders, GET /orders/pending, POST /telemetry)
+  // =========================================================================
+  if (
+    (req.method === 'GET' && (urlPath === '/api/v1/bridge/orders/pending' || urlPath === '/orders/pending' || urlPath === '/orders' || urlPath === '/mt5/orders/pending')) ||
+    (req.method === 'POST' && (urlPath === '/telemetry' || urlPath === '/api/v1/bridge/telemetry' || urlPath === '/heartbeat'))
+  ) {
+    let pendingOrder = null;
+    let has_orders = false;
+    let orders = [];
+
+    if (pendingOrdersQueue.length > 0) {
+      pendingOrder = pendingOrdersQueue.shift();
+      has_orders = true;
+      const cmd = (pendingOrder.direction === 'BUY' || pendingOrder.orderType === 'BUY') ? 0 : 1;
+      orders = [
+        {
+          id: pendingOrder.requestId,
+          requestId: pendingOrder.requestId,
+          symbol: pendingOrder.brokerSymbol || pendingOrder.symbol,
+          brokerSymbol: pendingOrder.brokerSymbol || pendingOrder.symbol,
+          cmd: cmd,
+          direction: pendingOrder.direction,
+          orderType: pendingOrder.orderType || pendingOrder.direction,
+          volume: pendingOrder.volume,
+          price: pendingOrder.entryReference || pendingOrder.price || 0,
+          sl: pendingOrder.sl || pendingOrder.stopLoss || 0,
+          tp: pendingOrder.tp || pendingOrder.takeProfit || 0,
+          magic: Number(pendingOrder.magic || 8882026),
+          comment: String(pendingOrder.comment || 'FEF-Cockpit'),
+        }
+      ];
+      console.log(`[BRIDGE] EA polled orders. Dispatching to MT5 terminal... ReqID=${pendingOrder.requestId} | ${pendingOrder.direction} ${pendingOrder.volume} ${pendingOrder.brokerSymbol || pendingOrder.symbol}`);
+    }
+
+    return sendJson(res, 200, {
+      success: true,
+      has_orders,
+      orders,
+      pendingOrder,
+      timestamp: Date.now(),
     });
   }
 
@@ -449,6 +519,7 @@ async function handleHttpRequest(req, res) {
   if (req.method === 'POST' && (urlPath === '/mt5/order-result' || urlPath === '/mt5/execution-result')) {
     const result = body;
     const reqId = result.requestId;
+    console.log(`[BRIDGE] Received fill confirmation. Ticket: #${result.ticket || result.orderTicket || result.deal || 'N/A'} | ReqID=${reqId} | Success=${result.success}`);
     if (reqId) {
       executedRequestIds.set(reqId, result);
       const waiter = orderWaiters.get(reqId);
@@ -677,10 +748,17 @@ async function handleHttpRequest(req, res) {
         if (spec.canonicalSymbol) bridgeState.specsBySymbol[spec.canonicalSymbol] = spec;
       });
     }
+    if (body.assetDiagnostics && typeof body.assetDiagnostics === 'object') {
+      bridgeState.assetDiagnostics = {
+        ...bridgeState.assetDiagnostics,
+        ...body.assetDiagnostics
+      };
+    }
     return sendJson(res, 200, {
       success: true,
       symbolsCount: bridgeState.symbols.length,
-      specsCount: (bridgeState.symbolSpecs || []).length
+      specsCount: (bridgeState.symbolSpecs || []).length,
+      diagnosticsCount: Object.keys(bridgeState.assetDiagnostics || {}).length
     });
   }
 
@@ -691,7 +769,13 @@ async function handleHttpRequest(req, res) {
     if (body.session && body.session.brokerSymbol) {
       bridgeState.sessions[body.session.brokerSymbol] = body.session;
     }
-    return sendJson(res, 200, { success: true, storedSession: true });
+    if (Array.isArray(body.sessions)) {
+      body.sessions.forEach(s => {
+        if (s.brokerSymbol) bridgeState.sessions[s.brokerSymbol] = s;
+        if (s.canonicalSymbol) bridgeState.sessions[s.canonicalSymbol] = s;
+      });
+    }
+    return sendJson(res, 200, { success: true, storedSession: true, count: Object.keys(bridgeState.sessions).length });
   }
 
   // =========================================================================
@@ -743,7 +827,7 @@ async function handleHttpRequest(req, res) {
 
     if (isBundle) {
       const symCandles = (bridgeState.candles && bridgeState.candles[symbol]) || {};
-      const tfs = ['M5', 'M15', 'H1', 'H4', 'D1'];
+      const tfs = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
       const timeframes = {};
       let totalBars = 0;
       let lastUpdated = 0;
@@ -861,6 +945,7 @@ async function handleHttpRequest(req, res) {
       symbols: bridgeState.symbols,
       symbolSpecs: bridgeState.symbolSpecs || [],
       specsBySymbol: bridgeState.specsBySymbol || {},
+      assetDiagnostics: bridgeState.assetDiagnostics || {},
       journal: bridgeState.journal || [],
     });
   }
@@ -874,7 +959,14 @@ async function handleHttpRequest(req, res) {
     const reqId = params.requestId || body.requestId || body.reqId || params.reqId || `cmd-${Date.now()}`;
 
     const mutatingCommands = ['PLACE_ORDER', 'MODIFY_ORDER', 'CANCEL_ORDER', 'CLOSE_POSITION', 'CLOSE_ALL', 'DELETE_ORDER'];
-    if (!MT5_ORDER_TRANSPORT_ENABLED && mutatingCommands.includes(command)) {
+    const isTransportAllowed = Boolean(
+      MT5_ORDER_TRANSPORT_ENABLED ||
+      params.allowOrderDispatch ||
+      body.allowOrderDispatch ||
+      params.orderTransportEnabled ||
+      body.orderTransportEnabled
+    );
+    if (!isTransportAllowed && mutatingCommands.includes(command)) {
       return sendJson(res, 200, {
         reqId,
         command,
@@ -920,8 +1012,12 @@ async function handleHttpRequest(req, res) {
       const sym = params.brokerSymbol || params.symbol || body.brokerSymbol || body.symbol || 'XAUUSD';
       const volume = Number(params.volume ?? params.lots ?? body.volume ?? body.lots ?? 0);
       const direction = String(params.direction || params.orderType || body.direction || body.orderType || 'BUY').toUpperCase();
-      const sl = Number(params.sl ?? params.stopLoss ?? body.sl ?? body.stopLoss ?? 0);
-      const tp = Number(params.tp ?? params.takeProfit ?? body.tp ?? body.takeProfit ?? 0);
+      let sl = Number(params.sl ?? params.stopLoss ?? body.sl ?? body.stopLoss ?? 0);
+      let tp = Number(params.tp1 ?? params.tp ?? params.takeProfit ?? body.tp1 ?? body.tp ?? body.takeProfit ?? 0);
+      if (params) {
+        if (!params.tp && tp > 0) params.tp = tp;
+        if (!params.tp1 && tp > 0) params.tp1 = tp;
+      }
 
       // 5. Volume validation
       if (volume <= 0 || isNaN(volume)) {
@@ -1077,6 +1173,27 @@ async function handleHttpRequest(req, res) {
         }
 
         const entryRef = direction === 'BUY' ? rawQuote.ask : rawQuote.bid;
+
+        // Dynamic Live Pip Re-anchoring if planned reference price was provided
+        const plannedRef = Number((params && (params.plannedPrice || params.plannedEntry)) || body.plannedPrice || body.plannedEntry || 0);
+        if (plannedRef > 0 && Math.abs(plannedRef - entryRef) > 1e-6) {
+          const slDistance = Math.abs(plannedRef - sl);
+          const tpDistance = Math.abs(plannedRef - tp);
+          const digits = rawQuote.digits || 5;
+          if (direction === 'BUY') {
+            sl = Number((entryRef - slDistance).toFixed(digits));
+            tp = Number((entryRef + tpDistance).toFixed(digits));
+          } else {
+            sl = Number((entryRef + slDistance).toFixed(digits));
+            tp = Number((entryRef - tpDistance).toFixed(digits));
+          }
+          if (params) {
+            params.sl = sl;
+            params.tp = tp;
+            params.tp1 = tp;
+          }
+        }
+
         const slDist = Math.abs(entryRef - sl);
         const tpDist = Math.abs(tp - entryRef);
 
@@ -1196,6 +1313,7 @@ async function handleHttpRequest(req, res) {
       };
 
       pendingOrdersQueue.push(orderPayload);
+      console.log(`[BRIDGE] Queued order for MT5: ReqID=${orderPayload.requestId} | ${orderPayload.symbol} ${orderPayload.direction} ${orderPayload.volume} lots (SL: ${orderPayload.sl}, TP: ${orderPayload.tp})`);
 
       // Await EA execution result via Promise (10000ms timeout)
       const timeoutMs = 10000;
