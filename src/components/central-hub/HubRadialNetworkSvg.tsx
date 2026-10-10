@@ -81,12 +81,6 @@ export const HubRadialNetworkSvg: React.FC<HubRadialNetworkSvgProps> = ({
           <stop offset="60%" stopColor="#a855f7" stopOpacity="0.45" />
           <stop offset="100%" stopColor="#c084fc" stopOpacity="0.85" />
         </linearGradient>
-
-        {/* Subtle Connector Glow Filter */}
-        <filter id="cortexConnectorGlow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="1.5" result="blur" />
-          <feComposite in="SourceGraphic" in2="blur" operator="over" />
-        </filter>
       </defs>
 
       {/* Render all 20 connectors */}

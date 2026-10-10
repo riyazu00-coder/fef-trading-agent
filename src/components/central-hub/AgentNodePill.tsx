@@ -184,7 +184,7 @@ export const AgentNodePill: React.FC<AgentNodePillProps> = ({
       {/* Compact Interactive Tooltip on Hover */}
       {showTooltip && (
         <div
-          className={`absolute z-50 pointer-events-none w-52 p-2 rounded-xl bg-[#030a17]/95 border border-cyan-400/50 shadow-[0_0_20px_rgba(0,0,0,0.8)] backdrop-blur-md text-[9px] font-mono space-y-1 ${
+          className={`absolute z-50 pointer-events-none w-52 p-2 rounded-xl bg-[#030a17]/95 border border-cyan-400/50 shadow-[0_0_20px_rgba(0,0,0,0.8)] text-[9px] font-mono space-y-1 ${
             side === 'left' ? 'left-0 top-full mt-1 sm:left-full sm:top-0 sm:mt-0 sm:ml-2' : 'right-0 top-full mt-1 sm:right-full sm:top-0 sm:mt-0 sm:mr-2'
           }`}
         >

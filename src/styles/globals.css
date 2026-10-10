@@ -54,133 +54,67 @@ body {
   background: #334155;
 }
 
-/* Ghost Glass Cockpit Standard: True 3D Optical Smoked Glass System */
+/* Ghost Glass Cockpit Standard: True 3D Optical Smoked Glass System (Compositor-Safe)
+   Uses layered deep institutional specular gradients and rim borders without live backdrop sampling
+   to guarantee 100% stable GPU scrolling and eliminate Chromium compositing tile artifacts. */
 .ghost-glass-panel {
   position: relative;
-  background: linear-gradient(135deg, rgba(8, 20, 38, 0.45) 0%, rgba(3, 9, 20, 0.58) 100%);
-  backdrop-filter: blur(18px) saturate(145%);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
-  /* Optical Glass Bevel & Rim Refraction */
-  border-top: 1px solid rgba(255, 255, 255, 0.26);
-  border-left: 1px solid rgba(34, 211, 238, 0.24);
-  border-right: 1px solid rgba(6, 16, 32, 0.75);
-  border-bottom: 1px solid rgba(2, 6, 16, 0.90);
-  box-shadow: 
-    0 18px 46px -6px rgba(0, 0, 0, 0.78),
-    0 4px 16px rgba(0, 0, 0, 0.55),
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.28),
-    inset 1px 0 2px 0 rgba(34, 211, 238, 0.18),
-    inset 0 -1px 2px 0 rgba(0, 0, 0, 0.65),
-    inset 0 0 24px 0 rgba(6, 182, 212, 0.05);
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  background: linear-gradient(135deg, #071224 0%, #030814 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 36px -4px rgba(0, 0, 0, 0.70);
+  transition: border-color 0.2s ease;
 }
 
-.ghost-glass-panel:hover {
-  border-top-color: rgba(255, 255, 255, 0.38);
-  border-left-color: rgba(34, 211, 238, 0.38);
-  box-shadow: 
-    0 22px 50px -4px rgba(0, 0, 0, 0.82),
-    0 0 28px rgba(34, 211, 238, 0.15),
-    inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.38),
-    inset 0 0 28px 0 rgba(6, 182, 212, 0.08);
+/* Alias for backward compatibility */
+.ghost-glass-panel-safe {
+  position: relative;
+  background: linear-gradient(135deg, #071224 0%, #030814 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 36px -4px rgba(0, 0, 0, 0.70);
+  transition: border-color 0.2s ease;
+}
+
+.ghost-glass-panel:hover,
+.ghost-glass-panel-safe:hover {
+  border-color: rgba(34, 211, 238, 0.35);
 }
 
 .ghost-glass-panel-elevated {
   position: relative;
-  background: linear-gradient(135deg, rgba(10, 24, 46, 0.52) 0%, rgba(4, 12, 26, 0.65) 100%);
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  border-top: 1px solid rgba(255, 255, 255, 0.32);
-  border-left: 1px solid rgba(34, 211, 238, 0.35);
-  border-right: 1px solid rgba(6, 16, 32, 0.80);
-  border-bottom: 1px solid rgba(2, 6, 16, 0.95);
-  box-shadow: 
-    0 26px 58px -8px rgba(0, 0, 0, 0.84),
-    0 6px 22px rgba(0, 0, 0, 0.65),
-    inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.35),
-    inset 1px 0 2px 0 rgba(34, 211, 238, 0.24),
-    inset 0 0 32px 0 rgba(6, 182, 212, 0.08);
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  background: linear-gradient(135deg, #09172c 0%, #040c1a 100%);
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  box-shadow: 0 16px 44px -6px rgba(0, 0, 0, 0.80);
+  transition: border-color 0.2s ease;
 }
 
 .ghost-glass-panel-elevated:hover {
-  border-top-color: rgba(255, 255, 255, 0.45);
-  border-left-color: rgba(34, 211, 238, 0.48);
-  box-shadow: 
-    0 30px 64px -6px rgba(0, 0, 0, 0.88),
-    0 0 32px rgba(34, 211, 238, 0.22),
-    inset 0 1px 2px 0 rgba(255, 255, 255, 0.45);
+  border-color: rgba(34, 211, 238, 0.45);
 }
 
 .ghost-glass-subtle {
   position: relative;
-  background: linear-gradient(135deg, rgba(7, 16, 32, 0.32) 0%, rgba(2, 7, 18, 0.45) 100%);
-  backdrop-filter: blur(14px) saturate(135%);
-  -webkit-backdrop-filter: blur(14px) saturate(135%);
-  border-top: 1px solid rgba(255, 255, 255, 0.18);
-  border-left: 1px solid rgba(34, 211, 238, 0.18);
-  border-right: 1px solid rgba(4, 10, 20, 0.65);
-  border-bottom: 1px solid rgba(2, 5, 12, 0.85);
-  box-shadow: 
-    0 10px 30px 0 rgba(0, 0, 0, 0.60),
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.18),
-    inset 0 0 16px 0 rgba(6, 182, 212, 0.04);
-  transition: border-color 0.25s ease;
+  background: linear-gradient(135deg, #061020 0%, #020712 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.50);
+  transition: border-color 0.2s ease;
 }
 
 .ghost-glass-subtle:hover {
-  border-top-color: rgba(255, 255, 255, 0.28);
-  border-left-color: rgba(34, 211, 238, 0.28);
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
-/* Event-Driven Interactive Glass Illumination (Desktop Only, Pointer-Driven, Zero RAF) */
-@media (hover: hover) and (pointer: fine) {
-  .interactive-glass::before,
-  .ghost-glass-panel::before,
-  .ghost-glass-panel-elevated::before,
-  .ghost-glass-subtle::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.35s ease;
-    background: radial-gradient(
-      420px circle at var(--mouse-x, -999px) var(--mouse-y, -999px),
-      rgba(34, 211, 238, 0.045),
-      transparent 65%
-    );
-    z-index: 1;
-  }
-
-  .interactive-glass:hover::before,
-  .ghost-glass-panel:hover::before,
-  .ghost-glass-panel-elevated:hover::before,
-  .ghost-glass-subtle:hover::before {
-    opacity: 1;
-  }
-}
-
-/* Mobile Compositor Optimization: Restrained Blur & Zero Touch Emulation */
+/* Mobile Compositor Optimization: Clean Solid Surfaces & Zero Touch Emulation */
 @media (max-width: 640px) {
   .ghost-glass-panel,
   .ghost-glass-panel-elevated,
   .ghost-glass-subtle {
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 
 /* Motion Accessibility: Respects prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
-  .interactive-glass::before,
-  .ghost-glass-panel::before,
-  .ghost-glass-panel-elevated::before,
-  .ghost-glass-subtle::before {
-    display: none !important;
-  }
-
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;

@@ -415,7 +415,7 @@ export const CentralIntelligenceHub: React.FC = () => {
 
         {/* Center: Projected 3D Smoked Optical Glass Telemetry HUD Plate */}
         <div className="flex items-center justify-center flex-1 w-full lg:w-auto my-0.5">
-          <div className="flex flex-col items-center space-y-1.5 bg-gradient-to-br from-[#061224]/75 via-[#030914]/85 to-[#01040a]/92 border-t border-t-cyan-400/40 border-l border-l-cyan-500/25 border-r border-r-[#030814] border-b border-b-black rounded-xl px-4 py-1.5 backdrop-blur-md shadow-[0_12px_32px_rgba(0,0,0,0.85),0_0_16px_rgba(6,182,212,0.08),inset_0_1px_1px_rgba(255,255,255,0.20),inset_0_0_16px_rgba(6,182,212,0.06)] min-w-[280px]">
+          <div className="flex flex-col items-center space-y-1.5 bg-gradient-to-br from-[#061224]/85 via-[#030914]/90 to-[#01040a]/95 border-t border-t-cyan-400/40 border-l border-l-cyan-500/25 border-r border-r-[#030814] border-b border-b-black rounded-xl px-4 py-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.85),0_0_16px_rgba(6,182,212,0.08),inset_0_1px_1px_rgba(255,255,255,0.20),inset_0_0_16px_rgba(6,182,212,0.06)] min-w-[280px]">
             {/* Row 1: Contributing / Visible + Synth Verdict + Authoritative Confidence % */}
             <div className="flex items-center justify-between w-full space-x-3 text-[8px] sm:text-[8.5px] font-mono leading-none">
               <span className="text-gray-300 font-bold tracking-tight">

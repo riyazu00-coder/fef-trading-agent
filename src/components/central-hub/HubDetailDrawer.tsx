@@ -20,7 +20,7 @@ export const HubDetailDrawer: React.FC<HubDetailDrawerProps> = ({
   if (!selectedAgent && !riskAssessment) return null;
 
   return (
-    <div className="absolute inset-0 z-40 bg-[#030816]/95 backdrop-blur-md rounded-2xl p-4 flex flex-col justify-between font-mono text-[10px] border border-cyan-500/40 shadow-[0_0_30px_rgba(0,0,0,0.9)] animate-fadeIn">
+    <div className="absolute inset-0 z-40 bg-[#030816]/95 rounded-2xl p-4 flex flex-col justify-between font-mono text-[10px] border border-cyan-500/40 shadow-[0_0_30px_rgba(0,0,0,0.9)] animate-fadeIn">
       {/* Drawer Header */}
       <div className="flex items-center justify-between border-b border-white/10 pb-2">
         <div className="flex items-center space-x-2">

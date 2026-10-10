@@ -26,7 +26,7 @@ export const ExecutabilityBadge: React.FC<ExecutabilityBadgeProps> = ({
   if (executable) {
     return (
       <div
-        className={`inline-flex items-center font-mono font-bold uppercase tracking-wider rounded-md border backdrop-blur-md transition-all border-emerald-500/40 bg-emerald-950/30 text-emerald-400 ${sizeClasses[size]} ${className}`}
+        className={`inline-flex items-center font-mono font-bold uppercase tracking-wider rounded-md border transition-all border-emerald-500/40 bg-emerald-950/30 text-emerald-400 ${sizeClasses[size]} ${className}`}
         title={reason || 'Market session active and quotes validated. Order transport remains read-only.'}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
@@ -42,7 +42,7 @@ export const ExecutabilityBadge: React.FC<ExecutabilityBadgeProps> = ({
 
   return (
     <div
-      className={`inline-flex items-center font-mono font-bold uppercase tracking-wider rounded-md border backdrop-blur-md transition-all border-rose-500/30 bg-rose-950/30 text-rose-300 ${sizeClasses[size]} ${className}`}
+      className={`inline-flex items-center font-mono font-bold uppercase tracking-wider rounded-md border transition-all border-rose-500/30 bg-rose-950/30 text-rose-300 ${sizeClasses[size]} ${className}`}
       title={reason || 'Market closed. Execution locked by Market Session Gate.'}
     >
       <span className="w-1.5 h-1.5 rounded-full bg-rose-500/80 shadow-[0_0_6px_rgba(244,63,94,0.6)]" />

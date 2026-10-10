@@ -162,9 +162,13 @@ export const GlobalOpportunityRadar: React.FC = () => {
 
   return (
     <section id="opportunity-radar-card" className="w-full rounded-2xl ghost-glass-panel-elevated p-3 sm:p-5 flex flex-col space-y-4 font-sans text-gray-200 relative overflow-hidden">
-      {/* Decorative ambient subtle glow */}
-      <div className="absolute -top-24 -right-24 w-80 h-80 bg-cyan-600/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-24 -left-24 w-80 h-80 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+      {/* Decorative ambient subtle glow (pure gradient, zero GPU blur filter) */}
+      <div
+        className="absolute inset-0 pointer-events-none rounded-2xl"
+        style={{
+          background: 'radial-gradient(circle 350px at 100% 0%, rgba(6, 182, 212, 0.05) 0%, transparent 70%), radial-gradient(circle 350px at 0% 100%, rgba(147, 51, 234, 0.05) 0%, transparent 70%)'
+        }}
+      />
 
       {/* 1. Header & Live Telemetry Pulse */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-white/10 pb-4">

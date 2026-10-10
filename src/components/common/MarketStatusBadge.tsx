@@ -87,7 +87,7 @@ export const MarketStatusBadge: React.FC<MarketStatusBadgeProps> = ({
   return (
     <div
       suppressHydrationWarning
-      className={`inline-flex items-center font-mono font-bold uppercase tracking-wider rounded-md border backdrop-blur-md transition-all ${sizeClasses[size]} ${config.borderClass} ${className}`}
+      className={`inline-flex items-center font-mono font-bold uppercase tracking-wider rounded-md border transition-all ${sizeClasses[size]} ${config.borderClass} ${className}`}
       title={`${state.symbol} • ${state.sessionName} (${state.scheduleSource})`}
     >
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.dotClass}`} />

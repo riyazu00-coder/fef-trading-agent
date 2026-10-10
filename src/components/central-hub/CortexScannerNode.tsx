@@ -341,7 +341,7 @@ export const CortexScannerNode: React.FC<ScannerNodeProps> = ({
       {/* Cinematic 3D Floating Glass Module */}
       <div
         onClick={() => onClick(agent)}
-        className={`w-full h-full relative rounded-lg border transition-all duration-300 cursor-pointer flex items-center justify-between px-2 py-0.5 overflow-hidden backdrop-blur-md ${
+        className={`w-full h-full relative rounded-lg border transition-all duration-300 cursor-pointer flex items-center justify-between px-2 py-0.5 overflow-hidden ${
           isHovered
             ? 'scale-[1.03] z-30 brightness-125'
             : 'hover:scale-[1.01]'
@@ -470,7 +470,7 @@ export const CortexScannerNode: React.FC<ScannerNodeProps> = ({
       {/* Interactive Tooltip on Hover - Restyled into Dark Smoked Glass */}
       {showTooltip && (
         <div
-          className={`absolute z-50 pointer-events-none w-56 p-2 rounded-xl backdrop-blur-xl text-[10px] font-mono space-y-1 shadow-[0_8px_32px_rgba(0,0,0,0.9)] border ${
+          className={`absolute z-50 pointer-events-none w-56 p-2 rounded-xl text-[10px] font-mono space-y-1 shadow-[0_8px_32px_rgba(0,0,0,0.9)] border ${
             y > 140 ? 'bottom-full mb-2' : 'top-full mt-2'
           } ${
             x > 450 ? 'right-0' : x < 280 ? 'left-0' : 'left-1/2 -translate-x-1/2'

@@ -271,7 +271,7 @@ export const MarketOverviewCard: React.FC = () => {
               <span className={`w-2.5 h-2.5 rounded-full ${isDayPos ? 'bg-emerald-400' : 'bg-rose-400'} inline-block`} />
               <span className="text-sm font-black text-white tracking-wide">{activeAsset.symbol}</span>
               <span
-                className="inline-flex items-center font-mono font-bold uppercase tracking-wider rounded-md border backdrop-blur-md text-[8.5px] px-1.5 py-0.5 gap-1 border-cyan-500/40 bg-cyan-950/40 text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.2)]"
+                className="inline-flex items-center font-mono font-bold uppercase tracking-wider rounded-md border text-[8.5px] px-1.5 py-0.5 gap-1 border-cyan-500/40 bg-cyan-950/40 text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.2)]"
                 title="Real-time data feed connectivity status"
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${isBrokerLive ? 'bg-cyan-400 animate-pulse' : 'bg-cyan-500'}`} />
