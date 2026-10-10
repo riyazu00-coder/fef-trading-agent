@@ -36,6 +36,9 @@ function checkRateLimit(ip, limit = 30, windowMs = 60000) {
 const registeredDevices = new Map(); // deviceId -> RegisteredDevice
 const telemetrySnapshots = new Map(); // deviceId -> RemoteTelemetrySnapshot
 const activeSockets = new Map(); // deviceId -> WebSocket
+// NOTE [PHASE 2A LIMITATION & PHASE 2B REQUIREMENT]:
+// processedRequestIds and executionWaiters are in-memory sets/maps.
+// Persistent idempotency is mandatory before remote broker execution activation.
 const processedRequestIds = new Set(); // requestId -> idempotency history
 const processedApprovalIds = new Set(); // approvalId -> duplicate approval history
 const executionWaiters = new Map(); // requestId -> { resolve, timer }
@@ -447,6 +450,83 @@ const server = http.createServer(async (req, res) => {
       isStale: !isFresh,
       candles: entry.candles,
     });
+  }
+
+  // POST /device/:id/probe (Phase 2A Non-Executing Secure Transport Probe)
+  const probeMatch = pathname.match(/^\/device\/([^\/]+)\/probe$/);
+  if (req.method === 'POST' && probeMatch) {
+    const deviceId = probeMatch[1];
+    const device = registeredDevices.get(deviceId);
+
+    if (!device) {
+      return sendJson(res, 404, {
+        success: false,
+        error: { code: 'DEVICE_NOT_FOUND', message: `Device '${deviceId}' is not registered.` }
+      }, allowedOrigin);
+    }
+
+    const ws = activeSockets.get(deviceId);
+    if (!ws || ws.readyState !== 1) {
+      return sendJson(res, 503, {
+        success: false,
+        error: { code: 'CONNECTOR_OFFLINE', message: `Device '${deviceId}' connector is not connected to relay.` }
+      }, allowedOrigin);
+    }
+
+    try {
+      const body = await readJsonBody(req);
+
+      if (!body.requestId || !body.commandType || body.commandType !== 'TRANSPORT_PROBE') {
+        return sendJson(res, 400, {
+          success: false,
+          error: { code: 'INVALID_PROBE_SCHEMA', message: 'requestId and commandType === TRANSPORT_PROBE are mandatory.' }
+        }, allowedOrigin);
+      }
+
+      const now = Date.now();
+      if (body.expiresAt && body.expiresAt <= now) {
+        return sendJson(res, 400, {
+          success: false,
+          error: { code: 'COMMAND_EXPIRED', message: `Probe expired: cutoff was ${body.expiresAt}, current time is ${now}.` }
+        }, allowedOrigin);
+      }
+
+      if (processedRequestIds.has(body.requestId)) {
+        return sendJson(res, 409, {
+          success: false,
+          error: { code: 'DUPLICATE_COMMAND_ID', message: `Probe request ID '${body.requestId}' has already been processed.` }
+        }, allowedOrigin);
+      }
+      processedRequestIds.add(body.requestId);
+
+      const ackPromise = new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          executionWaiters.delete(body.requestId);
+          resolve({
+            success: false,
+            requestId: body.requestId,
+            status: 'TIMEOUT',
+            error: { code: 'PROBE_TIMEOUT', message: 'Timed out waiting for local connector probe ACK.' },
+            timestamp: Date.now(),
+          });
+        }, 10000);
+
+        executionWaiters.set(body.requestId, { resolve, timer });
+      });
+
+      ws.send(JSON.stringify({
+        type: 'TRANSPORT_PROBE',
+        command: body,
+      }));
+
+      const result = await ackPromise;
+      return sendJson(res, result.success ? 200 : 400, result, allowedOrigin);
+    } catch (err) {
+      return sendJson(res, 500, {
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: err.message || 'Probe dispatch error.' }
+      }, allowedOrigin);
+    }
   }
 
   // POST /device/:id/execute (Phase 2C Controlled Remote DEMO Execution)

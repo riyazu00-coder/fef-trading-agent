@@ -16,6 +16,7 @@ export type RemoteOperatingMode = 'READ_ONLY' | 'DEMO_EXECUTION';
 export type CommandAckStatus =
   | 'RECEIVED'
   | 'VALIDATED'
+  | 'PROBE_VALIDATED'
   | 'DISPATCHED_TO_MT5'
   | 'BROKER_ACK'
   | 'REJECTED'
@@ -120,6 +121,38 @@ export interface RemoteExecutionCommand {
   humanApproved: boolean;          // Mandatory human approval gate
   nonce: number;                   // Monotonic nonce for replay prevention
   testType?: 'ENGINEERING_DEMO_TEST';
+}
+
+/**
+ * Phase 2A Non-Executing Remote Transport Probe
+ * Strictly non-trading diagnostic envelope to verify Cloud <-> Relay <-> Local transport
+ */
+export interface RemoteTransportProbe {
+  requestId: string;
+  deviceId: string;
+  commandType: 'TRANSPORT_PROBE';
+  createdAt: number;
+  expiresAt: number;
+  nonce: number;
+  probePayload?: string;
+  keyId?: string;
+  signature?: string;
+}
+
+export interface RemoteProbeAck {
+  requestId: string;
+  deviceId: string;
+  commandType: 'TRANSPORT_PROBE';
+  status: 'PROBE_VALIDATED' | 'REJECTED' | 'EXPIRED';
+  success: boolean;
+  validatedAt: number;
+  bridgeV2Status?: 'ONLINE' | 'DEGRADED' | 'OFFLINE';
+  roundTripMs?: number;
+  error?: {
+    code: string;
+    message: string;
+  };
+  timestamp: number;
 }
 
 /**

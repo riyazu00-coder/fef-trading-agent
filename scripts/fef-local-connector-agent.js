@@ -13,6 +13,7 @@
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const WebSocket = require('ws');
 
 // Load .env.local if present
@@ -32,13 +33,24 @@ if (fs.existsSync(envLocalPath)) {
   });
 }
 
-const LOCAL_BRIDGE_URL = process.env.FEF_LOCAL_BRIDGE_URL || 'http://127.0.0.1:5556';
+// Canonical execution bridge is Bridge V2 on port 5560
+const LOCAL_BRIDGE_URL = process.env.FEF_LOCAL_BRIDGE_URL || 'http://127.0.0.1:5560';
+const LEGACY_BRIDGE_URL = process.env.FEF_LEGACY_BRIDGE_URL || 'http://127.0.0.1:5556';
 const LOCAL_BRIDGE_TOKEN = process.env.FEF_BRIDGE_TOKEN || 'fef_local_bridge_token_v1';
 const RELAY_URL = process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557';
 const DEVICE_ID = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
 const KEY_ID = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';
 const DEVICE_SECRET = (process.env.FEF_REMOTE_DEVICE_SECRET || '').trim();
 const POLL_INTERVAL_MS = 1000;
+
+// Replay protection and nonce tracking
+// NOTE [PHASE 2A LIMITATION & PHASE 2B REQUIREMENT]:
+// In Phase 2A, processedRequestIds and lastSeenNonce are in-memory state.
+// For diagnostic TRANSPORT_PROBE envelopes, this is fail-safe.
+// CRITICAL: Persistent idempotency and durable nonce tracking are MANDATORY
+// before remote broker execution (OrderSend) activation in Phase 2B/2C.
+const processedRequestIds = new Set();
+let lastSeenNonce = 0;
 
 let ws = null;
 let pollTimer = null;
@@ -54,8 +66,9 @@ function toWebSocketUrl(httpUrl) {
 
 function fetchLocalBridgeStatus() {
   return new Promise((resolve) => {
-    const url = new URL('/api/status', LOCAL_BRIDGE_URL);
-    const req = http.request(url, {
+    // 1. Primary: query Bridge V2 (:5560)
+    const v2Url = new URL('/v2/status', LOCAL_BRIDGE_URL);
+    const req = http.request(v2Url, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${LOCAL_BRIDGE_TOKEN}`,
@@ -67,14 +80,47 @@ function fetchLocalBridgeStatus() {
       res.on('data', chunk => (data += chunk));
       res.on('end', () => {
         try {
-          resolve(JSON.parse(data));
+          const parsed = JSON.parse(data);
+          if (parsed && (parsed.success || parsed.localBridge)) {
+            return resolve(parsed);
+          }
+          resolve(null);
         } catch {
           resolve(null);
         }
       });
     });
 
-    req.on('error', () => resolve(null));
+    req.on('error', () => {
+      // 2. Secondary telemetry fallback to legacy :5556 if Bridge V2 is restarting
+      if (LEGACY_BRIDGE_URL && LEGACY_BRIDGE_URL !== LOCAL_BRIDGE_URL) {
+        const v1Url = new URL('/api/status', LEGACY_BRIDGE_URL);
+        const reqV1 = http.request(v1Url, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${LOCAL_BRIDGE_TOKEN}`,
+            'x-bridge-token': LOCAL_BRIDGE_TOKEN,
+          },
+          timeout: 2000,
+        }, (resV1) => {
+          let d = '';
+          resV1.on('data', chunk => (d += chunk));
+          resV1.on('end', () => {
+            try {
+              resolve(JSON.parse(d));
+            } catch {
+              resolve(null);
+            }
+          });
+        });
+        reqV1.on('error', () => resolve(null));
+        reqV1.on('timeout', () => { reqV1.destroy(); resolve(null); });
+        reqV1.end();
+      } else {
+        resolve(null);
+      }
+    });
+
     req.on('timeout', () => {
       req.destroy();
       resolve(null);
@@ -320,9 +366,20 @@ function connectToRelay() {
         return;
       }
 
-      // 4. Remote Execution Command (Phase 2C Controlled Remote DEMO Execution)
+      // 4. Transport Probe (Phase 2A Non-Executing Verification)
+      if (msg.type === 'TRANSPORT_PROBE' || (msg.type === 'COMMAND' && msg.command?.commandType === 'TRANSPORT_PROBE')) {
+        const probe = msg.command || msg.probe || msg;
+        handleTransportProbe(probe);
+        return;
+      }
+
+      // 5. Remote Execution Command (Phase 2C Controlled Remote DEMO Execution)
       if (msg.type === 'EXECUTE_ORDER' || msg.type === 'COMMAND') {
         const cmd = msg.command;
+        if (cmd && cmd.commandType === 'TRANSPORT_PROBE') {
+          handleTransportProbe(cmd);
+          return;
+        }
         handleExecuteOrder(cmd);
         return;
       }
@@ -330,6 +387,100 @@ function connectToRelay() {
       console.error('[FEF-CONNECTOR] Error processing message:', err.message);
     }
   });
+
+function handleTransportProbe(probe) {
+  if (!probe || !probe.requestId) return;
+
+  const now = Date.now();
+  console.log(`[FEF-CONNECTOR] Received TRANSPORT_PROBE '${probe.requestId}'`);
+
+  // 1. Device ID verification
+  if (probe.deviceId && probe.deviceId !== DEVICE_ID) {
+    console.warn(`[FEF-CONNECTOR-SECURITY] Rejected probe '${probe.requestId}': deviceId mismatch (${probe.deviceId} !== ${DEVICE_ID})`);
+    sendProbeAck(probe.requestId, 'REJECTED', false, {
+      code: 'DEVICE_MISMATCH',
+      message: `Target deviceId '${probe.deviceId}' does not match connector device '${DEVICE_ID}'.`,
+    });
+    return;
+  }
+
+  // 2. TTL verification
+  if (!probe.expiresAt || probe.expiresAt <= now) {
+    console.warn(`[FEF-CONNECTOR-SECURITY] Rejected probe '${probe.requestId}': expired (cutoff ${probe.expiresAt}, current ${now})`);
+    sendProbeAck(probe.requestId, 'EXPIRED', false, {
+      code: 'COMMAND_EXPIRED',
+      message: 'Transport probe expired before connector validation.',
+    });
+    return;
+  }
+
+  // 3. Monotonic Nonce check
+  if (typeof probe.nonce !== 'number' || probe.nonce <= lastSeenNonce) {
+    console.warn(`[FEF-CONNECTOR-SECURITY] Rejected probe '${probe.requestId}': stale nonce (${probe.nonce} <= ${lastSeenNonce})`);
+    sendProbeAck(probe.requestId, 'REJECTED', false, {
+      code: 'STALE_NONCE',
+      message: `Probe nonce ${probe.nonce} is not greater than last observed nonce ${lastSeenNonce}. Replay attack prevented.`,
+    });
+    return;
+  }
+
+  // 4. Idempotency check
+  if (processedRequestIds.has(probe.requestId)) {
+    console.warn(`[FEF-CONNECTOR-SECURITY] Rejected probe '${probe.requestId}': duplicate requestId`);
+    sendProbeAck(probe.requestId, 'REJECTED', false, {
+      code: 'DUPLICATE_COMMAND_ID',
+      message: `Request ID '${probe.requestId}' has already been processed. Replays are prohibited.`,
+    });
+    return;
+  }
+
+  // 5. Signature verification (if signature provided)
+  if (probe.signature && DEVICE_SECRET) {
+    const normPayload = probe.probePayload || '';
+    const normKeyId = probe.keyId || '';
+    const normCreatedAt = probe.createdAt || 0;
+    const payload = `${probe.requestId}:${probe.deviceId}:${probe.commandType}:${probe.nonce}:${normCreatedAt}:${probe.expiresAt}:${normKeyId}:${normPayload}`;
+    const expectedSig = crypto.createHmac('sha256', DEVICE_SECRET).update(payload).digest('hex');
+    const sigBuf = Buffer.from(probe.signature, 'utf8');
+    const expBuf = Buffer.from(expectedSig, 'utf8');
+    const isValid = sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
+    if (!isValid) {
+      console.warn(`[FEF-CONNECTOR-SECURITY] Rejected probe '${probe.requestId}': signature mismatch`);
+      sendProbeAck(probe.requestId, 'REJECTED', false, {
+        code: 'INVALID_SIGNATURE',
+        message: 'Transport probe HMAC signature verification failed.',
+      });
+      return;
+    }
+  }
+
+  // Mark processed and update monotonic nonce
+  processedRequestIds.add(probe.requestId);
+  lastSeenNonce = probe.nonce;
+
+  // Crucially: STOP before Bridge V2 execution dispatch! Never call OrderSend!
+  console.log(`✓ [FEF-CONNECTOR] TRANSPORT_PROBE '${probe.requestId}' successfully validated. Sending PROBE_VALIDATED ACK.`);
+  sendProbeAck(probe.requestId, 'PROBE_VALIDATED', true, null, probe.createdAt);
+}
+
+function sendProbeAck(requestId, status, success, error, createdAt) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'COMMAND_ACK',
+      ack: {
+        requestId,
+        deviceId: DEVICE_ID,
+        commandType: 'TRANSPORT_PROBE',
+        status,
+        success,
+        bridgeV2Port: 5560,
+        roundTripMs: createdAt ? Date.now() - createdAt : 0,
+        error: error || undefined,
+        timestamp: Date.now(),
+      }
+    }));
+  }
+}
 
 async function handleExecuteOrder(cmd) {
   if (!cmd || !cmd.requestId) return;

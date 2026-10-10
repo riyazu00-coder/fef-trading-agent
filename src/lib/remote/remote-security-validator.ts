@@ -15,6 +15,7 @@ import {
   RegisteredDevice,
   DeviceAuthCredentials,
   RemoteExecutionCommand,
+  RemoteTransportProbe,
   RemoteTelemetrySnapshot,
 } from './remote-types';
 import { isSymbolSessionExecutable } from '../bridge/engineering-demo-transport';
@@ -72,6 +73,37 @@ export function verifyCommandSignature(command: RemoteExecutionCommand, secret: 
   const expected = signCommandPayload(command as any, secret);
   if (expected.length !== command.signature.length) return false;
   return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(command.signature, 'utf8'));
+}
+
+/**
+ * Phase 2A Transport Probe Signature Generator
+ * Cryptographically binds all mutable probe fields to prevent tampering
+ */
+export function signProbePayload(probe: {
+  requestId: string;
+  deviceId: string;
+  commandType: 'TRANSPORT_PROBE';
+  nonce: number;
+  createdAt?: number;
+  expiresAt: number;
+  probePayload?: string;
+  keyId?: string;
+}, secret: string): string {
+  const normPayload = probe.probePayload || '';
+  const normKeyId = probe.keyId || '';
+  const normCreatedAt = probe.createdAt || 0;
+  const payload = `${probe.requestId}:${probe.deviceId}:${probe.commandType}:${probe.nonce}:${normCreatedAt}:${probe.expiresAt}:${normKeyId}:${normPayload}`;
+  return crypto.createHmac('sha256', secret).update(payload).digest('hex');
+}
+
+/**
+ * Phase 2A Transport Probe Signature Verifier
+ */
+export function verifyProbeSignature(probe: RemoteTransportProbe, secret: string): boolean {
+  if (!probe.signature) return false;
+  const expected = signProbePayload(probe, secret);
+  if (expected.length !== probe.signature.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(probe.signature, 'utf8'));
 }
 
 export interface SecurityValidationResult {
@@ -387,6 +419,78 @@ export function validateRemoteExecutionCommand(
         message: 'Volume must be greater than zero.',
       },
     };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Phase 2A Transport Probe Pre-Flight Security Validation
+ * Validates non-trading diagnostic probe: device identity, TTL, nonce, and HMAC signature
+ */
+export function validateRemoteProbeCommand(
+  probe: RemoteTransportProbe,
+  device: RegisteredDevice | null,
+  nowMs: number = Date.now(),
+  secret?: string
+): SecurityValidationResult {
+  if (!probe || typeof probe !== 'object') {
+    return {
+      valid: false,
+      error: { code: 'MALFORMED_PROBE', message: 'Probe payload must be a non-null object.' },
+    };
+  }
+
+  if (probe.commandType !== 'TRANSPORT_PROBE') {
+    return {
+      valid: false,
+      error: { code: 'UNSUPPORTED_COMMAND_TYPE', message: `Expected commandType 'TRANSPORT_PROBE', got '${probe.commandType}'.` },
+    };
+  }
+
+  if (!probe.requestId || typeof probe.requestId !== 'string' || probe.requestId.trim() === '') {
+    return {
+      valid: false,
+      error: { code: 'MISSING_REQUEST_ID', message: 'requestId is mandatory.' },
+    };
+  }
+
+  if (!probe.deviceId || typeof probe.deviceId !== 'string' || probe.deviceId.trim() === '') {
+    return {
+      valid: false,
+      error: { code: 'MISSING_DEVICE_ID', message: 'deviceId is mandatory.' },
+    };
+  }
+
+  if (device && probe.deviceId !== device.deviceId) {
+    return {
+      valid: false,
+      error: { code: 'DEVICE_MISMATCH', message: `Target device ID '${probe.deviceId}' does not match registered device '${device.deviceId}'.` },
+    };
+  }
+
+  if (!probe.expiresAt || typeof probe.expiresAt !== 'number' || probe.expiresAt <= nowMs) {
+    return {
+      valid: false,
+      error: { code: 'COMMAND_EXPIRED', message: `Probe expired: cutoff was ${probe.expiresAt}, current time is ${nowMs}.` },
+    };
+  }
+
+  if (typeof probe.nonce !== 'number' || isNaN(probe.nonce) || probe.nonce <= 0) {
+    return {
+      valid: false,
+      error: { code: 'INVALID_NONCE', message: 'Probe nonce must be a positive number.' },
+    };
+  }
+
+  if (secret && probe.signature) {
+    const isSigValid = verifyProbeSignature(probe, secret);
+    if (!isSigValid) {
+      return {
+        valid: false,
+        error: { code: 'INVALID_SIGNATURE', message: 'Probe HMAC signature verification failed.' },
+      };
+    }
   }
 
   return { valid: true };

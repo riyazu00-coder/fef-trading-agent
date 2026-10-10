@@ -17,10 +17,10 @@ const PID_FILE = path.resolve(RUNTIME_DIR, "supervisor.pid");
 const STATE_FILE = path.resolve(RUNTIME_DIR, "supervisor-state.json");
 const LOG_FILE = path.resolve(RUNTIME_DIR, "supervisor.log");
 
-const BRIDGE_SCRIPT = path.resolve(ROOT_DIR, "scripts/mt5-http-bridge-service.js");
+const BRIDGE_SCRIPT = path.resolve(ROOT_DIR, "scripts/fef-execution-bridge-v2.js");
 const CONNECTOR_SCRIPT = path.resolve(ROOT_DIR, "scripts/fef-local-connector-agent.js");
 
-const BRIDGE_PORT = 5556;
+const BRIDGE_PORT = 5560;
 const BRIDGE_HOST = "127.0.0.1";
 const LOCAL_BRIDGE_URL = "http://" + BRIDGE_HOST + ":" + BRIDGE_PORT;
 const SUPERVISOR_PORT = 5558;

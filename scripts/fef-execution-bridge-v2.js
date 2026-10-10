@@ -157,6 +157,44 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // 1.1 Unified Status for Remote Connector & Supervisor
+    if (method === 'GET' && (pathname === '/v2/status' || pathname === '/api/status')) {
+      const isReal = latestAccount?.tradeMode === 'REAL';
+      return sendJson(res, 200, {
+        success: true,
+        localBridge: isTerminalConnected ? 'ONLINE' : 'DEGRADED',
+        bridgeVersion: '2.0.0',
+        terminal: {
+          terminalConnected: isTerminalConnected,
+          broker: latestAccount?.broker || 'UNKNOWN',
+          server: latestAccount?.server || 'UNKNOWN',
+        },
+        account: latestAccount ? {
+          accountNumber: latestAccount.accountNumber,
+          broker: latestAccount.broker,
+          currency: latestAccount.currency,
+          balance: latestAccount.balance,
+          equity: latestAccount.equity,
+          margin: latestAccount.margin,
+          freeMargin: latestAccount.freeMargin,
+          marginLevel: latestAccount.marginLevel,
+          tradeMode: latestAccount.tradeMode,
+          tradeAllowed: latestAccount.tradeAllowed,
+          maskedLogin: latestAccount.accountNumber ? `${String(latestAccount.accountNumber).slice(0, 2)}***${String(latestAccount.accountNumber).slice(-2)}` : '00***00',
+        } : null,
+        heartbeatAgeMs: lastTerminalPollAt ? Math.max(0, Date.now() - lastTerminalPollAt) : null,
+        operatingMode: isReal ? 'READ_ONLY' : 'DEMO_EXECUTION',
+        quotes: Object.fromEntries(Array.from(quotesRegistry.entries()).map(([k, v]) => [k, {
+          ...v,
+          spread: v.spreadPoints,
+          freshness: (Date.now() - (v.timestamp || 0)) < 15000 ? 'FRESH' : 'STALE',
+        }])),
+        specsBySymbol: Object.fromEntries(specRegistry.entries()),
+        positions: Array.from(positionsRegistry.values()),
+        orders: [],
+      });
+    }
+
     // 2. Account Telemetry
     if (method === 'GET' && pathname === '/v2/account') {
       return sendJson(res, 200, { success: true, account: latestAccount });
