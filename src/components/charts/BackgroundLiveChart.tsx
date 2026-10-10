@@ -32,7 +32,8 @@ interface BackgroundLiveChartProps {
 export const BackgroundLiveChart: React.FC<BackgroundLiveChartProps> = () => {
   return (
     <div
-      className="fixed inset-0 z-0 overflow-hidden select-none pointer-events-none"
+      className="fixed inset-0 z-0 overflow-hidden select-none pointer-events-none will-change-transform"
+      style={{ transform: 'translateZ(0)' }}
       aria-hidden="true"
     >
       {/* 1. Deep institutional black/navy canvas base */}

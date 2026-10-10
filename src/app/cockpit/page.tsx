@@ -100,7 +100,7 @@ export default function CockpitPage() {
         {/* =========================================================================
             5. CONSOLIDATED SECONDARY INTELLIGENCE & TELEMETRY DECK (TABBED)
            ========================================================================= */}
-        <section id="sentinel-deck" className="ghost-glass-panel rounded-2xl p-2.5 sm:p-3 space-y-2.5 border border-white/10">
+        <section id="sentinel-deck" className="bg-[#070f1e]/60 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 space-y-2.5 border border-white/10 shadow-2xl">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-white/10">
             <div className="flex items-center space-x-2">
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
