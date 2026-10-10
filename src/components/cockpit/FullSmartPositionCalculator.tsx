@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { useLicense } from '@/context/LicenseContext';
 import {
   calculatePositionSize,
   PositionSizeResult,
@@ -27,6 +28,7 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
   const router = useRouter();
   const { activeSymbol, activeAsset, assetProfile } = useActiveAsset();
   const { telemetry, activeTelemetry, isMt5Connected, refreshTelemetry } = useMT5Telemetry();
+  const { licenseState } = useLicense();
 
   const [isPanelCollapsed, setIsPanelCollapsed] = useState<boolean>(defaultCollapsed);
 
@@ -62,6 +64,7 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
   // One-Click Execution Guard Modal States
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
   const [isDispatching, setIsDispatching] = useState<boolean>(false);
+  const [realRiskAcknowledged, setRealRiskAcknowledged] = useState<boolean>(false);
   const [executionResult, setExecutionResult] = useState<{
     success: boolean;
     ticket?: number | string;
@@ -363,6 +366,9 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
         digits: precision,
       });
 
+      const accountTradeMode = telemetry.account?.tradeMode || 'DEMO';
+      const isRealAccount = accountTradeMode === 'REAL';
+
       const payload = {
         action: 'PLACE_ORDER',
         symbol,
@@ -380,7 +386,10 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
           plannedPrice: entryPrice,
           magic: 888123,
           humanApproved: true,
-          tradeMode: 'DEMO',
+          humanConfirmed: true,
+          tradeMode: accountTradeMode,
+          realConfirmed: isRealAccount ? realRiskAcknowledged : false,
+          realTradeAcknowledgement: isRealAccount ? realRiskAcknowledged : false,
         },
       };
 
@@ -1103,6 +1112,47 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                 </div>
               </div>
 
+              {/* Trade Mode Security Banner & Double-Confirmation */}
+              {telemetry.account?.tradeMode === 'REAL' ? (
+                <div className="p-3 rounded-xl bg-rose-950/70 border border-rose-500/60 space-y-2 text-xs">
+                  <div className="flex items-center space-x-2 text-rose-300 font-bold">
+                    <span className="text-base">⚠️</span>
+                    <span className="uppercase tracking-wider">REAL MONEY EXECUTION • LIVE CAPITAL AT RISK</span>
+                  </div>
+                  <p className="text-[10.5px] text-rose-200/90 leading-relaxed font-sans">
+                    You are connected to a <strong>REAL BROKER ACCOUNT ({telemetry.account?.maskedLogin || 'REAL'})</strong>. This action will submit an actual market order risking real capital on the live market.
+                  </p>
+                  <label className="flex items-start space-x-2.5 pt-1 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={realRiskAcknowledged}
+                      onChange={(e) => setRealRiskAcknowledged(e.target.checked)}
+                      className="mt-0.5 rounded border-rose-500 text-rose-600 focus:ring-rose-500 bg-black/60 w-4 h-4 cursor-pointer"
+                    />
+                    <span className="text-[11px] font-bold text-white font-sans">
+                      I UNDERSTAND THIS IS REAL CAPITAL • CONFIRM REAL TRADE EXECUTION
+                    </span>
+                  </label>
+                </div>
+              ) : telemetry.account?.tradeMode === 'DEMO' ? (
+                <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between text-xs">
+                  <div className="flex items-center space-x-2 text-emerald-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="font-bold uppercase tracking-wider font-sans">
+                      DEMO ACCOUNT ({telemetry.account?.maskedLogin || 'DEMO'})
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-emerald-400/80 font-mono">
+                    SAFE PRACTICE ENVIRONMENT
+                  </span>
+                </div>
+              ) : (
+                <div className="p-2.5 rounded-xl bg-amber-950/50 border border-amber-500/50 text-xs text-amber-300 flex items-center space-x-2">
+                  <span>⚠️</span>
+                  <span>Account mode unverified. Execution is blocked fail-closed.</span>
+                </div>
+              )}
+
               {/* Real-time Status / Execution Result */}
               {executionResult && (
                 <div
@@ -1154,11 +1204,23 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                 {!executionResult?.success && (
                   <button
                     onClick={handleConfirmDispatch}
-                    disabled={isDispatching || !assetProfile.tradeExecutable}
-                    className={`w-1/2 sm:w-auto px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.4)] ${
-                      isDispatching || !assetProfile.tradeExecutable
+                    disabled={
+                      isDispatching ||
+                      !licenseState.valid ||
+                      !assetProfile.tradeExecutable ||
+                      (telemetry.account?.tradeMode === 'REAL' && !realRiskAcknowledged) ||
+                      (telemetry.account?.tradeMode !== 'DEMO' && telemetry.account?.tradeMode !== 'REAL')
+                    }
+                    className={`w-1/2 sm:w-auto px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-lg ${
+                      isDispatching ||
+                      !licenseState.valid ||
+                      !assetProfile.tradeExecutable ||
+                      (telemetry.account?.tradeMode === 'REAL' && !realRiskAcknowledged) ||
+                      (telemetry.account?.tradeMode !== 'DEMO' && telemetry.account?.tradeMode !== 'REAL')
                         ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-white/5 shadow-none'
-                        : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white'
+                        : telemetry.account?.tradeMode === 'REAL'
+                        ? 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-[0_0_20px_rgba(225,29,72,0.4)]'
+                        : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.4)]'
                     }`}
                   >
                     {isDispatching ? (
@@ -1166,10 +1228,20 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                         <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         <span>DISPATCHING...</span>
                       </>
+                    ) : !licenseState.valid ? (
+                      <>
+                        <span>🔒</span>
+                        <span>LICENSE REQUIRED</span>
+                      </>
+                    ) : telemetry.account?.tradeMode === 'REAL' ? (
+                      <>
+                        <span>⚠️</span>
+                        <span>CONFIRM REAL TRADE</span>
+                      </>
                     ) : (
                       <>
                         <span>⚡</span>
-                        <span>CONFIRM &amp; DISPATCH ORDER</span>
+                        <span>CONFIRM DEMO TRADE</span>
                       </>
                     )}
                   </button>

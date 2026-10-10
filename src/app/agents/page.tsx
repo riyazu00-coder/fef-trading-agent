@@ -12,6 +12,7 @@ import { AgentState } from '@/lib/agents/agent-types';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
 import { CouncilDebateStream } from '@/components/cockpit/CouncilDebateStream';
+import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 
 export type AgentGroupCategory = 'MARKET' | 'MACRO' | 'EVENT' | 'QUANT' | 'CONTROL';
 
@@ -535,6 +536,10 @@ export default function AgentsDirectoryPage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
+        <MemberAccessGuard
+          title="AUTONOMOUS AGENTS COUNCIL"
+          description="Access to the 15-agent autonomous intelligence council, system telemetry, and debate consensus streams requires authenticated member access."
+        >
         {/* Page Header */}
         <div className="ghost-glass-panel rounded-2xl p-5 font-sans space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -981,6 +986,7 @@ export default function AgentsDirectoryPage() {
             </div>
           </div>
         )}
+        </MemberAccessGuard>
 
         {/* Master Footer */}
         <MasterFooter />

@@ -21,7 +21,9 @@
     "bridge:service:install": "node scripts/fef-macos-service.js install",
     "bridge:service:uninstall": "node scripts/fef-macos-service.js uninstall",
     "bridge:service:status": "node scripts/fef-macos-service.js status",
-    "bridge:service:restart": "node scripts/fef-macos-service.js restart"
+    "bridge:service:restart": "node scripts/fef-macos-service.js restart",
+    "cortex:master:create": "node scripts/cortex-master-create.js",
+    "cortex:master:reset-password": "node scripts/cortex-master-reset-password.js"
   },
   "dependencies": {
     "next": "13.5.6",

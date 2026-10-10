@@ -14,6 +14,7 @@ import {
   ChartAnalysisHistoryItem
 } from '@/lib/services/chart-analysis-service';
 import { validateTradeBlueprint } from '@/lib/chart-analysis/blueprint-validator';
+import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 
 export default function ChartAnalyzerPage() {
   const router = useRouter();
@@ -228,6 +229,10 @@ export default function ChartAnalyzerPage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
+        <MemberAccessGuard
+          title="AUTONOMOUS CHART ANALYZER"
+          description="Vision blueprint recognition, deep geometric analysis, and chart-to-execution pipeline require authenticated member access."
+        >
         {/* Control Header & Mode Bar */}
         <div className="ghost-glass-panel rounded-2xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -839,6 +844,7 @@ export default function ChartAnalyzerPage() {
             </div>
           </div>
         )}
+        </MemberAccessGuard>
 
         {/* Master Footer */}
         <MasterFooter />

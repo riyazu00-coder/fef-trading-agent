@@ -14,6 +14,7 @@ import {
   MarketDefinition
 } from '@/lib/registry/market-registry';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
+import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 
 export default function MarketsPage() {
   const router = useRouter();
@@ -46,6 +47,10 @@ export default function MarketsPage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
+        <MemberAccessGuard
+          title="INSTITUTIONAL MARKETS DIRECTORY"
+          description="Access to real-time market assets, broker feed mapping, and cross-asset directory requires member authentication."
+        >
         {/* Page Header */}
         <div className="ghost-glass-panel rounded-2xl p-4 sm:p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -231,6 +236,7 @@ export default function MarketsPage() {
             </table>
           </div>
         </div>
+        </MemberAccessGuard>
 
         <MasterFooter />
       </div>

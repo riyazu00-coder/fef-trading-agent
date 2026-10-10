@@ -35,3 +35,15 @@ next-env.d.ts
 .env*
 .bridge-runtime/
 .system_generated/
+
+# Runtime data & Registries
+/data/
+
+# Local Agent Workspace & Scratch Artifacts
+.superpowers/
+docs/superpowers/
+reference/
+FEF_CORTEX_*.md
+/*_baseline.png
+/*_after.png
+/*_final.png

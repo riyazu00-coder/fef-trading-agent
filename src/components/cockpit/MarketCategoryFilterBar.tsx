@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { useMemberAuth } from '@/context/MemberAuthContext';
 
 export const MARKET_CATEGORIES = [
   'ALL',
@@ -20,6 +21,7 @@ export const MarketCategoryFilterBar: React.FC = () => {
   const pathname = usePathname();
   const { categoryFilter, setCategoryFilter } = useActiveAsset();
   const { telemetry, isMt5Connected } = useMT5Telemetry();
+  const { isMaster } = useMemberAuth();
   const activeTabRef = useRef<HTMLAnchorElement | null>(null);
 
   useEffect(() => {
@@ -41,6 +43,8 @@ export const MarketCategoryFilterBar: React.FC = () => {
     { name: 'Execution', path: '/execution' },
     { name: 'Journal', path: '/journal' },
     { name: 'Settings', path: '/settings' },
+    { name: 'Member', path: '/member' },
+    ...(isMaster ? [{ name: 'Admin', path: '/admin/members' }] : []),
   ];
 
   const handleShortcutClick = (shortcutId: string) => {

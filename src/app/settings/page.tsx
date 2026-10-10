@@ -8,6 +8,7 @@ import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilt
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 import { CANONICAL_EXECUTION_MODE } from '@/lib/execution/execution-policy';
 
 export default function SettingsPage() {
@@ -185,8 +186,12 @@ export default function SettingsPage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
-        {/* Top Header */}
-        <div className="ghost-glass-panel rounded-2xl p-5 space-y-2">
+        <MemberAccessGuard
+          title="MEMBER SETTINGS & RISK CONTROLS"
+          description="System configuration, risk guard rules, and local MT5 bridge settings require authenticated community membership and an authorized single device."
+        >
+          {/* Top Header */}
+          <div className="ghost-glass-panel rounded-2xl p-5 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <div className="flex items-center space-x-2">
@@ -584,6 +589,8 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+        </MemberAccessGuard>
 
         {/* Master Footer */}
         <MasterFooter />

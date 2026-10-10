@@ -8,6 +8,9 @@ import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilt
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { useLicense } from '@/context/LicenseContext';
+import { useMemberAuth } from '@/context/MemberAuthContext';
+import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
 import {
@@ -67,6 +70,8 @@ const INITIAL_DEFAULT_POSITIONS: OrderItem[] = [
 export default function ExecutionPage() {
   const { activeSymbol, setActiveSymbol, activeAsset, assetProfile, allAssets } = useActiveAsset();
   const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
+  const { licenseState } = useLicense();
+  const { isMaster } = useMemberAuth();
 
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT' | 'STOP'>('MARKET');
   const [direction, setDirection] = useState<'BUY' | 'SELL'>(
@@ -80,6 +85,7 @@ export default function ExecutionPage() {
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
   const [isExecutingDemo, setIsExecutingDemo] = useState<boolean>(false);
+  const [realRiskAcknowledged, setRealRiskAcknowledged] = useState<boolean>(false);
   const [executionResult, setExecutionResult] = useState<{
     success: boolean;
     ticket?: number;
@@ -394,7 +400,10 @@ export default function ExecutionPage() {
             tp: tpPrice,
             comment: `FEF-${activeSymbol}-${direction}`,
             humanApproved: true,
+            humanConfirmed: true,
             tradeMode: telemetry.account?.tradeMode || 'DEMO',
+            realConfirmed: telemetry.account?.tradeMode === 'REAL' ? realRiskAcknowledged : false,
+            realTradeAcknowledgement: telemetry.account?.tradeMode === 'REAL' ? realRiskAcknowledged : false,
             timestamp: Date.now()
           }
         };
@@ -565,8 +574,12 @@ export default function ExecutionPage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
-        {/* Top Control Bar & MT5 Connection Telemetry */}
-        <div className="ghost-glass-panel rounded-2xl p-5 space-y-4">
+        <MemberAccessGuard
+          title="MEMBER EXECUTION GATE"
+          description="Institutional MT5 Order Execution requires authenticated community membership, an active license entitlement, and an authorized single device."
+        >
+          {/* Top Control Bar & MT5 Connection Telemetry */}
+          <div className="ghost-glass-panel rounded-2xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <div className="flex items-center space-x-2 flex-wrap gap-y-1">
@@ -1132,6 +1145,8 @@ export default function ExecutionPage() {
           </div>
         </div>
 
+        </MemberAccessGuard>
+
         {/* Master Footer */}
         <MasterFooter />
       </div>
@@ -1149,7 +1164,9 @@ export default function ExecutionPage() {
                     HUMAN REVIEW &amp; AUTHORIZATION GATE
                   </h3>
                   <span className="text-[10px] text-cyan-400">
-                    MT5 CONTROLLED DEMO EXECUTION (20-POINT AUDIT)
+                    {telemetry.account?.tradeMode === 'REAL'
+                      ? 'MT5 REAL ACCOUNT EXECUTION AUDIT'
+                      : 'MT5 DEMO ACCOUNT EXECUTION AUDIT'}
                   </span>
                 </div>
               </div>
@@ -1161,16 +1178,43 @@ export default function ExecutionPage() {
                 }`}>
                   {protectionValidation.valid ? 'PROTECTED ORDER 🛡️' : 'PROTECTION INVALID ⚠️'}
                 </span>
-                <span className="text-[9px] bg-rose-950/80 text-rose-300 border border-rose-500/50 px-2 py-0.5 rounded font-bold uppercase">
-                  LIVE LOCKED 🔒
+                <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase border ${
+                  telemetry.account?.tradeMode === 'REAL'
+                    ? 'bg-rose-950/80 text-rose-300 border-rose-500/50 shadow-[0_0_10px_rgba(244,63,94,0.3)]'
+                    : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                }`}>
+                  {telemetry.account?.tradeMode === 'REAL' ? 'REAL ACCOUNT ⚠️' : 'DEMO ACCOUNT ✓'}
                 </span>
               </div>
             </div>
 
-            {/* Guardrail Disclaimer */}
-            <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-[10px] text-cyan-200">
-              ⚠️ <strong>MANDATORY HUMAN REVIEW:</strong> Review all 20 execution parameters below before authorizing review submission. READ_ONLY execution mode is canonically locked. Order transport is locked; live real accounts are strictly blocked.
-            </div>
+            {/* Guardrail Disclaimer & Real Double Confirmation */}
+            {telemetry.account?.tradeMode === 'REAL' ? (
+              <div className="p-3 rounded-xl bg-rose-950/70 border border-rose-500/60 space-y-2 text-xs">
+                <div className="flex items-center space-x-2 text-rose-300 font-bold">
+                  <span className="text-base">⚠️</span>
+                  <span className="uppercase tracking-wider">REAL MONEY EXECUTION • LIVE CAPITAL AT RISK</span>
+                </div>
+                <p className="text-[10.5px] text-rose-200/90 leading-relaxed font-sans">
+                  Connected to real account <strong>{telemetry.account?.maskedLogin || 'REAL'}</strong> on <strong>{telemetry.account?.broker || 'MT5 Broker'}</strong>. Executing this order will commit real capital.
+                </p>
+                <label className="flex items-start space-x-2.5 pt-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={realRiskAcknowledged}
+                    onChange={(e) => setRealRiskAcknowledged(e.target.checked)}
+                    className="mt-0.5 rounded border-rose-500 text-rose-600 focus:ring-rose-500 bg-black/60 w-4 h-4 cursor-pointer"
+                  />
+                  <span className="text-[11px] font-bold text-white font-sans">
+                    I UNDERSTAND THIS IS REAL CAPITAL • CONFIRM REAL TRADE EXECUTION
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-[10px] text-cyan-200">
+                ⚡ <strong>DEMO MODE EXECUTION:</strong> Review parameters below before authorizing trade dispatch to MT5 demo account ({telemetry.account?.maskedLogin || 'DEMO'}).
+              </div>
+            )}
 
             {/* Execution Route Selector & Ticket Fingerprint (Phase 2C) */}
             <div className="flex flex-col sm:flex-row gap-2 p-2.5 rounded-xl bg-black/60 border border-cyan-500/20 text-[10px]">
@@ -1355,15 +1399,33 @@ export default function ExecutionPage() {
               </button>
               <button
                 onClick={confirmAndExecuteOnDemo}
-                disabled={isExecutingDemo}
+                disabled={
+                  isExecutingDemo ||
+                  (!isMaster && !licenseState.valid) ||
+                  (telemetry.account?.tradeMode === 'REAL' && !realRiskAcknowledged) ||
+                  (telemetry.account?.tradeMode !== 'DEMO' && telemetry.account?.tradeMode !== 'REAL')
+                }
                 className={`px-5 py-2.5 rounded-xl font-bold transition-all flex items-center space-x-2 border shadow-lg ${
-                  isExecutingDemo
-                    ? 'bg-emerald-800 text-white cursor-wait animate-pulse border-white/20'
+                  isExecutingDemo ||
+                  (!isMaster && !licenseState.valid) ||
+                  (telemetry.account?.tradeMode === 'REAL' && !realRiskAcknowledged) ||
+                  (telemetry.account?.tradeMode !== 'DEMO' && telemetry.account?.tradeMode !== 'REAL')
+                    ? 'bg-gray-800 text-gray-500 cursor-not-allowed border-white/5 shadow-none'
+                    : telemetry.account?.tradeMode === 'REAL'
+                    ? 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-[0_0_25px_rgba(225,29,72,0.5)] border-rose-400 cursor-pointer'
                     : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black shadow-[0_0_25px_rgba(16,185,129,0.5)] border-emerald-300 cursor-pointer'
                 }`}
               >
-                <span>{isExecutingDemo ? '⏳' : '⚡'}</span>
-                <span>{isExecutingDemo ? 'TRANSMITTING ORDER TO MT5...' : 'CONFIRM & DISPATCH TO MT5 ⚡'}</span>
+                <span>{isExecutingDemo ? '⏳' : (!isMaster && !licenseState.valid) ? '🔒' : telemetry.account?.tradeMode === 'REAL' ? '⚠️' : '⚡'}</span>
+                <span>
+                  {isExecutingDemo
+                    ? 'TRANSMITTING ORDER TO MT5...'
+                    : (!isMaster && !licenseState.valid)
+                    ? 'LICENSE REQUIRED'
+                    : telemetry.account?.tradeMode === 'REAL'
+                    ? 'CONFIRM REAL TRADE DISPATCH'
+                    : 'CONFIRM DEMO TRADE DISPATCH'}
+                </span>
               </button>
             </div>
           </div>

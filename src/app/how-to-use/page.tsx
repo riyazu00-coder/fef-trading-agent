@@ -7,6 +7,7 @@ import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilt
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { MARKET_REGISTRY, MarketCategory } from '@/lib/registry/market-registry';
 import { CORTEX_WHATSAPP_CONFIG, BRAND_CONFIG } from '@/lib/config/support-config';
+import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 
 export default function HowToUsePage() {
   const [selectedCategory, setSelectedCategory] = useState<MarketCategory | 'ALL'>('ALL');
@@ -45,6 +46,10 @@ export default function HowToUsePage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
+        <MemberAccessGuard
+          title="OPERATING GUIDE & ONBOARDING"
+          description="Access to official operating documentation, architecture blueprints, and trading invariants requires member authentication."
+        >
         {/* Hero Section */}
         <header className="ghost-glass-panel rounded-2xl p-6 sm:p-8 border border-white/10 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-400/5 rounded-full blur-3xl pointer-events-none" />
@@ -920,6 +925,7 @@ export default function HowToUsePage() {
             </div>
           </div>
         </section>
+        </MemberAccessGuard>
 
         {/* Global Footer */}
         <MasterFooter />

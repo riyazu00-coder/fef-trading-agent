@@ -11,12 +11,16 @@ import { BRAND_CONFIG } from '@/lib/config/support-config';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 import { evaluateMarketSession } from '@/lib/session/market-session-engine';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { useLicense } from '@/context/LicenseContext';
+import { useMemberAuth } from '@/context/MemberAuthContext';
 import { TradingViewWorkbenchModal } from '@/components/charts/TradingViewWorkbenchModal';
 
 export const MasterTopNav: React.FC = () => {
   const pathname = usePathname();
   const { activeSymbol, activeAsset, assetProfile, allAssets } = useActiveAsset();
   const { telemetry, isMt5Connected } = useMT5Telemetry();
+  const { licenseState } = useLicense();
+  const { isAuthenticated, isMaster, member } = useMemberAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
@@ -168,7 +172,7 @@ export const MasterTopNav: React.FC = () => {
         {/* =========================================================================
             SECTION 1 (LEFT): BRAND LOCKUP + COMPACT SEARCH + MARKET STATUS
            ========================================================================= */}
-        <div className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0">
+        <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0 min-w-0">
           <div className="flex items-center space-x-2 sm:space-x-2.5 select-none flex-shrink-0 group/brand py-0.5">
             {/* Circular FEF Logo (Compact, crisp, directly LEFT of typography) */}
             <Link
@@ -222,32 +226,33 @@ export const MasterTopNav: React.FC = () => {
             </div>
           </div>
 
-          {/* Ask FEF AI Search Field (Clean non-absolute flex row, compact fixed width) */}
-          <form onSubmit={handleSearchSubmit} className="relative hidden md:flex items-center flex-shrink-0">
+          {/* Ask FEF AI Search Field (Responsive flexible width, clean non-absolute flex row) */}
+          <form onSubmit={handleSearchSubmit} className="relative hidden md:flex items-center flex-shrink min-w-[110px]">
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search CORTEX context..."
-              className="bg-black/50 border border-white/10 hover:border-cyan-500/30 focus:border-cyan-400/70 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] rounded-xl pl-7 pr-6 py-1 text-[11px] text-gray-200 placeholder-gray-500 w-32 sm:w-36 lg:w-40 flex-shrink-0 transition-all outline-none"
+              placeholder="Search CORTEX..."
+              className="bg-black/50 border border-white/10 hover:border-cyan-500/30 focus:border-cyan-400/70 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] rounded-xl pl-6 pr-5 py-1 text-[11px] text-gray-200 placeholder-gray-500 w-28 sm:w-32 lg:w-36 xl:w-40 transition-all outline-none"
             />
-            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-1.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <button
               type="submit"
-              className="absolute right-1.5 px-1 py-0.2 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[8.5px] text-cyan-300 font-mono transition-colors"
+              className="absolute right-1 px-1 py-0.2 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[8px] text-cyan-300 font-mono transition-colors"
               title="Press / anywhere to search"
             >
               /
             </button>
           </form>
 
-          {/* Market / Session Status (Rendered alongside the search bar, non-overlapping) */}
+          {/* Market / Session Status (Compact countdown on desktop to preserve critical horizontal budget) */}
           <MarketStatusBadge
             symbol={activeSymbol}
             sessionState={assetProfile.sessionState}
+            showCountdown={false}
             size="xs"
             className="hidden sm:inline-flex flex-shrink-0"
           />
@@ -256,12 +261,51 @@ export const MasterTopNav: React.FC = () => {
         {/* =========================================================================
             SECTION 2 (CENTER / RIGHT): FULL UNTRUNCATED TELEMETRY BADGES
            ========================================================================= */}
-        <div className="hidden md:flex items-center gap-1.5 sm:gap-2 flex-shrink-0 justify-end ml-auto">
+        <div className="hidden lg:flex items-center gap-1 xl:gap-1.5 flex-shrink min-w-0 justify-end ml-auto">
+          {/* 0. Member & License State Pill */}
+          <Link
+            href="/member"
+            className={`inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl font-mono text-[9px] border whitespace-nowrap flex-shrink-0 cursor-pointer transition-all ${
+              isMaster
+                ? 'bg-amber-950/40 border-amber-500/50 hover:border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                : licenseState.valid
+                ? 'bg-emerald-950/40 border-emerald-500/50 hover:border-emerald-400 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                : 'bg-rose-950/50 border-rose-500/50 hover:border-rose-400 text-rose-300'
+            }`}
+            title={
+              isMaster
+                ? `Master Owner (${member?.email || 'admin'}) • Full Platform Bypass`
+                : `License: ${licenseState.message || (licenseState.valid ? 'Active single-device license' : 'Activation required')} • Click for Member Portal`
+            }
+          >
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+              isMaster
+                ? 'bg-amber-400 animate-pulse'
+                : licenseState.valid
+                ? 'bg-emerald-400'
+                : 'bg-rose-400 animate-pulse'
+            }`} />
+            <span className="font-bold tracking-wider">
+              {isMaster
+                ? 'MASTER: ACTIVE'
+                : (
+                  <>
+                    <span className="hidden xl:inline">LICENSE: </span>
+                    <span>{licenseState.valid ? (licenseState.isOfflineGrace ? 'ACTIVE (OFFLINE)' : 'ACTIVE') : (
+                      <>
+                        <span className="xl:hidden">LIC: </span>REQUIRED
+                      </>
+                    )}</span>
+                  </>
+                )}
+            </span>
+          </Link>
+
           {/* 1. Canonical MT5 Status Pill */}
           {isMt5Connected ? (
             <Link
               href="/execution"
-              className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.2)] whitespace-nowrap flex-shrink-0"
+              className="inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.2)] whitespace-nowrap flex-shrink-0"
               title={
                 telemetry.connectionStatus === 'DEGRADED'
                   ? `MT5 Telemetry Connected • Syncing: ${telemetry.statusLabel || 'Degraded Heartbeat'}`
@@ -276,7 +320,7 @@ export const MasterTopNav: React.FC = () => {
           ) : (
             <Link
               href="/settings"
-              className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/40 text-gray-400 hover:text-gray-200 font-mono text-[9px] transition-all cursor-pointer whitespace-nowrap flex-shrink-0"
+              className="inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-400/40 text-gray-400 hover:text-gray-200 font-mono text-[9px] transition-all cursor-pointer whitespace-nowrap flex-shrink-0"
               title="MT5 Bridge Standby • Connect in Settings"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-slate-500 flex-shrink-0" />
@@ -287,7 +331,7 @@ export const MasterTopNav: React.FC = () => {
           {/* 2. Data Sentinel System Integrity Badge (Clickable to System Integrity deck) */}
           <Link
             href="/cockpit#sentinel-deck"
-            className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] border whitespace-nowrap flex-shrink-0 cursor-pointer transition-all ${
+            className={`inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl font-mono text-[9px] border whitespace-nowrap flex-shrink-0 cursor-pointer transition-all ${
               assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
                 ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:border-emerald-400'
                 : telemetry.connectionStatus === 'DEGRADED'
@@ -309,90 +353,119 @@ export const MasterTopNav: React.FC = () => {
                 ? 'bg-amber-400 animate-pulse'
                 : 'bg-slate-500'
             }`} />
-            <span className="font-bold tracking-wider">SENTINEL: {
-              assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
+            <span className="font-bold tracking-wider">
+              <span className="hidden xl:inline">SENTINEL: </span>
+              <span className="xl:hidden">SNTL: </span>
+              {assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
                 ? 'HEALTHY'
                 : telemetry.connectionStatus === 'DEGRADED'
                 ? 'DEGRADED'
-                : 'DATA LIMITED'
-            }</span>
+                : 'LIMITED'}
+            </span>
           </Link>
 
           {/* 3. Overall Data Readiness Badge */}
           <div
-            className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] bg-cyan-950/40 border border-cyan-500/40 text-cyan-300 whitespace-nowrap flex-shrink-0"
+            className="inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl font-mono text-[9px] bg-cyan-950/40 border border-cyan-500/40 text-cyan-300 whitespace-nowrap flex-shrink-0"
             title="Cortex Data Readiness State"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 flex-shrink-0" />
             <span className="font-bold tracking-wider">DATA: {assetProfile.confluence?.dataReadiness || 'PARTIAL'}</span>
           </div>
 
-          {/* 4. Canonical Execution Badge (Derived from Authoritative Telemetry) */}
-          <div
-            className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] whitespace-nowrap flex-shrink-0 border ${
-              !isMt5Connected
-                ? 'bg-black/40 border-white/10 text-gray-400'
-                : telemetry.operatingMode === 'LIVE_EXECUTION'
-                ? 'bg-rose-950/50 border-rose-500/50 text-rose-300'
-                : telemetry.operatingMode === 'DEMO_EXECUTION'
-                ? 'bg-amber-950/40 border-amber-500/50 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
-                : telemetry.operatingMode === 'READ_ONLY'
-                ? 'bg-cyan-950/40 border-cyan-500/40 text-cyan-300'
-                : 'bg-rose-950/40 border-rose-500/40 text-rose-400'
-            }`}
-            title={`Execution State: ${
-              !isMt5Connected
-                ? 'STANDBY / PAPER GATE'
-                : telemetry.operatingMode === 'LIVE_EXECUTION'
-                ? 'REAL ACCOUNT (HARD-LOCKED)'
-                : telemetry.operatingMode === 'DEMO_EXECUTION'
-                ? 'DEMO EXECUTION (ONE-CLICK GUARD)'
-                : telemetry.operatingMode === 'READ_ONLY'
-                ? 'READ ONLY (ANALYSIS ONLY)'
-                : 'ACCOUNT UNKNOWN / EXECUTION BLOCKED'
-            }`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-              !isMt5Connected
-                ? 'bg-slate-500'
-                : telemetry.operatingMode === 'LIVE_EXECUTION'
-                ? 'bg-rose-400'
-                : telemetry.operatingMode === 'DEMO_EXECUTION'
-                ? 'bg-amber-400 animate-pulse'
-                : 'bg-cyan-400'
-            }`} />
-            <span className="font-bold tracking-wider">EXECUTION: {
-              !isMt5Connected
-                ? 'STANDBY'
-                : telemetry.operatingMode === 'LIVE_EXECUTION'
-                ? 'REAL — LOCKED 🔒'
-                : telemetry.operatingMode === 'DEMO_EXECUTION'
-                ? 'DEMO EXECUTION'
-                : telemetry.operatingMode === 'READ_ONLY'
-                ? 'READ ONLY'
-                : 'BLOCKED'
-            }</span>
-          </div>
+          {/* 4. Canonical Execution Badge (Simplified strictly to DEMO / REAL / STANDBY) */}
+          {(() => {
+            const reportedTradeMode = telemetry.account?.tradeMode;
+            const isReal = reportedTradeMode === 'REAL';
+            const isDemo = reportedTradeMode === 'DEMO';
+
+            return (
+              <div
+                className={`inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl font-mono text-[9px] whitespace-nowrap flex-shrink-0 border ${
+                  !isMt5Connected
+                    ? 'bg-black/40 border-white/10 text-gray-400'
+                    : isReal
+                    ? 'bg-rose-950/60 border-rose-500/60 text-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.2)]'
+                    : isDemo
+                    ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                    : 'bg-amber-950/40 border-amber-500/50 text-amber-300'
+                }`}
+                title={`Execution State: ${
+                  !isMt5Connected
+                    ? 'STANDBY (NO TERMINAL CONNECTED)'
+                    : isReal
+                    ? 'REAL ACCOUNT EXECUTION (DOUBLE-CONFIRMATION GUARD)'
+                    : isDemo
+                    ? 'DEMO ACCOUNT EXECUTION (CONFIRMATION GUARD)'
+                    : 'ACCOUNT UNKNOWN / EXECUTION BLOCKED'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  !isMt5Connected
+                    ? 'bg-slate-500'
+                    : isReal
+                    ? 'bg-rose-400 animate-pulse'
+                    : isDemo
+                    ? 'bg-emerald-400 animate-pulse'
+                    : 'bg-amber-400'
+                }`} />
+                <span className="font-bold tracking-wider">
+                  <span className="hidden xl:inline">EXECUTION: </span>
+                  <span className="xl:hidden">EXEC: </span>
+                  {!isMt5Connected
+                    ? 'STANDBY'
+                    : isReal
+                    ? 'REAL'
+                    : isDemo
+                    ? 'DEMO'
+                    : 'BLOCKED'}
+                </span>
+              </div>
+            );
+          })()}
 
           {/* 5. Real Interactive TradingView Advanced Chart Workbench Trigger */}
           <Link
             href="/tradingview"
-            className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl font-mono text-[9px] bg-cyan-950/40 border border-cyan-400/50 hover:border-cyan-300 text-cyan-200 hover:text-white shadow-[0_0_10px_rgba(34,211,238,0.2)] whitespace-nowrap flex-shrink-0 cursor-pointer transition-all"
+            className="inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl font-mono text-[9px] bg-cyan-950/40 border border-cyan-400/50 hover:border-cyan-300 text-cyan-200 hover:text-white shadow-[0_0_10px_rgba(34,211,238,0.2)] whitespace-nowrap flex-shrink-0 cursor-pointer transition-all"
             title="Open Dedicated Full-Screen TradingView Advanced Chart Workspace (/tradingview)"
           >
             <span className="text-[10px]">📈</span>
-            <span className="font-bold tracking-wider">TRADINGVIEW</span>
+            <span className="font-bold tracking-wider hidden 2xl:inline">TRADINGVIEW</span>
+            <span className="font-bold tracking-wider 2xl:hidden">TV</span>
           </Link>
         </div>
 
         {/* =========================================================================
             SECTION 3 (FAR RIGHT): ACTIONS (BELL + AVATAR + MOBILE HAMBURGER)
            ========================================================================= */}
-        <div className="flex items-center gap-1.5 border-l border-white/10 pl-2 sm:pl-2.5 ml-1.5 sm:ml-2 flex-shrink-0">
+        <div className="flex items-center gap-1 xl:gap-1.5 border-l border-white/10 pl-1.5 xl:pl-2 ml-1 xl:ml-1.5 flex-shrink-0">
+          {/* Master Admin Console link (MASTER ONLY) */}
+          {isMaster && (
+            <Link
+              href="/admin/members"
+              className="inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl bg-amber-950/50 hover:bg-amber-900/60 border border-amber-500/50 hover:border-amber-400 text-amber-300 hover:text-white font-mono text-[9px] font-bold transition-all cursor-pointer shadow-[0_0_8px_rgba(245,158,11,0.2)] flex-shrink-0"
+              title="Master Administration Console • Manage Community Members & Device Licenses"
+            >
+              <span>👑</span>
+              <span className="hidden sm:inline">ADMIN</span>
+            </Link>
+          )}
+
+          {/* Member Portal Trigger */}
+          <Link
+            href="/member"
+            className="inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white font-mono text-[9px] font-bold transition-all cursor-pointer shadow-[0_0_8px_rgba(34,211,238,0.15)] flex-shrink-0"
+            title="Member Portal • License Details & MT5 Setup"
+          >
+            <span>👤</span>
+            <span className="hidden sm:inline">MEMBER</span>
+          </Link>
+
           {/* How to Use / Onboarding Quick Help Trigger */}
           <Link
             href="/how-to-use"
-            className="inline-flex items-center space-x-1 px-2 py-1 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white font-mono text-[9px] font-bold transition-all cursor-pointer shadow-[0_0_8px_rgba(34,211,238,0.15)] flex-shrink-0"
+            className="inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white font-mono text-[9px] font-bold transition-all cursor-pointer shadow-[0_0_8px_rgba(34,211,238,0.15)] flex-shrink-0"
             title="How to Use FEF CORTEX • Onboarding Guide & System Philosophy"
           >
             <span className="text-cyan-400 font-extrabold text-[10px]">?</span>
@@ -402,7 +475,7 @@ export const MasterTopNav: React.FC = () => {
           {/* Official Contact & Support Desk Trigger */}
           <button
             onClick={() => setIsSupportOpen(true)}
-            className="inline-flex items-center space-x-1 px-2 py-1 rounded-xl bg-black/45 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-cyan-200 font-mono text-[9px] font-bold transition-all cursor-pointer shadow-sm flex-shrink-0"
+            className="inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl bg-black/45 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-cyan-200 font-mono text-[9px] font-bold transition-all cursor-pointer shadow-sm flex-shrink-0"
             title="Official FEF Contact Desk (WhatsApp, Telegram, Email, Website)"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />

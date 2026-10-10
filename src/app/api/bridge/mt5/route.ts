@@ -6,7 +6,15 @@ import { BridgeCommand, RESTRICTED_EXECUTION_COMMANDS } from '@/lib/bridge/mt5-b
 import { symbolDirectory } from '@/lib/bridge/symbol-mapper';
 import { evaluateMarketSession } from '@/lib/session/market-session-engine';
 import { validateTradeProtection, reanchorProtectionLevels } from '@/lib/execution/trade-protection-validator';
-import { CANONICAL_EXECUTION_MODE, READ_ONLY_EXECUTION_ERROR } from '@/lib/execution/execution-policy';
+import {
+  CANONICAL_EXECUTION_MODE,
+  READ_ONLY_EXECUTION_ERROR,
+  validateAccountExecutionMode,
+  validateLicensedExecution,
+  EXECUTION_GATE_ERRORS,
+} from '@/lib/execution/execution-policy';
+import { clientLicenseController } from '@/lib/licensing/client-license-controller';
+import { verifySessionToken } from '@/lib/licensing/member-session-token';
 
 export const dynamic = 'force-dynamic';
 
@@ -266,16 +274,14 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Human Approval check
-      if (params && params.humanApproved === false) {
+      // 1. Mandatory Human Approval check
+      const humanApproved = Boolean(params && (params.humanApproved === true || params.humanConfirmed === true));
+      if (!humanApproved) {
         return NextResponse.json(
           {
             success: false,
             state: 'REJECTED',
-            error: {
-              code: 'HUMAN_APPROVAL_REQUIRED',
-              message: 'Execution rejected: Explicit human approval is required for all orders.'
-            }
+            error: EXECUTION_GATE_ERRORS.HUMAN_APPROVAL_REQUIRED,
           },
           { status: 403 }
         );
@@ -284,19 +290,99 @@ export async function POST(req: NextRequest) {
       let bridgeStatus: any = null;
       try {
         bridgeStatus = await mt5HttpClient.getStatus();
-        if (!bridgeStatus || (!bridgeStatus.mt5Connected && bridgeStatus.localBridge !== 'ONLINE')) {
-          return NextResponse.json(
-            {
-              success: false,
-              state: 'REJECTED',
-              error: {
-                code: 'MT5_NOT_CONNECTED',
-                message: 'Execution rejected: MT5 bridge is not connected.'
-              }
+      } catch (err: any) {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'MT5_BRIDGE_UNREACHABLE',
+              message: `Execution rejected: Failed to query MT5 bridge status (${err.message || 'connection error'}).`
+            }
+          },
+          { status: 503 }
+        );
+      }
+
+      if (!bridgeStatus || (!bridgeStatus.mt5Connected && bridgeStatus.localBridge !== 'ONLINE')) {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            error: EXECUTION_GATE_ERRORS.MT5_NOT_CONNECTED,
+          },
+          { status: 403 }
+        );
+      }
+
+      // 2. Client Device License Gate (Single-Device Enforcement with MASTER bypass)
+      const sessionCookie =
+        req.cookies.get('fef_member_session')?.value ||
+        req.cookies.get('fef_session')?.value ||
+        req.headers.get('x-session-token') ||
+        req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+      const authSession = sessionCookie ? verifySessionToken(sessionCookie) : { valid: false };
+      const isMasterSession = Boolean(authSession.valid && authSession.role === 'MASTER');
+      const isMemberSession = Boolean(authSession.valid && (authSession.role === 'MEMBER' || authSession.role === 'MASTER'));
+
+      // Require authenticated session for execution
+      if (!isMemberSession) {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'MEMBER_AUTH_REQUIRED',
+              message: 'Execution rejected: Authenticated Member or Master session required.',
             },
-            { status: 403 }
-          );
-        }
+          },
+          { status: 401 }
+        );
+      }
+
+      const licenseEval = isMasterSession
+        ? { valid: true, status: 'ACTIVE' as const, code: 'MASTER_BYPASS', message: 'Master owner authenticated' }
+        : clientLicenseController.evaluateClientLicense();
+
+      if (!licenseEval.valid) {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: licenseEval.code,
+              message: licenseEval.message,
+            },
+          },
+          { status: 403 }
+        );
+      }
+
+      // 3. Authoritative Account Trade Mode Gate (DEMO / REAL ONLY)
+      const reportedTradeMode = bridgeStatus.account?.tradeMode ?? params?.tradeMode ?? null;
+      const realConfirmed = Boolean(params && (params.realConfirmed === true || params.realTradeAcknowledgement === true));
+
+      const gateValidation = validateLicensedExecution({
+        isLicensed: licenseEval.valid,
+        licenseErrorCode: licenseEval.code,
+        reportedMode: reportedTradeMode,
+        humanApproved,
+        realConfirmed,
+      });
+
+      if (!gateValidation.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            tradeMode: gateValidation.mode,
+            error: gateValidation.error,
+          },
+          { status: 403 }
+        );
+      }
+
+      try {
 
         // Quote freshness verification
         if (bridgeStatus?.quotes) {

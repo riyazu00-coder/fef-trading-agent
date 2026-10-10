@@ -7,6 +7,7 @@ import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 
 interface HistoricalTrade {
   id: string;
@@ -248,6 +249,10 @@ export default function JournalPage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
+        <MemberAccessGuard
+          title="AUTONOMOUS TRADE JOURNAL"
+          description="Access to historical trade logs, council consensus performance, post-mortems, and CSV export requires authenticated member access."
+        >
         {/* Top Header & Aggregate Performance Stats */}
         <div className="ghost-glass-panel rounded-2xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -580,6 +585,7 @@ export default function JournalPage() {
             </div>
           </div>
         )}
+        </MemberAccessGuard>
 
         {/* Master Footer */}
         <MasterFooter />

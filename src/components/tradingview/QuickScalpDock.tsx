@@ -1,8 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { useMemberAuth } from '@/context/MemberAuthContext';
+import { SUPPORT_CONFIG, CORTEX_WHATSAPP_CONFIG } from '@/lib/config/support-config';
 import { getInstrumentContractSpec } from '@/lib/calculator/position-size-calculator';
 import { reanchorProtectionLevels } from '@/lib/execution/trade-protection-validator';
 
@@ -13,6 +16,13 @@ interface QuickScalpDockProps {
 export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }) => {
   const { activeSymbol, setActiveSymbol, activeAsset, assetProfile, allAssets } = useActiveAsset();
   const { telemetry, activeTelemetry, isMt5Connected, refreshTelemetry } = useMT5Telemetry();
+  const {
+    isAuthenticated,
+    isMaster,
+    license,
+    isDeviceAuthorized,
+    login,
+  } = useMemberAuth();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [lotSize, setLotSize] = useState<number>(0.10);
@@ -21,6 +31,20 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
   const [useCustomPrice, setUseCustomPrice] = useState(false);
   const [customSlPrice, setCustomSlPrice] = useState<number>(0);
   const [customTpPrice, setCustomTpPrice] = useState<number>(0);
+
+  // Protected trade access modal state
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authEmailInput, setAuthEmailInput] = useState('');
+  const [authPasswordInput, setAuthPasswordInput] = useState('');
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Can the current user execute trades?
+  // MASTER: Always authorized
+  // MEMBER: Authenticated + Active License + Device Authorized 1/1
+  const canExecute = Boolean(
+    isMaster || (isAuthenticated && license?.status === 'ACTIVE' && isDeviceAuthorized)
+  );
 
   // Safety confirmation modal state
   const [pendingOrder, setPendingOrder] = useState<{
@@ -103,8 +127,30 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
     return { valid: true, error: null };
   }, []);
 
-  // Open modal trigger
+  // Handle direct login from TradingView trade access gate
+  const handleAuthLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmailInput.trim() || !authPasswordInput) return;
+    setAuthSubmitting(true);
+    setAuthError(null);
+    const res = await login(authEmailInput.trim(), authPasswordInput);
+    if (!res.success) {
+      setAuthError(res.message || 'Invalid member credentials.');
+    } else {
+      setIsAuthModalOpen(false);
+      setAuthPasswordInput('');
+    }
+    setAuthSubmitting(false);
+  };
+
+  // Open modal trigger — protected by member authorization gate
   const handleInitiateOrder = (dir: 'BUY' | 'SELL') => {
+    // If user is not authorized for execution, intercept and show Member Access modal
+    if (!canExecute) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     const { entryPrice, slPrice, tpPrice } = calculateLevels(dir);
     const check = validateLevels(dir, entryPrice, slPrice, tpPrice);
     if (!check.valid) {
@@ -473,9 +519,15 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
             <div className="grid grid-cols-2 gap-1.5 pt-0.5">
               <button
                 onClick={() => handleInitiateOrder('SELL')}
-                disabled={!isExecutable}
-                className="h-7 py-1 px-2 rounded-lg bg-gradient-to-r from-rose-700 to-rose-600 hover:from-rose-600 hover:to-rose-500 text-white font-bold text-[10px] transition-all shadow-[0_0_10px_rgba(244,63,94,0.3)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-1"
+                disabled={canExecute && !isExecutable}
+                className={`h-7 py-1 px-2 rounded-lg text-white font-bold text-[10px] transition-all shadow-[0_0_10px_rgba(244,63,94,0.3)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-1 ${
+                  !canExecute
+                    ? 'bg-gradient-to-r from-rose-900/80 to-rose-800/80 hover:from-rose-800 hover:to-rose-700 border border-rose-500/40 text-rose-200'
+                    : 'bg-gradient-to-r from-rose-700 to-rose-600 hover:from-rose-600 hover:to-rose-500'
+                }`}
+                title={canExecute ? (isExecutable ? `SELL ${activeSymbol} @ broker BID` : 'Market Session Closed') : 'Member Access Required — Sign in to use trading controls'}
               >
+                {!canExecute && <span className="text-[10px]">🔒</span>}
                 <span className="text-rose-200 uppercase font-black">SELL</span>
                 <span className="font-mono font-black tabular-nums text-white whitespace-nowrap">
                   @{currentBid.toFixed(precision)}
@@ -484,9 +536,15 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
 
               <button
                 onClick={() => handleInitiateOrder('BUY')}
-                disabled={!isExecutable}
-                className="h-7 py-1 px-2 rounded-lg bg-gradient-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500 text-white font-bold text-[10px] transition-all shadow-[0_0_10px_rgba(16,185,129,0.3)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-1"
+                disabled={canExecute && !isExecutable}
+                className={`h-7 py-1 px-2 rounded-lg text-white font-bold text-[10px] transition-all shadow-[0_0_10px_rgba(16,185,129,0.3)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-1 ${
+                  !canExecute
+                    ? 'bg-gradient-to-r from-emerald-900/80 to-emerald-800/80 hover:from-emerald-800 hover:to-emerald-700 border border-emerald-500/40 text-emerald-200'
+                    : 'bg-gradient-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500'
+                }`}
+                title={canExecute ? (isExecutable ? `BUY ${activeSymbol} @ broker ASK` : 'Market Session Closed') : 'Member Access Required — Sign in to use trading controls'}
               >
+                {!canExecute && <span className="text-[10px]">🔒</span>}
                 <span className="text-emerald-200 uppercase font-black">BUY</span>
                 <span className="font-mono font-black tabular-nums text-white whitespace-nowrap">
                   @{currentAsk.toFixed(precision)}
@@ -496,8 +554,125 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
 
             {/* Protective Footnote */}
             <div className="flex items-center justify-between text-[8px] text-gray-500 pt-0.5 border-t border-white/5">
-              <span>ARMED: 1-CLICK GUARD</span>
-              <span className="text-cyan-400 font-mono">MT5 DIRECT</span>
+              <span>{canExecute ? 'ARMED: 1-CLICK GUARD' : 'VIEW ONLY • TRADING LOCKED'}</span>
+              <span className="text-cyan-400 font-mono">{canExecute ? 'MT5 DIRECT' : 'SIGN IN TO TRADE'}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          PROTECTED TRADE ACCESS MODAL (FOR UNAUTHENTICATED / UNLICENSED USERS)
+         ========================================================================= */}
+      {isAuthModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200 font-mono"
+        >
+          <div className="bg-[#080E1A] border border-cyan-500/50 rounded-2xl w-full max-w-md p-6 sm:p-7 shadow-[0_0_50px_rgba(6,182,212,0.25)] space-y-5">
+            {/* Modal Header */}
+            <div className="text-center space-y-1.5 border-b border-white/10 pb-4">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-400/40 text-cyan-300 mb-1">
+                <span className="text-xl">🛡️</span>
+              </div>
+              <h3 className="text-base font-black tracking-wider text-white uppercase font-sans">
+                MEMBER ACCESS REQUIRED
+              </h3>
+              <p className="text-xs text-gray-300 font-sans leading-relaxed">
+                Sign in to use trading controls.
+              </p>
+              <p className="text-[10.5px] text-cyan-300/80 font-sans">
+                Live interactive chart and market analytics remain free for public view.
+              </p>
+            </div>
+
+            {/* Quick Login Form */}
+            <form onSubmit={handleAuthLogin} className="space-y-3.5">
+              <div className="space-y-1">
+                <label className="text-[10px] text-gray-400 uppercase tracking-wider block">
+                  Username or Email:
+                </label>
+                <input
+                  type="text"
+                  value={authEmailInput}
+                  onChange={(e) => setAuthEmailInput(e.target.value)}
+                  placeholder="master_username / member@domain.com"
+                  required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  disabled={authSubmitting}
+                  className="w-full bg-black/60 border border-white/15 focus:border-cyan-400 text-cyan-200 text-xs py-2 px-3 rounded-xl outline-none placeholder:text-gray-600 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] transition-all"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-gray-400 uppercase tracking-wider block">
+                  Password:
+                </label>
+                <input
+                  type="password"
+                  value={authPasswordInput}
+                  onChange={(e) => setAuthPasswordInput(e.target.value)}
+                  placeholder="••••••••••••"
+                  required
+                  disabled={authSubmitting}
+                  className="w-full bg-black/60 border border-white/15 focus:border-cyan-400 text-cyan-200 text-xs py-2 px-3 rounded-xl outline-none placeholder:text-gray-600 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] transition-all"
+                />
+              </div>
+
+              {authError && (
+                <div className="p-2.5 rounded-xl bg-rose-950/70 border border-rose-500/50 text-rose-200 text-[11px] flex items-center space-x-1.5">
+                  <span>⚠️</span>
+                  <span>{authError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center space-x-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsAuthModalOpen(false)}
+                  disabled={authSubmitting}
+                  className="flex-1 py-2.5 rounded-xl bg-black/60 border border-white/10 hover:bg-white/5 text-gray-300 text-xs font-bold cursor-pointer transition-colors"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="submit"
+                  disabled={authSubmitting || !authEmailInput.trim() || !authPasswordInput}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-black font-sans font-black text-xs uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {authSubmitting ? 'SIGNING IN...' : 'LOGIN'}
+                </button>
+              </div>
+            </form>
+
+            {/* Support / Contact Desk Link */}
+            <div className="pt-3 border-t border-white/10 space-y-2">
+              <div className="text-[10px] text-gray-400 text-center font-sans">
+                Need a member license or device reset?
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2">
+                {CORTEX_WHATSAPP_CONFIG.isConfigured && (
+                  <a
+                    href={CORTEX_WHATSAPP_CONFIG.getWhatsAppUrl() || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-500/40 text-emerald-300 hover:text-white text-[10px] font-sans font-bold flex items-center justify-center space-x-1 transition-all"
+                  >
+                    <span>💬</span>
+                    <span>WhatsApp Admin</span>
+                  </a>
+                )}
+                <a
+                  href={`mailto:${SUPPORT_CONFIG.supportEmail}?subject=FEF%20CORTEX%20Trading%20Access%20Inquiry`}
+                  className="flex-1 py-2 px-3 rounded-xl bg-cyan-950/50 hover:bg-cyan-900/60 border border-cyan-500/40 text-cyan-300 hover:text-white text-[10px] font-sans font-bold flex items-center justify-center space-x-1 transition-all"
+                >
+                  <span>✉️</span>
+                  <span>Contact Admin</span>
+                </a>
+              </div>
             </div>
           </div>
         </div>
