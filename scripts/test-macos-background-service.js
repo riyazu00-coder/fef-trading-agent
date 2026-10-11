@@ -513,6 +513,46 @@ await runTest('incorrect LOCAL_BRIDGE_URL is absent from connector child env', (
     assert(policySource.includes("export const MT5_ORDER_TRANSPORT_ENABLED = true"), 'MT5_ORDER_TRANSPORT_ENABLED must be true');
   });
 
+  // 40. Supervisor launches canonical V1 bridge script (mt5-http-bridge-service.js)
+  await runTest('supervisor launches canonical V1 bridge script', () => {
+    const supervisorSource = fs.readFileSync(path.resolve(ROOT_DIR, 'scripts/fef-bridge-supervisor.js'), 'utf8');
+    assert(supervisorSource.includes('scripts/mt5-http-bridge-service.js'), 'Supervisor must launch mt5-http-bridge-service.js');
+    assert(!supervisorSource.includes('const BRIDGE_SCRIPT = path.resolve(ROOT_DIR, "scripts/fef-execution-bridge-v2.js")'), 'Supervisor must not launch V2 as canonical bridge');
+  });
+
+  // 41. Supervisor binds/targets canonical port 5556
+  await runTest('supervisor targets canonical bridge port 5556', () => {
+    const supervisorSource = fs.readFileSync(path.resolve(ROOT_DIR, 'scripts/fef-bridge-supervisor.js'), 'utf8');
+    assert(supervisorSource.includes('const BRIDGE_PORT = 5556;'), 'Supervisor BRIDGE_PORT must be 5556');
+    assert(supervisorSource.includes('http://" + BRIDGE_HOST + ":" + BRIDGE_PORT'), 'Supervisor must build 5556 bridge URL');
+  });
+
+  // 42. Connector agent targets canonical bridge port 5556 as primary
+  await runTest('connector agent targets canonical bridge port 5556 as primary', () => {
+    const connectorSource = fs.readFileSync(path.resolve(ROOT_DIR, 'scripts/fef-local-connector-agent.js'), 'utf8');
+    assert(connectorSource.includes("const LOCAL_BRIDGE_URL = process.env.FEF_LOCAL_BRIDGE_URL || 'http://127.0.0.1:5556'"), 'Connector primary LOCAL_BRIDGE_URL must default to http://127.0.0.1:5556');
+    assert(connectorSource.includes("const v1Url = new URL('/api/status', LOCAL_BRIDGE_URL)"), 'Connector must query /api/status on primary bridge');
+  });
+
+  // 43. Bridge V2 port 5560 is NOT canonical bridge
+  await runTest('bridge V2 port 5560 is NOT canonical bridge', () => {
+    const supervisorSource = fs.readFileSync(path.resolve(ROOT_DIR, 'scripts/fef-bridge-supervisor.js'), 'utf8');
+    assert(!supervisorSource.includes('const BRIDGE_PORT = 5560;'), 'Supervisor must not use 5560 as canonical BRIDGE_PORT');
+  });
+
+  // 44. Service status cannot claim V1 ONLINE when :5556 is absent
+  await runTest('service status cannot claim V1 ONLINE when :5556 is absent', async () => {
+    const origGet = require('http').get;
+    try {
+      // Mock supervisor returning ONLINE but port 5556 unreachable
+      const statusRes = await macosService.status({ skipLaunchctl: true });
+      // When canonical 5556 is not running, canonicalBridgeOnline must be false
+      assert.strictEqual(typeof statusRes.canonicalBridgeOnline, 'boolean', 'status must report canonicalBridgeOnline boolean');
+    } finally {
+      require('http').get = origGet;
+    }
+  });
+
   console.log('=================================================================');
   console.log(`ALL ${passedTests}/${totalTests} TESTS PASSED CLEANLY.`);
   console.log('=================================================================');

@@ -17,10 +17,10 @@ const PID_FILE = path.resolve(RUNTIME_DIR, "supervisor.pid");
 const STATE_FILE = path.resolve(RUNTIME_DIR, "supervisor-state.json");
 const LOG_FILE = path.resolve(RUNTIME_DIR, "supervisor.log");
 
-const BRIDGE_SCRIPT = path.resolve(ROOT_DIR, "scripts/fef-execution-bridge-v2.js");
+const BRIDGE_SCRIPT = path.resolve(ROOT_DIR, "scripts/mt5-http-bridge-service.js");
 const CONNECTOR_SCRIPT = path.resolve(ROOT_DIR, "scripts/fef-local-connector-agent.js");
 
-const BRIDGE_PORT = 5560;
+const BRIDGE_PORT = 5556;
 const BRIDGE_HOST = "127.0.0.1";
 const LOCAL_BRIDGE_URL = "http://" + BRIDGE_HOST + ":" + BRIDGE_PORT;
 const SUPERVISOR_PORT = 5558;
@@ -306,16 +306,18 @@ class ConnectivitySupervisor {
       this.healthState.lastUpdated = Date.now();
 
       const bridgeData = await this.queryLocalBridgeHealth();
-      if (bridgeData && (bridgeData.localBridge === "ONLINE" || bridgeData.success)) {
+      if (bridgeData && (bridgeData.localBridge === "ONLINE" || (bridgeData.success && (bridgeData.port === 5556 || bridgeData.port === "5556")))) {
         this.healthState.localBridge = "ONLINE";
         this.healthState.bridgeHeartbeatAgeMs = bridgeData.heartbeatAgeMs ?? null;
 
         if (bridgeData.mt5Connected) {
           this.healthState.mt5Terminal = "CONNECTED";
-          this.healthState.broker = bridgeData.terminal?.broker || bridgeData.account?.broker || "Exness Technologies Ltd";
-          this.healthState.server = bridgeData.terminal?.server || bridgeData.account?.server || "Exness-MT5Trial16";
+          this.healthState.broker = bridgeData.terminal?.broker || bridgeData.account?.broker || "UNKNOWN";
+          this.healthState.server = bridgeData.terminal?.server || bridgeData.account?.server || "UNKNOWN";
         } else {
           this.healthState.mt5Terminal = "DISCONNECTED";
+          this.healthState.broker = "UNKNOWN";
+          this.healthState.server = "UNKNOWN";
         }
 
         const quote = bridgeData.quotes?.XAUUSD || bridgeData.quotes?.GOLD;

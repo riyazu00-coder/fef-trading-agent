@@ -78,9 +78,11 @@ export const MasterTopNav: React.FC = () => {
     { name: 'Chart Analyzer', path: '/chart-analyzer' },
     { name: 'Execution', path: '/execution' },
     { name: 'Journal', path: '/journal' },
+    { name: 'Settings', path: '/settings' },
+    { name: 'Member Portal', path: '/member' },
+    ...(isMaster ? [{ name: 'Admin Console', path: '/admin/members' }] : []),
     { name: 'About', path: '/about' },
     { name: 'Community', path: '/community' },
-    { name: 'Settings', path: '/settings' },
   ];
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -522,44 +524,11 @@ export const MasterTopNav: React.FC = () => {
         </div>
       </header>
 
-      {/* Responsive Mobile Navigation Dropdown */}
+      {/* Responsive Mobile Navigation Drawer */}
       {isMobileMenuOpen && (
-        <div className="lg:hidden w-full mt-2 ghost-glass-panel rounded-2xl p-4 border border-cyan-500/30 shadow-[0_12px_40px_rgba(0,0,0,0.85)] animate-in fade-in slide-in-from-top-2 duration-200 space-y-3 font-sans relative z-30">
-          {/* Mobile Navigation Tabs Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-            {navTabs.map((tab) => {
-              const isRoot = pathname === '/' && tab.path === '/cockpit';
-              const isActive = pathname === tab.path || pathname.startsWith(tab.path + '/') || isRoot;
-              return (
-                <Link
-                  key={tab.name}
-                  href={tab.path}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all ${
-                    isActive
-                      ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50 shadow-[0_0_12px_rgba(34,211,238,0.3)]'
-                      : 'text-[#94A3B8] hover:text-[#CBD5E1] hover:bg-white/5 border border-transparent'
-                  }`}
-                >
-                  <span>{tab.name}</span>
-                  {tab.path === '/execution' && (
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
-                          ? 'bg-emerald-400 animate-pulse'
-                          : isMt5Connected
-                            ? 'bg-amber-400'
-                            : 'bg-slate-500'
-                      }`}
-                    />
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-
+        <div className="lg:hidden w-full mt-2 ghost-glass-panel rounded-2xl p-4 border border-cyan-500/30 shadow-[0_16px_50px_rgba(0,0,0,0.95)] animate-in fade-in slide-in-from-top-2 duration-200 space-y-4 font-sans relative z-30 max-h-[80vh] overflow-y-auto">
           {/* Mobile Search Field */}
-          <form onSubmit={handleSearchSubmit} className="relative flex items-center pt-1">
+          <form onSubmit={handleSearchSubmit} className="relative flex items-center">
             <input
               type="text"
               value={searchQuery}
@@ -578,104 +547,168 @@ export const MasterTopNav: React.FC = () => {
             </button>
           </form>
 
-          {/* Mobile Status Strip & Shortcuts */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10 text-xs font-mono">
-            {/* Live MT5 Status */}
-            {isMt5Connected ? (
-              <span className={`inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold ${
-                telemetry.operatingMode === 'LIVE_EXECUTION'
-                  ? 'bg-rose-950/70 border-rose-500/50 text-rose-300'
-                  : telemetry.operatingMode === 'DEMO_EXECUTION'
-                  ? 'bg-amber-950/70 border-amber-500/50 text-amber-300'
-                  : 'bg-cyan-950/70 border-cyan-500/40 text-cyan-300'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${
-                  telemetry.operatingMode === 'DEMO_EXECUTION'
-                    ? 'bg-amber-400 animate-pulse'
-                    : telemetry.operatingMode === 'LIVE_EXECUTION'
-                    ? 'bg-rose-400'
-                    : 'bg-cyan-400'
-                }`} />
-                <span>{`${brokerDisplay} (${
-                  telemetry.operatingMode === 'LIVE_EXECUTION'
-                    ? 'REAL — LOCKED 🔒'
-                    : telemetry.operatingMode === 'DEMO_EXECUTION'
-                    ? 'DEMO'
-                    : 'READ ONLY'
-                })`}</span>
-              </span>
-            ) : (
-              <span className="inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-black/60 border border-white/10 text-gray-400 text-[10px] font-bold">
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
-                <span>MT5 STANDBY</span>
-              </span>
-            )}
+          {/* Group 1: TRADING & INTELLIGENCE */}
+          <div className="space-y-1.5">
+            <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
+              TRADING & INTELLIGENCE
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                { name: 'Cockpit', path: '/cockpit', icon: '⚡' },
+                { name: 'Agents', path: '/agents', icon: '🤖' },
+                { name: 'Markets', path: '/markets', icon: '🌐' },
+                { name: 'TradingView', path: '/tradingview', icon: '📈' },
+                { name: 'Execution', path: '/execution', icon: '🎯' },
+                { name: 'Chart Analyzer', path: '/chart-analyzer', icon: '🔍' },
+                { name: 'Journal', path: '/journal', icon: '📔' },
+              ].map((item) => {
+                const isRoot = pathname === '/' && item.path === '/cockpit';
+                const isActive = pathname === item.path || (item.path !== '/cockpit' && pathname?.startsWith(item.path + '/')) || isRoot;
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.path}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all ${
+                      isActive
+                        ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50 shadow-[0_0_12px_rgba(34,211,238,0.3)]'
+                        : 'text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5 hover:border-cyan-500/30'
+                    }`}
+                  >
+                    <span className="flex items-center space-x-1.5">
+                      <span className="text-[11px]">{item.icon}</span>
+                      <span>{item.name}</span>
+                    </span>
+                    {item.path === '/execution' && (
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
+                            ? 'bg-emerald-400 animate-pulse'
+                            : isMt5Connected
+                              ? 'bg-amber-400'
+                              : 'bg-slate-500'
+                        }`}
+                      />
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
 
-              {/* Quick action buttons & Portals */}
-            <div className="flex flex-wrap items-center gap-1.5">
+          {/* Group 2: MARKET FEEDS & SHORTCUTS */}
+          <div className="space-y-1.5 pt-1 border-t border-white/10">
+            <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
+              MARKETS & SHORTCUTS
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 text-center">
+              {[
+                { name: 'Metals', path: '/markets/XAUUSD' },
+                { name: 'Forex', path: '/markets/EURUSD' },
+                { name: 'Indices', path: '/markets/US100' },
+                { name: 'Commodities', path: '/markets/USOIL' },
+                { name: 'Crypto', path: '/markets/BTCUSD' },
+                { name: 'Overview', path: '/markets' },
+              ].map((item) => (
+                <Link
+                  key={item.name}
+                  href={item.path}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="px-2 py-1.5 rounded-lg bg-black/30 hover:bg-cyan-950/40 border border-white/5 hover:border-cyan-500/30 text-[10.5px] font-medium text-gray-300 hover:text-white transition-all uppercase"
+                >
+                  {item.name}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* Group 3: ACCOUNT & SYSTEM */}
+          <div className="space-y-1.5 pt-1 border-t border-white/10">
+            <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
+              ACCOUNT & SYSTEM
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
               <Link
                 href="/member"
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
+                className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all ${
+                  pathname === '/member'
+                    ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50'
+                    : 'text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5'
+                }`}
               >
                 <span>👤</span>
-                <span>MEMBER</span>
+                <span>Member Portal</span>
               </Link>
               {isMaster && (
                 <Link
                   href="/admin/members"
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="px-2 py-1 rounded-lg bg-amber-950/50 border border-amber-500/30 text-amber-300 text-[10px] font-bold flex items-center space-x-1"
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all ${
+                    pathname === '/admin/members'
+                      ? 'bg-amber-500/20 text-amber-200 border border-amber-400/50'
+                      : 'text-amber-300 hover:text-amber-100 bg-amber-950/30 border border-amber-500/20'
+                  }`}
                 >
                   <span>👑</span>
-                  <span>ADMIN</span>
+                  <span>Admin Console</span>
                 </Link>
               )}
               <Link
                 href="/member/setup"
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
+                className="px-3 py-2 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5 flex items-center space-x-1.5"
               >
                 <span>⬇️</span>
-                <span>CONNECTOR</span>
-              </Link>
-              <Link
-                href="/how-to-use"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
-              >
-                <span>📖</span>
-                <span>GUIDE</span>
+                <span>Connector Setup</span>
               </Link>
               <Link
                 href="/settings"
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
-                aria-label="Settings & System Diagnostics"
+                className="px-3 py-2 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5 flex items-center space-x-1.5"
               >
                 <span>⚙️</span>
-                <span>SETTINGS</span>
+                <span>Settings</span>
+              </Link>
+            </div>
+          </div>
+
+          {/* Group 4: SUPPORT & INTEL CHANNELS */}
+          <div className="space-y-1.5 pt-1 border-t border-white/10">
+            <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
+              HELP & TELEMETRY
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Link
+                href="/how-to-use"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="flex-1 py-1.5 px-2 rounded-lg bg-black/40 border border-white/10 text-cyan-300 text-[10px] font-bold flex items-center justify-center space-x-1"
+              >
+                <span>📖</span>
+                <span>GUIDE</span>
               </Link>
               <button
+                type="button"
                 onClick={() => {
                   setIsMobileMenuOpen(false);
                   setIsSupportOpen(true);
                 }}
-                className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
+                className="flex-1 py-1.5 px-2 rounded-lg bg-black/40 border border-white/10 text-emerald-300 text-[10px] font-bold flex items-center justify-center space-x-1"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span>SUPPORT</span>
               </button>
               <button
+                type="button"
                 onClick={() => {
                   setIsMobileMenuOpen(false);
                   setIsDrawerOpen(true);
                 }}
-                className="px-2 py-1 rounded-lg bg-black/50 border border-white/10 text-gray-300 text-[10px] font-bold flex items-center space-x-1"
+                className="flex-1 py-1.5 px-2 rounded-lg bg-black/40 border border-white/10 text-cyan-300 text-[10px] font-bold flex items-center justify-center space-x-1"
               >
                 <span>RADAR</span>
                 {unreadCount > 0 && (
-                  <span className="px-1 rounded-full bg-cyan-400 text-black font-bold text-[9px]">
+                  <span className="px-1 rounded-full bg-cyan-400 text-black font-bold text-[8.5px]">
                     {unreadCount}
                   </span>
                 )}

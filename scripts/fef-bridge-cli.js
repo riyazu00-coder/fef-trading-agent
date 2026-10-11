@@ -90,6 +90,23 @@ async function fetchStatusJson() {
   });
 }
 
+async function fetchCanonicalBridgeJson() {
+  return new Promise((resolve) => {
+    const req = http.get("http://127.0.0.1:5556/api/status", { timeout: 1500 }, (res) => {
+      let d = "";
+      res.on("data", c => d += c);
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(d);
+          resolve(parsed && (parsed.localBridge === "ONLINE" || parsed.success) ? parsed : null);
+        } catch { resolve(null); }
+      });
+    });
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => { req.destroy(); resolve(null); });
+  });
+}
+
 async function handleStatus() {
   let pid = null;
   if (fs.existsSync(PID_FILE)) {
@@ -98,6 +115,7 @@ async function handleStatus() {
 
   const running = pid && isPidRunning(pid);
   const liveState = await fetchStatusJson();
+  const canonicalBridge = await fetchCanonicalBridgeJson();
   const launchd = getLaunchdInfo();
 
   console.log("=================================================================");
@@ -106,22 +124,50 @@ async function handleStatus() {
   console.log("SUPERVISOR   :", running ? "ONLINE (PID " + pid + ")" : "OFFLINE");
   console.log("LAUNCHD MGMT :", launchd.loaded ? "ACTIVE (Loaded in launchd, PID: " + (launchd.pid || "running") + ")" : (launchd.plistInstalled ? "INSTALLED (Not loaded)" : "NOT CONFIGURED"));
 
-  if (liveState) {
-    console.log("LOCAL BRIDGE :", liveState.localBridge);
-    console.log("CONNECTOR    :", liveState.connectorAgent);
-    console.log("REMOTE RELAY :", liveState.remoteRelay);
-    console.log("MT5 TERMINAL :", liveState.mt5Terminal);
-    console.log("BROKER       :", liveState.broker);
-    console.log("SERVER       :", liveState.server);
+  if (liveState || canonicalBridge) {
+    const isBridgeOnline = Boolean(canonicalBridge && (canonicalBridge.localBridge === "ONLINE" || canonicalBridge.success));
+    console.log("LOCAL BRIDGE :", isBridgeOnline ? "ONLINE (:5556)" : "OFFLINE (:5556 NOT REACHABLE)");
+    console.log("CONNECTOR    :", liveState ? liveState.connectorAgent : "OFFLINE");
+    console.log("REMOTE RELAY :", liveState ? liveState.remoteRelay : "OFFLINE");
+
+    const mt5Connected = Boolean(canonicalBridge ? canonicalBridge.mt5Connected : (liveState && liveState.mt5Terminal === "CONNECTED"));
+    console.log("MT5 TERMINAL :", mt5Connected ? "CONNECTED" : "DISCONNECTED");
+
+    const broker = (canonicalBridge && canonicalBridge.terminal?.broker && canonicalBridge.terminal.broker !== 'UNKNOWN BROKER')
+      ? canonicalBridge.terminal.broker
+      : (liveState?.broker || "UNKNOWN");
+    const server = (canonicalBridge && canonicalBridge.terminal?.server && canonicalBridge.terminal.server !== 'MT5 SERVER')
+      ? canonicalBridge.terminal.server
+      : (liveState?.server || "UNKNOWN");
+    console.log("BROKER       :", broker);
+    console.log("SERVER       :", server);
     console.log("SYMBOL       :", liveState.symbol);
     console.log("BID / ASK    :", liveState.bid + " / " + liveState.ask);
-    console.log("SPREAD       :", liveState.spread + " pts");
-    console.log("QUOTE AGE    :", liveState.brokerQuoteAgeMs != null ? Math.round(liveState.brokerQuoteAgeMs) + " ms" : "N/A");
-    console.log("HEARTBEAT AGE:", liveState.bridgeHeartbeatAgeMs != null ? Math.round(liveState.bridgeHeartbeatAgeMs) + " ms" : "N/A");
-    console.log("AUTHORITY    :", liveState.priceAuthority);
-    console.log("FEED STATUS  :", liveState.feedStatus);
-    console.log("EXECUTION    :", liveState.execution);
-    console.log("UPTIME       :", liveState.uptimeSec + "s");
+    const quoteAgeMs = canonicalBridge?.quotes?.XAUUSD?.ageMs ?? liveState?.brokerQuoteAgeMs;
+    const quoteFreshness = canonicalBridge?.quotes?.XAUUSD?.freshness ?? (liveState?.feedStatus === 'LIVE' ? 'FRESH' : 'SESSION_CLOSED');
+    const quoteReason = canonicalBridge?.quotes?.XAUUSD?.freshnessReason ?? '';
+
+    let quoteAgeDisplay = "N/A";
+    if (quoteAgeMs != null) {
+      if (quoteAgeMs > 3600000) {
+        quoteAgeDisplay = `${Math.round(quoteAgeMs / 3600000)}h ago (${Math.round(quoteAgeMs)} ms) [${quoteFreshness}${quoteReason ? ': ' + quoteReason : ''}]`;
+      } else if (quoteAgeMs > 60000) {
+        quoteAgeDisplay = `${Math.round(quoteAgeMs / 60000)}m ago (${Math.round(quoteAgeMs)} ms) [${quoteFreshness}]`;
+      } else {
+        quoteAgeDisplay = `${Math.round(quoteAgeMs)} ms [${quoteFreshness}]`;
+      }
+    }
+
+    const hbAgeMs = canonicalBridge?.heartbeatAgeMs ?? liveState?.bridgeHeartbeatAgeMs;
+    const hbDisplay = hbAgeMs != null ? `${Math.round(hbAgeMs)} ms [FRESH EA LINK]` : "N/A";
+
+    console.log("SPREAD       :", liveState ? liveState.spread + " pts" : (canonicalBridge?.quotes?.XAUUSD?.spread != null ? canonicalBridge.quotes.XAUUSD.spread + " pts" : "N/A"));
+    console.log("QUOTE AGE    :", quoteAgeDisplay);
+    console.log("HEARTBEAT AGE:", hbDisplay);
+    console.log("AUTHORITY    :", liveState?.priceAuthority || "REFERENCE");
+    console.log("FEED STATUS  :", liveState?.feedStatus || (quoteFreshness === 'FRESH' ? 'LIVE' : 'FALLBACK'));
+    console.log("EXECUTION    :", liveState?.execution || "READ_ONLY");
+    console.log("UPTIME       :", (liveState?.uptimeSec != null ? liveState.uptimeSec + "s" : "N/A"));
   } else if (fs.existsSync(STATE_FILE)) {
     try {
       const cached = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));

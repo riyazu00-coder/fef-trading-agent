@@ -198,8 +198,11 @@ export class LicenseService {
   // ==========================================
 
   public hashPassword(password: string): string {
-    const salt = process.env.FEF_MEMBER_SALT || 'FEF_CORTEX_MEMBER_AUTH_SALT_V1';
-    return crypto.createHmac('sha256', salt).update(password).digest('hex');
+    let salt = (process.env.FEF_MEMBER_SALT || 'FEF_CORTEX_MEMBER_AUTH_SALT_V1').trim();
+    if ((salt.startsWith('"') && salt.endsWith('"')) || (salt.startsWith("'") && salt.endsWith("'"))) {
+      salt = salt.slice(1, -1).trim();
+    }
+    return crypto.createHmac('sha256', salt || 'FEF_CORTEX_MEMBER_AUTH_SALT_V1').update(password).digest('hex');
   }
 
   /**

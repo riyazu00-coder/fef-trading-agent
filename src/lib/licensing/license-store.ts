@@ -7,10 +7,20 @@ const STORE_FILE = path.resolve(process.cwd(), 'data/fef-licenses-registry.json'
 const MEMBERS_FILE = path.resolve(process.cwd(), 'data/fef-members-registry.json');
 const LOCK_FILE = path.resolve(process.cwd(), 'data/fef-licenses-registry.lock');
 
+function cleanEnvVar(val: string | undefined): string {
+  if (!val) return '';
+  let str = val.trim();
+  // Strip enclosing quotes (double or single)
+  if ((str.startsWith('"') && str.endsWith('"')) || (str.startsWith("'") && str.endsWith("'"))) {
+    str = str.slice(1, -1).trim();
+  }
+  return str;
+}
+
 /**
  * License & Member Store Interface.
  * Can be swapped with PostgreSQL, Prisma, Supabase, or Redis in production.
- * Uses atomic file locking for local server operations.
+ * Uses atomic file locking for local server operations with safe read-only fallback for serverless.
  */
 class LicenseStore {
   private inMemoryCache: Map<string, LicenseRecord> = new Map(); // Keyed by licenseId
@@ -25,9 +35,13 @@ class LicenseStore {
   }
 
   private ensureDataDir() {
-    const dir = path.dirname(STORE_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    try {
+      const dir = path.dirname(STORE_FILE);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    } catch (err) {
+      // In read-only serverless runtime (e.g. Vercel), dir creation may fail; ignore gracefully
     }
   }
 
@@ -54,7 +68,7 @@ class LicenseStore {
           // Normalize legacy records if missing role or status
           const normalized: MemberRecord = {
             ...member,
-            username: member.username ? member.username.trim().toLowerCase() : null,
+            username: member.username ? cleanEnvVar(member.username).toLowerCase() : null,
             role: member.role || 'MEMBER',
             status: member.status || 'ACTIVE',
             mustChangePassword: member.mustChangePassword ?? false,
@@ -67,36 +81,46 @@ class LicenseStore {
         }
       }
 
-      // Dual-Source Persistence: In serverless (Vercel) or containerized environments where
-      // the local filesystem is ephemeral or data files are not deployed, allow Master account
-      // to be securely hydrated from server-side environment variables if no Master exists on disk.
-      const hasMasterInStore = Array.from(this.membersCache.values()).some(m => m.role === 'MASTER');
-      if (!hasMasterInStore) {
-        const envMasterUsername = (process.env.FEF_MASTER_USERNAME || '').trim().toLowerCase();
-        const envMasterEmail = (process.env.FEF_MASTER_EMAIL || '').trim().toLowerCase();
-        const envMasterPasswordHash = (process.env.FEF_MASTER_PASSWORD_HASH || '').trim();
-        const envMasterName = (process.env.FEF_MASTER_NAME || 'Master Administrator').trim();
+      // Dual-Source Persistence: In serverless (Vercel) or containerized environments,
+      // allow Master account to be securely hydrated or updated from server-side environment variables.
+      // Clean quotes and whitespace defensively.
+      const envMasterEmail = cleanEnvVar(process.env.FEF_MASTER_EMAIL).toLowerCase();
+      const envMasterPasswordHash = cleanEnvVar(process.env.FEF_MASTER_PASSWORD_HASH);
+      const envMasterUsername = cleanEnvVar(process.env.FEF_MASTER_USERNAME).toLowerCase();
+      const envMasterName = cleanEnvVar(process.env.FEF_MASTER_NAME) || 'Master Administrator';
+      const envMasterId = cleanEnvVar(process.env.FEF_MASTER_ID) || 'master_89411f3884cc';
 
-        if (envMasterEmail && envMasterPasswordHash) {
-          const envMasterId = (process.env.FEF_MASTER_ID || 'master_89411f3884cc').trim();
-          const envMaster: MemberRecord = {
-            memberId: envMasterId,
-            email: envMasterEmail,
-            username: envMasterUsername || 'master',
-            passwordHash: envMasterPasswordHash,
-            name: envMasterName,
-            role: 'MASTER',
-            status: 'ACTIVE',
-            mustChangePassword: false,
-            assignedLicenseId: null,
-            createdAt: 1704067200000,
-            lastLoginAt: null,
-          };
-          this.membersCache.set(envMaster.memberId, envMaster);
-          this.memberEmailIndex.set(envMaster.email.toLowerCase(), envMaster.memberId);
-          if (envMaster.username) {
-            this.memberUsernameIndex.set(envMaster.username.toLowerCase(), envMaster.memberId);
+      if (envMasterEmail && envMasterPasswordHash) {
+        // Environment Master is authoritative: create or update memory cache
+        const existingMaster = Array.from(this.membersCache.values()).find(m => m.role === 'MASTER');
+        const targetMemberId = existingMaster ? existingMaster.memberId : envMasterId;
+
+        // If existing master had an old username/email index, clean them up
+        if (existingMaster) {
+          this.memberEmailIndex.delete(existingMaster.email.toLowerCase());
+          if (existingMaster.username) {
+            this.memberUsernameIndex.delete(existingMaster.username.toLowerCase());
           }
+        }
+
+        const envMaster: MemberRecord = {
+          memberId: targetMemberId,
+          email: envMasterEmail,
+          username: envMasterUsername || 'master',
+          passwordHash: envMasterPasswordHash,
+          name: envMasterName,
+          role: 'MASTER',
+          status: 'ACTIVE',
+          mustChangePassword: false,
+          assignedLicenseId: null,
+          createdAt: existingMaster ? existingMaster.createdAt : 1704067200000,
+          lastLoginAt: existingMaster ? existingMaster.lastLoginAt : null,
+        };
+
+        this.membersCache.set(envMaster.memberId, envMaster);
+        this.memberEmailIndex.set(envMaster.email.toLowerCase(), envMaster.memberId);
+        if (envMaster.username) {
+          this.memberUsernameIndex.set(envMaster.username.toLowerCase(), envMaster.memberId);
         }
       }
     } catch (err) {
@@ -105,29 +129,47 @@ class LicenseStore {
   }
 
   private saveToDisk() {
-    this.ensureDataDir();
-    const list = Array.from(this.inMemoryCache.values());
-    const tempFile = `${STORE_FILE}.tmp.${Date.now()}`;
-    fs.writeFileSync(tempFile, JSON.stringify(list, null, 2), { encoding: 'utf8', mode: 0o600 });
-    fs.renameSync(tempFile, STORE_FILE);
+    try {
+      this.ensureDataDir();
+      const list = Array.from(this.inMemoryCache.values());
+      const tempFile = `${STORE_FILE}.tmp.${Date.now()}`;
+      fs.writeFileSync(tempFile, JSON.stringify(list, null, 2), { encoding: 'utf8', mode: 0o600 });
+      fs.renameSync(tempFile, STORE_FILE);
 
-    const memberList = Array.from(this.membersCache.values());
-    const tempMembersFile = `${MEMBERS_FILE}.tmp.${Date.now()}`;
-    fs.writeFileSync(tempMembersFile, JSON.stringify(memberList, null, 2), { encoding: 'utf8', mode: 0o600 });
-    fs.renameSync(tempMembersFile, MEMBERS_FILE);
+      const memberList = Array.from(this.membersCache.values());
+      const tempMembersFile = `${MEMBERS_FILE}.tmp.${Date.now()}`;
+      fs.writeFileSync(tempMembersFile, JSON.stringify(memberList, null, 2), { encoding: 'utf8', mode: 0o600 });
+      fs.renameSync(tempMembersFile, MEMBERS_FILE);
+    } catch (err: any) {
+      // In read-only serverless environments (EROFS), persist to disk is impossible.
+      // In-memory cache continues operating flawlessly for the lifetime of the invocation.
+      if (err.code !== 'EROFS' && err.code !== 'EACCES') {
+        console.warn('Warning: Could not persist store to disk:', err.message);
+      }
+    }
   }
 
   /**
-   * Acquire atomic lock for concurrent operations
+   * Acquire atomic lock for concurrent operations.
+   * Gracefully degrades to direct in-memory mutation if the filesystem is read-only.
    */
   private withLock<T>(fn: () => T): T {
+    let hasLock = false;
+    let isReadOnly = false;
     let retries = 50;
+
     while (retries > 0) {
       try {
         // wx flag fails if file exists (atomic creation)
         fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: 'wx' });
+        hasLock = true;
         break;
-      } catch {
+      } catch (err: any) {
+        if (err.code === 'EROFS' || err.code === 'EACCES') {
+          // Read-only filesystem (e.g. Vercel serverless): skip lock file
+          isReadOnly = true;
+          break;
+        }
         retries--;
         // Sleep briefly using atomics or synchronous delay
         const start = Date.now();
@@ -138,14 +180,18 @@ class LicenseStore {
     try {
       this.loadFromDisk();
       const result = fn();
-      this.saveToDisk();
+      if (!isReadOnly) {
+        this.saveToDisk();
+      }
       return result;
     } finally {
-      try {
-        if (fs.existsSync(LOCK_FILE)) {
-          fs.unlinkSync(LOCK_FILE);
-        }
-      } catch {}
+      if (hasLock) {
+        try {
+          if (fs.existsSync(LOCK_FILE)) {
+            fs.unlinkSync(LOCK_FILE);
+          }
+        } catch {}
+      }
     }
   }
 

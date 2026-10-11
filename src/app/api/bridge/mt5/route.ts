@@ -44,12 +44,28 @@ export async function GET(req: NextRequest) {
   const rawAction = searchParams.get('action') || 'PING';
   const symbol = searchParams.get('symbol') || undefined;
 
-  // 1. Try Bridge V2 (:5560) first for live MT5 telemetry
-  const v2Telemetry = await executionBridgeV2Client.getUnifiedTelemetry();
+  // Query V1 status first
+  const status = await mt5HttpClient.getStatus();
+  const isV1Online = Boolean(status && (status.localBridge === 'ONLINE' || status.success));
+
+  // Query V2 telemetry as fallback only
+  const v2Telemetry = !isV1Online ? await executionBridgeV2Client.getUnifiedTelemetry() : null;
   const isV2Connected = Boolean(v2Telemetry && v2Telemetry.mt5Connected);
 
   // Dedicated status query for detailed telemetry & heartbeat age
   if (rawAction.toUpperCase() === 'STATUS' || rawAction.toUpperCase() === 'TELEMETRY') {
+    // 1. Prioritize Canonical HTTP Bridge V1 (:5556)
+    if (isV1Online && status) {
+      if (Array.isArray(status.symbols) && status.symbols.length > 0) {
+        symbolDirectory.discoverFromBrokerSymbols(status.symbols);
+      }
+      return NextResponse.json({
+        ...status,
+        resolvedMap: symbolDirectory.getResolvedMap()
+      });
+    }
+
+    // 2. Dormant V2 (:5560) fallback only if V1 is not running
     if (isV2Connected && v2Telemetry) {
       return NextResponse.json({
         ...v2Telemetry,
@@ -57,10 +73,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const status = await mt5HttpClient.getStatus();
-    if (status && Array.isArray(status.symbols) && status.symbols.length > 0) {
-      symbolDirectory.discoverFromBrokerSymbols(status.symbols);
-    }
     return NextResponse.json({
       ...status,
       resolvedMap: symbolDirectory.getResolvedMap()

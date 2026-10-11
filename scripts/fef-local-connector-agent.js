@@ -33,8 +33,8 @@ if (fs.existsSync(envLocalPath)) {
   });
 }
 
-// Canonical execution bridge is Bridge V2 on port 5560
-const LOCAL_BRIDGE_URL = process.env.FEF_LOCAL_BRIDGE_URL || 'http://127.0.0.1:5560';
+// Canonical execution bridge is HTTP Bridge V1 on port 5556
+const LOCAL_BRIDGE_URL = process.env.FEF_LOCAL_BRIDGE_URL || 'http://127.0.0.1:5556';
 const LEGACY_BRIDGE_URL = process.env.FEF_LEGACY_BRIDGE_URL || 'http://127.0.0.1:5556';
 const LOCAL_BRIDGE_TOKEN = process.env.FEF_BRIDGE_TOKEN || 'fef_local_bridge_token_v1';
 const RELAY_URL = process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557';
@@ -66,9 +66,9 @@ function toWebSocketUrl(httpUrl) {
 
 function fetchLocalBridgeStatus() {
   return new Promise((resolve) => {
-    // 1. Primary: query Bridge V2 (:5560)
-    const v2Url = new URL('/v2/status', LOCAL_BRIDGE_URL);
-    const req = http.request(v2Url, {
+    // 1. Primary: query Canonical HTTP Bridge V1 (:5556)
+    const v1Url = new URL('/api/status', LOCAL_BRIDGE_URL);
+    const req = http.request(v1Url, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${LOCAL_BRIDGE_TOKEN}`,
@@ -92,33 +92,7 @@ function fetchLocalBridgeStatus() {
     });
 
     req.on('error', () => {
-      // 2. Secondary telemetry fallback to legacy :5556 if Bridge V2 is restarting
-      if (LEGACY_BRIDGE_URL && LEGACY_BRIDGE_URL !== LOCAL_BRIDGE_URL) {
-        const v1Url = new URL('/api/status', LEGACY_BRIDGE_URL);
-        const reqV1 = http.request(v1Url, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${LOCAL_BRIDGE_TOKEN}`,
-            'x-bridge-token': LOCAL_BRIDGE_TOKEN,
-          },
-          timeout: 2000,
-        }, (resV1) => {
-          let d = '';
-          resV1.on('data', chunk => (d += chunk));
-          resV1.on('end', () => {
-            try {
-              resolve(JSON.parse(d));
-            } catch {
-              resolve(null);
-            }
-          });
-        });
-        reqV1.on('error', () => resolve(null));
-        reqV1.on('timeout', () => { reqV1.destroy(); resolve(null); });
-        reqV1.end();
-      } else {
-        resolve(null);
-      }
+      resolve(null);
     });
 
     req.on('timeout', () => {
@@ -473,7 +447,7 @@ function sendProbeAck(requestId, status, success, error, createdAt) {
         commandType: 'TRANSPORT_PROBE',
         status,
         success,
-        bridgeV2Port: 5560,
+        bridgePort: 5556,
         roundTripMs: createdAt ? Date.now() - createdAt : 0,
         error: error || undefined,
         timestamp: Date.now(),

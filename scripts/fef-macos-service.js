@@ -142,6 +142,25 @@ async function querySupervisorHealth() {
   });
 }
 
+async function queryCanonicalBridgeHealth() {
+  return new Promise((resolve) => {
+    const req = http.get('http://127.0.0.1:5556/api/status', { timeout: 1500 }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed && (parsed.localBridge === 'ONLINE' || parsed.success) ? parsed : null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
 function install(options = {}) {
   if (!isDarwin() && !options.allowNonDarwin) {
     throw new Error('FEF Background Service can only be installed on macOS (Darwin).');
@@ -286,6 +305,7 @@ async function status(options = {}) {
   const fileExists = fs.existsSync(plistPath);
   const launchdInfo = getLaunchdProcessInfo();
   const supervisorHealth = await querySupervisorHealth();
+  const canonicalBridgeHealth = await queryCanonicalBridgeHealth();
 
   return {
     serviceLabel: SERVICE_LABEL,
@@ -295,6 +315,8 @@ async function status(options = {}) {
     launchdPid: launchdInfo.pid,
     launchdState: launchdInfo.state,
     supervisorOnline: Boolean(supervisorHealth && supervisorHealth.supervisor === 'ONLINE'),
+    canonicalBridgeOnline: Boolean(canonicalBridgeHealth && (canonicalBridgeHealth.localBridge === 'ONLINE' || canonicalBridgeHealth.success)),
+    canonicalBridgeHealth,
     supervisorHealth
   };
 }
@@ -339,17 +361,28 @@ async function handleCli() {
         console.log(`LAUNCHD STATE   : ${info.launchdState}`);
         console.log(`SUPERVISOR PORT : ${info.supervisorOnline ? 'ONLINE (:5558)' : 'OFFLINE'}`);
 
-        if (info.supervisorHealth) {
-          const h = info.supervisorHealth;
-          console.log('-----------------------------------------------------------------');
-          console.log(`LOCAL BRIDGE    : ${h.localBridge}`);
-          console.log(`CONNECTOR AGENT : ${h.connectorAgent}`);
-          console.log(`REMOTE RELAY    : ${h.remoteRelay}`);
-          console.log(`MT5 TERMINAL    : ${h.mt5Terminal}`);
-          console.log(`BROKER / SERVER : ${h.broker} / ${h.server}`);
-          console.log(`PRICE / SPREAD  : ${h.bid} / ${h.ask} (${h.spread} pts)`);
-          console.log(`EXECUTION LOCK  : ${h.execution}`);
-        }
+        const h = info.supervisorHealth;
+        const cb = info.canonicalBridgeHealth;
+        const bridgeOnline = info.canonicalBridgeOnline || (h && h.localBridge === 'ONLINE' && info.canonicalBridgeOnline);
+
+        console.log('-----------------------------------------------------------------');
+        console.log(`LOCAL BRIDGE    : ${bridgeOnline ? 'ONLINE (:5556)' : 'OFFLINE (:5556 NOT REACHABLE)'}`);
+        console.log(`CONNECTOR AGENT : ${h ? h.connectorAgent : 'OFFLINE'}`);
+        console.log(`REMOTE RELAY    : ${h ? h.remoteRelay : 'OFFLINE'}`);
+
+        // MT5 Terminal status truthfulness: only CONNECTED if fresh valid telemetry from bridge/terminal exists
+        const mt5Connected = Boolean(cb ? cb.mt5Connected : (h && h.mt5Terminal === 'CONNECTED'));
+        console.log(`MT5 TERMINAL    : ${mt5Connected ? 'CONNECTED' : 'DISCONNECTED'}`);
+
+        const broker = (cb && cb.terminal?.broker && cb.terminal.broker !== 'UNKNOWN BROKER') ? cb.terminal.broker : (h?.broker || 'UNKNOWN');
+        const server = (cb && cb.terminal?.server && cb.terminal.server !== 'MT5 SERVER') ? cb.terminal.server : (h?.server || 'UNKNOWN');
+        console.log(`BROKER / SERVER : ${broker} / ${server}`);
+
+        const bid = cb?.quotes?.XAUUSD?.bid || h?.bid || 0;
+        const ask = cb?.quotes?.XAUUSD?.ask || h?.ask || 0;
+        const spread = cb?.quotes?.XAUUSD?.spread || h?.spread || 0;
+        console.log(`PRICE / SPREAD  : ${bid} / ${ask} (${spread} pts)`);
+        console.log(`EXECUTION LOCK  : ${h?.execution || 'READ_ONLY'}`);
         console.log('=================================================================');
         break;
       }

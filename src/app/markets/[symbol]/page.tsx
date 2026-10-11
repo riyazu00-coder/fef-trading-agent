@@ -11,12 +11,28 @@ import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMemberAuth } from '@/context/MemberAuthContext';
 
 interface SymbolPageProps {
-  params: Promise<{ symbol: string }>;
+  params: { symbol: string } | Promise<{ symbol: string }>;
 }
 
 export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
-  const resolvedParams = use(params);
-  const rawSymbol = resolvedParams.symbol?.toUpperCase() || 'XAUUSD';
+  // Extract initial symbol synchronously if params is already an object
+  const initialSym = (params && typeof (params as any).then !== 'function' && (params as any).symbol)
+    ? String((params as any).symbol).toUpperCase()
+    : 'XAUUSD';
+
+  const [resolvedSymbol, setResolvedSymbol] = React.useState<string>(initialSym);
+
+  useEffect(() => {
+    if (params && typeof (params as any).then === 'function') {
+      (params as Promise<{ symbol: string }>).then(p => {
+        if (p?.symbol) setResolvedSymbol(p.symbol.toUpperCase());
+      });
+    } else if (params && (params as any).symbol) {
+      setResolvedSymbol((params as any).symbol.toUpperCase());
+    }
+  }, [params]);
+
+  const rawSymbol = resolvedSymbol || 'XAUUSD';
   const router = useRouter();
   const { activeSymbol, setActiveSymbol, activeAsset, assetProfile, timeframe, setTimeframe } = useActiveAsset();
   const { isAuthenticated, isMaster } = useMemberAuth();
