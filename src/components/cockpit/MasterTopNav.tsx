@@ -17,7 +17,7 @@ import { TradingViewWorkbenchModal } from '@/components/charts/TradingViewWorkbe
 
 export const MasterTopNav: React.FC = () => {
   const pathname = usePathname();
-  const { activeSymbol, activeAsset, assetProfile, allAssets } = useActiveAsset();
+  const { activeSymbol, activeAsset, assetProfile, allAssets, categoryFilter, setCategoryFilter } = useActiveAsset();
   const { telemetry, isMt5Connected } = useMT5Telemetry();
   const { licenseState } = useLicense();
   const { isAuthenticated, isMaster, member } = useMemberAuth();
@@ -647,22 +647,32 @@ export const MasterTopNav: React.FC = () => {
               </div>
               <div className="grid grid-cols-3 gap-1.5 text-center">
                 {[
-                  { name: 'Metals', path: '/markets?category=metals' },
-                  { name: 'Forex', path: '/markets?category=forex' },
-                  { name: 'Indices', path: '/markets?category=indices' },
-                  { name: 'Commodities', path: '/markets?category=commodities' },
-                  { name: 'Crypto', path: '/markets?category=crypto' },
-                  { name: 'Overview', path: '/markets' },
-                ].map((item) => (
-                  <Link
-                    key={item.name}
-                    href={item.path}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className="px-2 py-1.5 rounded-lg bg-black/30 hover:bg-cyan-950/40 border border-white/5 hover:border-cyan-500/30 text-[10.5px] font-medium text-gray-300 hover:text-white transition-all uppercase"
-                  >
-                    {item.name}
-                  </Link>
-                ))}
+                  { name: 'Metals', path: '/markets?category=metals', category: 'METALS' },
+                  { name: 'Forex', path: '/markets?category=forex', category: 'FOREX' },
+                  { name: 'Indices', path: '/markets?category=indices', category: 'INDICES' },
+                  { name: 'Commodities', path: '/markets?category=commodities', category: 'COMMODITIES' },
+                  { name: 'Crypto', path: '/markets?category=crypto', category: 'CRYPTO' },
+                  { name: 'Overview', path: '/markets', category: 'ALL' },
+                ].map((item) => {
+                  const isCurrentActive = pathname === '/markets' && categoryFilter === item.category;
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.path}
+                      onClick={() => {
+                        setCategoryFilter(item.category);
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`px-2 py-1.5 rounded-lg border text-[10.5px] font-medium transition-all uppercase ${
+                        isCurrentActive
+                          ? 'bg-cyan-500/25 text-[#67E8F9] border-cyan-500/50 font-bold shadow-[0_0_8px_rgba(34,211,238,0.25)]'
+                          : 'bg-black/30 hover:bg-cyan-950/40 border-white/5 hover:border-cyan-500/30 text-gray-300 hover:text-white'
+                      }`}
+                    >
+                      {item.name}
+                    </Link>
+                  );
+                })}
               </div>
             </div>
 

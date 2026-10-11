@@ -118,9 +118,20 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                 <span className="hidden sm:inline">BACK TO </span>
                 <span>MARKETS</span>
               </Link>
+              {marketDef?.category && (
+                <>
+                  <span className="text-[#64748B]">/</span>
+                  <Link
+                    href={`/markets?category=${marketDef.category.toLowerCase()}`}
+                    className="bg-white/5 hover:bg-white/10 border border-white/[0.08] text-[#67E8F9] hover:text-[#F8FAFC] px-2.5 py-1.5 rounded-lg transition-colors font-mono font-semibold"
+                  >
+                    {marketDef.category}
+                  </Link>
+                </>
+              )}
               <span className="text-[#64748B]">/</span>
-              <span className="text-[#67E8F9] font-bold tracking-wider font-mono">
-                {rawSymbol} <span className="hidden sm:inline">INSTITUTIONAL </span>DEEP DIVE
+              <span className="text-[#F8FAFC] font-bold tracking-wider font-mono">
+                {rawSymbol} <span className="hidden sm:inline text-[#94A3B8] font-normal">DEEP DIVE</span>
               </span>
             </div>
 

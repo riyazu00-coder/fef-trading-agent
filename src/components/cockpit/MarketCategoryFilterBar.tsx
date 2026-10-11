@@ -89,12 +89,10 @@ export const MarketCategoryFilterBar: React.FC = () => {
 
   const handleCategoryClick = (cat: string) => {
     setCategoryFilter(cat);
-    if (pathname === '/markets') {
-      if (cat === 'ALL' || cat === 'BROKER FEED') {
-        router.push('/markets');
-      } else {
-        router.push(`/markets?category=${cat.toLowerCase()}`);
-      }
+    if (cat === 'ALL' || cat === 'BROKER FEED') {
+      router.push('/markets');
+    } else {
+      router.push(`/markets?category=${cat.toLowerCase()}`);
     }
   };
 
