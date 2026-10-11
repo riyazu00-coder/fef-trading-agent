@@ -151,6 +151,18 @@ export interface AssetIntelligenceProfile {
   multiTimeframeContext?: MultiTimeframeContext | null;
   triggerEvidence?: CandleCloseTriggerEvidence | null;
   setupLifecycle?: SetupLifecycleRecord | null;
+  // Sprint 2B Intelligence Truth Hardening
+  dataReadinessSummary?: DataReadinessSummary;
+  waitReason?: 'DATA_INSUFFICIENT' | 'MARKET_CONFLICT' | 'MARKET_CLOSED' | 'SETUP_PENDING' | 'NONE';
+}
+
+export interface DataReadinessSummary {
+  availableTrustedAgents: number;
+  totalRelevantAgents: number;
+  trustedEvidenceRatio: number;
+  dataReadiness: 'HIGH' | 'MODERATE' | 'LIMITED' | 'INSUFFICIENT';
+  unverifiedDependencies: string[];
+  waitReason: 'DATA_INSUFFICIENT' | 'MARKET_CONFLICT' | 'MARKET_CLOSED' | 'SETUP_PENDING' | 'NONE';
 }
 
 /**
@@ -1484,7 +1496,7 @@ export function generateAssetIntelligence(
         sourceTimestampMs = candleTimestampMs;
         structuralGate = false;
       } else if (ag.type === 'CORRELATION') {
-        classification = 'UNAVAILABLE';
+        classification = 'STATIC_REFERENCE';
         sourceName = 'Intermarket Correlation Baseline';
         sourceType = 'HISTORICAL_REFERENCE';
         sourceTimestampMs = undefined;
@@ -1646,6 +1658,8 @@ export function generateAssetIntelligence(
 
   const volatilitySpecialist = evaluateVolatilityAgent({
     regime: feeds?.regime || undefined,
+    candles: hasCandles ? analysisCandles : undefined,
+    instrument: normSymbol,
   });
 
   const crossAssetSpecialist = evaluateCrossAssetAgent({
@@ -1690,6 +1704,8 @@ export function generateAssetIntelligence(
   const quantSpecialist = evaluateQuantAgent({
     metrics: feeds?.quant?.metrics || undefined,
     analogue: feeds?.quant?.analogue || undefined,
+    candles: hasCandles ? analysisCandles : undefined,
+    instrument: normSymbol,
   });
 
   const macroCorrelatorSpecialist = evaluateMacroCorrelatorAgent({
@@ -1939,6 +1955,60 @@ export function generateAssetIntelligence(
     }
   }
 
+  // 7b. Truthful Data Readiness Summary & Wait Reason Classification
+  const trustedCouncilAgents = assembledAgents.filter((a) => {
+    if (a.status === 'DATA LIMITED' || a.status === 'OFFLINE' || a.status === 'ERROR') return false;
+    if (a.confidence === 0) return false;
+    const records = a.evidenceRecords || [];
+    return records.some((e) => e.decisionEligible && e.verified && e.classification !== 'STATIC_REFERENCE' && e.classification !== 'FALLBACK' && e.classification !== 'MOCK');
+  });
+
+  const availableTrustedAgents = trustedCouncilAgents.length;
+  const totalRelevantAgents = assembledAgents.length;
+  const trustedEvidenceRatio = totalRelevantAgents > 0 ? Number((availableTrustedAgents / totalRelevantAgents).toFixed(2)) : 0;
+
+  let computedReadiness: 'HIGH' | 'MODERATE' | 'LIMITED' | 'INSUFFICIENT' = 'INSUFFICIENT';
+  if (trustedEvidenceRatio >= 0.60) {
+    computedReadiness = 'HIGH';
+  } else if (trustedEvidenceRatio >= 0.40) {
+    computedReadiness = 'MODERATE';
+  } else if (trustedEvidenceRatio >= 0.20) {
+    computedReadiness = 'LIMITED';
+  } else {
+    computedReadiness = 'INSUFFICIENT';
+  }
+
+  const unverifiedDeps: string[] = [];
+  if (!hasCandles) unverifiedDeps.push('Verified OHLC Candles');
+  if (!feeds?.sentinel) unverifiedDeps.push('Broker Socket Live Feed');
+  if (!cachedNews.length) unverifiedDeps.push('Live Newswire Feed');
+  if (!cachedSentiment || cachedSentiment.status !== 'AVAILABLE') unverifiedDeps.push('Live Sentiment LSR Feed');
+
+  let waitReason: 'DATA_INSUFFICIENT' | 'MARKET_CONFLICT' | 'MARKET_CLOSED' | 'SETUP_PENDING' | 'NONE' = 'NONE';
+  if (!hasCandles || computedReadiness === 'INSUFFICIENT' || availableTrustedAgents < 2 || consensusTrust.evidenceTrust < 30) {
+    waitReason = 'DATA_INSUFFICIENT';
+  } else if (!tradeExecutable || sessionState.marketState === 'DAILY_BREAK' || sessionState.marketState === 'WEEKEND_CLOSED' || sessionState.marketState === 'CLOSED') {
+    waitReason = 'MARKET_CLOSED';
+  } else if (confluenceResult.conflictScore >= 25 || (eligibleBullishCount > 0 && eligibleBearishCount > 0)) {
+    waitReason = 'MARKET_CONFLICT';
+  } else if (effectiveSetupDirection === 'WAIT') {
+    waitReason = 'SETUP_PENDING';
+  }
+
+  const dataReadinessSummary: DataReadinessSummary = {
+    availableTrustedAgents,
+    totalRelevantAgents,
+    trustedEvidenceRatio,
+    dataReadiness: computedReadiness,
+    unverifiedDependencies: unverifiedDeps,
+    waitReason,
+  };
+
+  // If data is insufficient, guarantee wait state and non-executable
+  if (waitReason === 'DATA_INSUFFICIENT') {
+    effectiveSetupDirection = 'WAIT';
+  }
+
   // 8. Update Final Decision Agent from Confluence consensus
   const finalAgent = assembledAgents.find((a) => a.type === 'FINAL_DECISION');
   if (finalAgent) {
@@ -1947,7 +2017,7 @@ export function generateAssetIntelligence(
       : effectiveSetupDirection.includes('SELL')
       ? 'BEARISH'
       : 'NEUTRAL';
-    const isFinalOnline = consensusTrust.verifiedAgentCount >= 3;
+    const isFinalOnline = consensusTrust.verifiedAgentCount >= 3 && waitReason !== 'DATA_INSUFFICIENT';
     finalAgent.status = isFinalOnline ? 'ONLINE' : 'DATA LIMITED';
     if (!isFinalOnline) {
       finalAgent.confidence = 0;
@@ -1956,7 +2026,20 @@ export function generateAssetIntelligence(
       finalAgent.confidence = confluenceResult.evidenceTrust;
       finalAgent.evidenceTrustScore = confluenceResult.evidenceTrust;
     }
-    finalAgent.lastOpinion = `Cortex Confluence: ${effectiveSetupDirection}. Posture: ${confluenceResult.presentationPosture}. Agreement: ${confluenceResult.agreementScore}%, Conflict: ${confluenceResult.conflictScore}%. Evidence Trust: ${confluenceResult.evidenceTrust}%.`;
+
+    if (!effectiveSetupDirection.includes('WATCH')) {
+      if (waitReason === 'DATA_INSUFFICIENT') {
+        finalAgent.lastOpinion = `WAIT (DATA INSUFFICIENT): Available trusted agents (${availableTrustedAgents}/${totalRelevantAgents}) below threshold. Evidence trust: ${consensusTrust.evidenceTrust}%. Telemetry fail-closed.`;
+      } else if (waitReason === 'MARKET_CONFLICT') {
+        finalAgent.lastOpinion = `WAIT (MARKET CONFLICT): High-trust directional conflict detected (Conflict Score: ${confluenceResult.conflictScore}%). Opposing council theses preclude execution.`;
+      } else if (waitReason === 'MARKET_CLOSED') {
+        finalAgent.lastOpinion = `WAIT (MARKET CLOSED): Session currently closed (${sessionState.sessionName}). Market orders inactive.`;
+      } else {
+        finalAgent.lastOpinion = `WAIT (SETUP PENDING): Structure analyzed, awaiting valid trigger confirmation. Agreement: ${confluenceResult.agreementScore}%.`;
+      }
+    } else {
+      finalAgent.lastOpinion = `Cortex Confluence: ${effectiveSetupDirection}. Posture: ${confluenceResult.presentationPosture}. Agreement: ${confluenceResult.agreementScore}%, Conflict: ${confluenceResult.conflictScore}%. Evidence Trust: ${confluenceResult.evidenceTrust}%.`;
+    }
   }
 
   const directionalBias: DirectionalBias = effectiveSetupDirection.includes('BUY')
@@ -2067,7 +2150,7 @@ export function generateAssetIntelligence(
       agent: 'RISK GUARDIAN',
       text: tradeExecutable
         ? (blueprint ? `Structural stop defined at ${blueprint.sl.price}. Risk policy cap is 0.50% equity. Invalidation: ${blueprint.invalidation.reason}.` : `Risk Guardian armed. Maximum risk policy cap is 0.50% equity. Execution locked until verified blueprint exists.`)
-        : `Execution hard-locked: Market is ${sessionState.marketState}. All order routes disabled.`,
+        : `Execution hard-locked: Market is ${sessionState.marketState}. Maximum risk policy cap is 0.50% equity; all order routes disabled.`,
       status: (rgAgent?.bias === 'RESTRICTED' ? 'RESTRICTED' : rgAgent?.bias === 'NEUTRAL' ? 'NEUTRAL' : 'CAUTION') as any,
     },
     {
@@ -2247,5 +2330,8 @@ export function generateAssetIntelligence(
     multiTimeframeContext,
     triggerEvidence,
     setupLifecycle: setupLifecycleRecord,
+    // Sprint 2B Intelligence Truth Hardening
+    dataReadinessSummary,
+    waitReason,
   };
 }

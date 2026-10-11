@@ -13,6 +13,13 @@ import { MarketSessionState } from '@/lib/session/market-session-engine';
  * The Canonical Evidence Classifications
  */
 export type EvidenceClassification =
+  | 'LIVE'                // Verified live market feed or observation
+  | 'DERIVED_LIVE'        // Mathematically derived from verified live market feed
+  | 'CACHED_LIVE'         // Cached memory snapshot of live feed within TTL
+  | 'PARTIAL'             // Partially verified feed (ineligible for direct decision weight)
+  | 'STATIC_REFERENCE'    // Contextual static reference baseline (strictly zero voting weight)
+  | 'FALLBACK'            // Fallback default value (strictly zero voting weight)
+  | 'MOCK'                // Mock/synthetic fixture (strictly prohibited from voting)
   | 'LIVE_MT5'            // Measured directly via verified local MT5 WebRequest/HTTP telemetry
   | 'INDEPENDENT_VERIFIED' // Measured directly via verified independent public market feed (Binance spot, Yahoo FX/Indices)
   | 'INDEPENDENT_REFERENCE'// Reference/proxy market feed (e.g. PAXG proxy for gold, CME futures proxy) — strictly non-executable
@@ -62,6 +69,13 @@ export interface AgentEvidence {
  * Maximum acceptable freshness thresholds in milliseconds
  */
 export const FRESHNESS_POLICIES: Record<EvidenceClassification, number> = {
+  LIVE: 120_000,                 // 2 minutes for verified live feeds
+  DERIVED_LIVE: 300_000,         // 5 minutes for calculations derived from live feeds
+  CACHED_LIVE: 300_000,          // 5 minutes for cached live snapshots
+  PARTIAL: 300_000,              // 5 minutes for partial evidence
+  STATIC_REFERENCE: 0,           // Never considered fresh for execution
+  FALLBACK: 0,                   // Never fresh
+  MOCK: 0,                       // Never fresh
   LIVE_MT5: 60_000,              // 60 seconds for broker telemetry
   INDEPENDENT_VERIFIED: 120_000, // 2 minutes for verified independent public market feeds
   INDEPENDENT_REFERENCE: 300_000,// 5 minutes for reference/proxy feeds (PAXG, CME Futures)
@@ -109,6 +123,7 @@ export function isEvidenceDecisionEligible(
   const safeFreshness = normalizeEvidenceFreshnessMs(freshnessMs);
 
   switch (classification) {
+    case 'LIVE':
     case 'LIVE_MT5':
     case 'LIVE_EXTERNAL':
     case 'INDEPENDENT_VERIFIED': {
@@ -125,6 +140,7 @@ export function isEvidenceDecisionEligible(
       return { eligible: true, verified: true, reason: 'Fresh verified market feed' };
     }
 
+    case 'DERIVED_LIVE':
     case 'DERIVED':
     case 'DERIVED_FROM_VERIFIED':
     case 'BROKER_TICK_VOLUME_PROXY': {
@@ -148,6 +164,7 @@ export function isEvidenceDecisionEligible(
         reason: 'Reference proxy feed contributes analytical context only, not verified execution evidence'
       };
 
+    case 'CACHED_LIVE':
     case 'DELAYED_EXTERNAL':
     case 'CACHED': {
       const maxAge = FRESHNESS_POLICIES[classification];
@@ -163,6 +180,20 @@ export function isEvidenceDecisionEligible(
       };
     }
 
+    case 'PARTIAL':
+      return {
+        eligible: false,
+        verified: false,
+        reason: 'Partial evidence provides contextual bias only; ineligible for direct decision weight'
+      };
+
+    case 'STATIC_REFERENCE':
+      return {
+        eligible: false,
+        verified: false,
+        reason: 'Static reference baseline is strictly contextual; prohibited from decision weight'
+      };
+
     case 'MODEL_INFERENCE':
     case 'HEURISTIC':
       return {
@@ -171,6 +202,8 @@ export function isEvidenceDecisionEligible(
         reason: `${classification} contributes structural context only, not verified observation`
       };
 
+    case 'FALLBACK':
+    case 'MOCK':
     case 'SIMULATED':
     case 'HARDCODED':
     case 'UNAVAILABLE':
@@ -210,6 +243,7 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
     const isCanonicallyVerified = eligibility.verified && ev.verified !== false;
 
     switch (ev.classification as string) {
+      case 'LIVE':
       case 'LIVE_MT5':
         if (isCanonicallyVerified) {
           earnedScore += 1.0;
@@ -229,6 +263,7 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
           earnedScore += 0.45;
         }
         break;
+      case 'DERIVED_LIVE':
       case 'DERIVED_FROM_VERIFIED':
       case 'DERIVED':
       case 'BROKER_TICK_VOLUME_PROXY':
@@ -252,6 +287,7 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
           earnedScore += 0.35;
         }
         break;
+      case 'CACHED_LIVE':
       case 'CACHED':
         if (isCanonicallyVerified && ev.decisionEligible) {
           earnedScore += 0.60;
@@ -260,12 +296,18 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
           earnedScore += 0.30;
         }
         break;
+      case 'PARTIAL':
+        earnedScore += 0.25;
+        break;
       case 'MODEL_INFERENCE':
         earnedScore += 0.35;
         break;
       case 'HEURISTIC':
         earnedScore += 0.30;
         break;
+      case 'STATIC_REFERENCE':
+      case 'FALLBACK':
+      case 'MOCK':
       case 'SIMULATED':
       case 'HARDCODED':
       case 'UNAVAILABLE':
@@ -279,13 +321,15 @@ export function calculateAgentEvidenceTrust(evidences: AgentEvidence[]): {
   const trustScore = Math.round((earnedScore / totalWeight) * 100);
 
   let badge: ProvenanceBadgeType = 'UNAVAILABLE';
-  if (evidences.some((e) => e.classification === 'LIVE_MT5')) {
+  if (evidences.every((e) => e.classification === 'STATIC_REFERENCE' || e.classification === 'FALLBACK' || e.classification === 'MOCK' || e.classification === 'UNAVAILABLE' || e.classification === 'UNKNOWN')) {
+    badge = 'DATA LIMITED';
+  } else if (evidences.some((e) => e.classification === 'LIVE_MT5')) {
     badge = 'MT5';
-  } else if (evidences.some((e) => (e.classification as string).startsWith('INDEPENDENT_VERIFIED') || e.classification === 'LIVE_EXTERNAL')) {
+  } else if (evidences.some((e) => e.classification === 'LIVE' || (e.classification as string).startsWith('INDEPENDENT_VERIFIED') || e.classification === 'LIVE_EXTERNAL')) {
     badge = 'INDEPENDENT';
   } else if (evidences.some((e) => (e.classification as string).startsWith('INDEPENDENT_REFERENCE'))) {
     badge = 'REFERENCE';
-  } else if (evidences.some((e) => e.classification === 'DERIVED_FROM_VERIFIED' || e.classification === 'DERIVED')) {
+  } else if (evidences.some((e) => e.classification === 'DERIVED_LIVE' || e.classification === 'DERIVED_FROM_VERIFIED' || e.classification === 'DERIVED')) {
     badge = 'DERIVED';
   } else if (evidences.some((e) => e.classification === 'MODEL_INFERENCE' || e.classification === 'HEURISTIC')) {
     badge = 'INFERENCE';

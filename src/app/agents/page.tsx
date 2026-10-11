@@ -82,23 +82,48 @@ export default function AgentsDirectoryPage() {
     }
   };
 
+  // Truthful Deterministic Engine Architectures for Council Agents
+  const getCouncilEngineModel = (type: string): string => {
+    switch (type) {
+      case 'TECHNICAL': return 'Deterministic SMC & Fractal Engine';
+      case 'VISION': return 'Heuristic Chart Pattern Detector';
+      case 'LIQUIDITY_MAP': return 'BSL/SSL Pool Liquidity Mapper';
+      case 'KILLZONE': return 'ICT IPDA Session State Machine';
+      case 'ORDER_FLOW': return 'Micro-Structure Tick Flow Engine';
+      case 'INSTITUTIONAL': return 'Volume Profile Imbalance Engine';
+      case 'MACRO': return 'Sovereign Yield Macro Engine';
+      case 'CORRELATION': return 'Intermarket Covariance Matrix';
+      case 'NEWS': return 'Newswire Impact Classifier';
+      case 'GEOPOLITICAL': return 'Geopolitical Risk Event Classifier';
+      case 'SENTIMENT': return 'Retail Skew & Sentiment Analyzer';
+      case 'RISK_GUARDIAN': return 'Deterministic Risk Bounds Engine';
+      case 'OPPORTUNITY': return 'Risk-Reward Geometry Optimizer';
+      case 'STRATEGY': return 'ICT Rule Protocol Execution Gate';
+      case 'FINAL_DECISION': return 'Swarm Confluence Consensus Engine';
+      default: return 'Deterministic Engine';
+    }
+  };
+
   // 1. Map 15 Canonical Council Agents
-  const councilAgents: ExtendedAgent[] = assetProfile.agents.map((ag, idx) => ({
-    ...ag,
-    id: `council-${idx + 1}`,
-    group: getCouncilGroup(ag.type),
-    model: idx % 2 === 0 ? 'DeepSeek-V3 Quant' : 'Llama-3.3 70B Quant',
-    weight: idx === 7 ? 2.5 : idx === 12 ? 3.0 : 1.2,
-    latencyMs: 32 + (idx * 4) % 25,
-    systemMandate: `Analyze ${activeSymbol} real-time micro-structure, order-flow imbalances, and multi-timeframe SMC zones to provide deterministic probabilistic edge without emotional bias.`,
-    telemetry: {
-      memoryMb: 412 + (idx * 15),
-      tokensPerSec: 88 + (idx * 2),
-      sampleCount: 1420 + idx * 30,
-      uptime: '99.98%'
-    },
-    conflictsWith: ag.bias === 'BULLISH' ? ['Macro Agent (Hawkish Fed)', 'Risk Guardian'] : ['Technical Agent', 'Opportunity Hunter']
-  }));
+  const councilAgents: ExtendedAgent[] = assetProfile.agents.map((ag, idx) => {
+    const engineModel = getCouncilEngineModel(ag.type);
+    return {
+      ...ag,
+      id: `council-${idx + 1}`,
+      group: getCouncilGroup(ag.type),
+      model: engineModel,
+      weight: idx === 7 ? 2.5 : idx === 12 ? 3.0 : 1.2,
+      latencyMs: 12 + ((idx * 3) % 15),
+      systemMandate: `Analyze ${activeSymbol} real-time micro-structure, order-flow imbalances, and multi-timeframe SMC zones to provide deterministic probabilistic edge without emotional bias.`,
+      telemetry: {
+        memoryMb: 128,
+        tokensPerSec: 0,
+        sampleCount: ag.evidence?.length || (ag.status === 'ONLINE' ? 120 : 0),
+        uptime: ag.status === 'ONLINE' ? '99.98%' : 'LIMITED',
+      },
+      conflictsWith: ag.bias === 'BULLISH' ? ['Macro Agent (Hawkish Fed)', 'Risk Guardian'] : ['Technical Agent', 'Opportunity Hunter'],
+    };
+  });
 
   // 2. Map Official Specialist Agents from Foundation & Institutional Expansion (17 Total Specialists)
   const ratesSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'RATES_AGENT');
@@ -876,24 +901,24 @@ export default function AgentsDirectoryPage() {
                   {/* Real-Time Telemetry */}
                   <div className="space-y-1.5">
                     <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-                      ENGINE TELEMETRY & INFERENCE METRICS
+                      DETERMINISTIC ENGINE TELEMETRY & PROVENANCE
                     </h4>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-black/40 border border-white/5 p-3 rounded-xl">
                       <div>
-                        <span className="text-gray-400 text-[10px] block">MEMORY FOOTPRINT</span>
-                        <span className="text-white font-bold">{selectedAgent.telemetry.memoryMb} MB</span>
+                        <span className="text-gray-400 text-[10px] block">ENGINE ARCHITECTURE</span>
+                        <span className="text-white font-bold truncate block">{selectedAgent.model}</span>
                       </div>
                       <div>
-                        <span className="text-gray-400 text-[10px] block">THROUGHPUT</span>
-                        <span className="text-cyan-400 font-bold">{selectedAgent.telemetry.tokensPerSec} tok/sec</span>
+                        <span className="text-gray-400 text-[10px] block">DATA READINESS</span>
+                        <span className="text-cyan-400 font-bold">{selectedAgent.status}</span>
                       </div>
                       <div>
-                        <span className="text-gray-400 text-[10px] block">SAMPLES AUDITED</span>
-                        <span className="text-purple-400 font-bold">{selectedAgent.telemetry.sampleCount.toLocaleString()}</span>
+                        <span className="text-gray-400 text-[10px] block">EVIDENCE AUDITED</span>
+                        <span className="text-purple-400 font-bold">{(selectedAgent.evidence && selectedAgent.evidence.length > 0) ? `${selectedAgent.evidence.length} items` : '0 items'}</span>
                       </div>
                       <div>
-                        <span className="text-gray-400 text-[10px] block">SERVICE UPTIME</span>
-                        <span className="text-emerald-400 font-bold">{selectedAgent.telemetry.uptime}</span>
+                        <span className="text-gray-400 text-[10px] block">DATA PROVENANCE</span>
+                        <span className="text-emerald-400 font-bold">{selectedAgent.provenanceBadge || 'DATA LIMITED'}</span>
                       </div>
                     </div>
                   </div>

@@ -39,7 +39,7 @@ export interface ConfluenceOutput {
   
   confidence: number;       // 0 to 100 deterministic confluence score
   evidenceTrust: number;    // 0 to 100 aggregate evidence trust
-  dataReadiness: 'READY' | 'PARTIAL' | 'DATA_LIMITED' | 'UNAVAILABLE';
+  dataReadiness: 'HIGH' | 'MODERATE' | 'LIMITED' | 'INSUFFICIENT' | 'READY' | 'PARTIAL' | 'DATA_LIMITED' | 'UNAVAILABLE';
   riskState: ConfluenceRiskState;
   
   agreementScore: number;   // 0 to 100
@@ -117,16 +117,33 @@ export class CortexConfluenceEngine {
     }>();
 
     for (const ag of agents) {
-      if (ag.readiness === 'UNAVAILABLE' || ag.confidence === 0) {
+      if (ag.readiness === 'UNAVAILABLE' || ag.readiness === 'DATA_LIMITED' || ag.confidence === 0) {
         unavailableAgents.push(ag.agentName);
         continue;
+      }
+
+      // Audit agent evidence classifications:
+      // STATIC_REFERENCE, FALLBACK, MOCK, UNAVAILABLE, UNKNOWN must contribute ZERO directional voting weight
+      const evList = ag.evidence || [];
+      const hasOnlyIneligibleEvidence = evList.length > 0 && evList.every((ev) => {
+        const c = ev.classification as string;
+        return c === 'STATIC_REFERENCE' || c === 'FALLBACK' || c === 'MOCK' || c === 'UNAVAILABLE' || c === 'UNKNOWN' || c === 'SIMULATED' || c === 'HARDCODED';
+      });
+
+      if (hasOnlyIneligibleEvidence) {
+        neutralAgents.push(ag.agentName);
+        continue; // Strictly zero directional voting contribution
       }
 
       const dir = (ag.direction || (ag as any).stance || 'NEUTRAL') as EvidencePolarity;
       const domain = (ag.domainFamily || (ag as any).primaryDomain || 'SYSTEM_INTEGRITY') as EvidenceDomainFamily;
       const trust = typeof ag.evidenceTrust === 'number' ? ag.evidenceTrust : (ag as any).evidenceTrustScore || 0;
 
-      if (dir === 'NEUTRAL') {
+      // Partial evidence is heavily discounted
+      const isPartial = ag.readiness === 'PARTIAL' || evList.some((e) => e.classification === 'PARTIAL');
+      const partialWeightMultiplier = isPartial ? 0.25 : 1.0;
+
+      if (dir === 'NEUTRAL' || dir === 'CAUTION') {
         neutralAgents.push(ag.agentName);
       } else if (dir === 'BULLISH') {
         supportingAgents.push(ag.agentName);
@@ -140,7 +157,7 @@ export class CortexConfluenceEngine {
       const dEntry = domainMap.get(domain)!;
       dEntry.agents.push(ag);
 
-      const effectiveTrust = (trust / 100) * (ag.confidence / 100);
+      const effectiveTrust = (trust / 100) * (ag.confidence / 100) * partialWeightMultiplier;
       if (dir === 'BULLISH') {
         dEntry.bullishTrustSum += effectiveTrust;
       } else if (dir === 'BEARISH') {
@@ -183,9 +200,12 @@ export class CortexConfluenceEngine {
       }
     }
 
-    // 3. Domain Coverage Score
+    // 3. Domain Coverage Score (strictly from active families with genuine evidence)
     const expectedKeyDomains = 6; // e.g. RATES, INFLATION, PRICE_TECHNICAL, MARKET_STRUCTURE, LIQUIDITY, ORDER_FLOW
-    const uniqueActiveFamilies = domainMap.size;
+    const activeDomainEntries = Array.from(domainMap.entries()).filter(
+      ([, dData]) => dData.bullishTrustSum > 0 || dData.bearishTrustSum > 0 || dData.agents.some((a) => a.confidence > 0 && a.readiness === 'READY')
+    );
+    const uniqueActiveFamilies = activeDomainEntries.length;
     const coverageScore = Math.min(100, Math.round((uniqueActiveFamilies / expectedKeyDomains) * 100));
 
     // 4. Agreement and Conflict Scores
@@ -204,21 +224,21 @@ export class CortexConfluenceEngine {
       criticalConflicts.push(`Major inter-domain disagreement: ${supportingDomains.join(', ')} vs ${opposingDomains.join(', ')}.`);
     }
 
-    // 5. Data Readiness
-    let dataReadiness: 'READY' | 'PARTIAL' | 'DATA_LIMITED' | 'UNAVAILABLE' = 'DATA_LIMITED';
+    // 5. Data Readiness (HIGH | MODERATE | LIMITED | INSUFFICIENT)
+    let dataReadiness: 'HIGH' | 'MODERATE' | 'LIMITED' | 'INSUFFICIENT' = 'INSUFFICIENT';
     if (coverageScore >= 65) {
-      dataReadiness = 'READY';
-    } else if (coverageScore >= 30) {
-      dataReadiness = 'PARTIAL';
-    } else if (uniqueActiveFamilies > 0) {
-      dataReadiness = 'DATA_LIMITED';
+      dataReadiness = 'HIGH';
+    } else if (coverageScore >= 35) {
+      dataReadiness = 'MODERATE';
+    } else if (uniqueActiveFamilies >= 2) {
+      dataReadiness = 'LIMITED';
     } else {
-      dataReadiness = 'UNAVAILABLE';
+      dataReadiness = 'INSUFFICIENT';
     }
 
     // 6. Directional Thesis
     let directionalThesis: ConfluenceDirection = 'DATA_LIMITED';
-    if (uniqueActiveFamilies === 0) {
+    if (uniqueActiveFamilies === 0 || dataReadiness === 'INSUFFICIENT') {
       directionalThesis = 'DATA_LIMITED';
     } else if (conflictScore >= 35) {
       directionalThesis = 'MIXED';
@@ -235,11 +255,11 @@ export class CortexConfluenceEngine {
     // Chart Vision Disagreement Check (Vision is an evidence input, NOT a competing council)
     const visionAgent = agents.find((a) => a.agentId === 'VISION' || a.agentName?.toLowerCase().includes('vision'));
     let hasStrongVisionConflict = false;
-    if (visionAgent && visionAgent.confidence >= 70 && visionAgent.readiness !== 'UNAVAILABLE') {
+    if (visionAgent && visionAgent.confidence >= 70 && visionAgent.readiness !== 'UNAVAILABLE' && visionAgent.readiness !== 'DATA_LIMITED') {
       const vDir = (visionAgent.direction === 'BULLISH' || (visionAgent.direction as string) === 'BUY' || (visionAgent as any).stance === 'BULLISH') ? 'BULLISH' :
                    (visionAgent.direction === 'BEARISH' || (visionAgent.direction as string) === 'SELL' || (visionAgent as any).stance === 'BEARISH') ? 'BEARISH' : 'NEUTRAL';
 
-      const nonVisionAgents = agents.filter((a) => a !== visionAgent && a.readiness !== 'UNAVAILABLE');
+      const nonVisionAgents = agents.filter((a) => a !== visionAgent && a.readiness !== 'UNAVAILABLE' && a.readiness !== 'DATA_LIMITED');
       const nonVisionBullish = nonVisionAgents.filter((a) => a.direction === 'BULLISH' || (a.direction as string) === 'BUY' || (a as any).stance === 'BULLISH').length;
       const nonVisionBearish = nonVisionAgents.filter((a) => a.direction === 'BEARISH' || (a.direction as string) === 'SELL' || (a as any).stance === 'BEARISH').length;
 
@@ -259,11 +279,11 @@ export class CortexConfluenceEngine {
 
     // 7. Presentation Posture (WAIT, WATCH FOR BUY, WATCH FOR SELL — strictly non-executable)
     let presentationPosture: PresentationPosture = 'WAIT';
-    if (hasStrongVisionConflict || normInputs.hasBlueprint === false) {
+    if (hasStrongVisionConflict || normInputs.hasBlueprint === false || dataReadiness === 'INSUFFICIENT' || dataReadiness === 'LIMITED' || uniqueActiveFamilies === 0) {
       presentationPosture = 'WAIT';
-    } else if (directionalThesis === 'BULLISH' && conflictScore < 25 && dataReadiness !== 'DATA_LIMITED') {
+    } else if (directionalThesis === 'BULLISH' && conflictScore < 25) {
       presentationPosture = 'WATCH FOR BUY';
-    } else if (directionalThesis === 'BEARISH' && conflictScore < 25 && dataReadiness !== 'DATA_LIMITED') {
+    } else if (directionalThesis === 'BEARISH' && conflictScore < 25) {
       presentationPosture = 'WATCH FOR SELL';
     } else {
       presentationPosture = 'WAIT';
@@ -272,7 +292,7 @@ export class CortexConfluenceEngine {
     // 8. Deterministic Confidence & Evidence Trust
     let confidence = 0;
     let evidenceTrust = 0;
-    if (uniqueActiveFamilies > 0) {
+    if (uniqueActiveFamilies > 0 && dataReadiness !== 'INSUFFICIENT') {
       // Base confidence scales with agreement and coverage
       confidence = Math.round((agreementScore * 0.6) + (coverageScore * 0.4));
       // Conflict penalty
@@ -284,18 +304,20 @@ export class CortexConfluenceEngine {
       }
       confidence = Math.min(95, Math.max(0, confidence));
 
-      // Aggregate evidence trust is the average trust of active agents
-      const activeAgents = agents.filter((a) => a.readiness !== 'UNAVAILABLE');
+      // Aggregate evidence trust is the average trust of active eligible agents
+      const activeAgents = agents.filter(
+        (a) => a.readiness !== 'UNAVAILABLE' && a.readiness !== 'DATA_LIMITED' && a.confidence > 0
+      );
       if (activeAgents.length > 0) {
         evidenceTrust = Math.round(
-          activeAgents.reduce((acc, a) => acc + a.evidenceTrust, 0) / activeAgents.length
+          activeAgents.reduce((acc, a) => acc + (a.evidenceTrust ?? 0), 0) / activeAgents.length
         );
       }
     }
 
     // 9. Risk State
     let riskState: ConfluenceRiskState = 'NORMAL';
-    if (conflictScore >= 40 || dataReadiness === 'DATA_LIMITED') {
+    if (conflictScore >= 40 || dataReadiness === 'LIMITED' || dataReadiness === 'INSUFFICIENT') {
       riskState = 'ELEVATED';
     }
     if (normInputs.riskCheckPassed === false) {

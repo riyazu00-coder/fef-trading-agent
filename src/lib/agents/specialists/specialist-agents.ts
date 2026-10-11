@@ -11,11 +11,12 @@
  * 6. QuantAgent: Returns distribution, drawdowns, and historical analogue regime matching.
  */
 
-import { UnifiedAgentResponse } from '../contracts/unified-agent-contract';
+import { UnifiedAgentResponse, AgentReadinessState } from '../contracts/unified-agent-contract';
+import { EvidenceClassification, ProvenanceBadgeType } from '../../evidence/agent-evidence';
 import { FedPolicyIntelligence, MacroSeriesAnalysis, YieldCurveIntelligence } from '../../macro/intelligence/types';
-import { MarketRegimeAssessment } from '../../regime/market-regime-engine';
+import { MarketRegimeAssessment, VolatilityRegime } from '../../regime/market-regime-engine';
 import { CrossAssetMatrix } from '../../cross-asset/cross-asset-engine';
-import { QuantMetricsResult, HistoricalAnalogueResult } from '../../quant/quant-engine';
+import { QuantMetricsResult, HistoricalAnalogueResult, calculateQuantMetrics, PriceBar } from '../../quant/quant-engine';
 import { OHLCCandle } from '../../market/canonical-market-snapshot';
 import { LiveMarketAsset } from '../../providers/real-market-api';
 
@@ -106,7 +107,7 @@ export function evaluateRatesAgent(inputs: {
     missingEvidence: missing,
     invalidation: 'Yield spike > 15 bp intraday',
     keyRisk: 'Unscheduled Federal Reserve rate shock',
-    provenanceBadge: 'INDEPENDENT',
+    provenanceBadge: evidence.length > 0 ? 'INDEPENDENT' : 'DATA LIMITED',
     generatedAt: Date.now(),
   };
 }
@@ -197,7 +198,7 @@ export function evaluateInflationAgent(inputs: {
     missingEvidence: missing,
     invalidation: 'Real yield upward breakout above key cycle resistance',
     keyRisk: 'TIPS liquidity distortion',
-    provenanceBadge: 'INDEPENDENT',
+    provenanceBadge: evidence.length > 0 ? 'INDEPENDENT' : 'DATA LIMITED',
     generatedAt: Date.now(),
   };
 }
@@ -207,25 +208,72 @@ export function evaluateInflationAgent(inputs: {
  */
 export function evaluateVolatilityAgent(inputs: {
   regime?: MarketRegimeAssessment;
+  candles?: OHLCCandle[];
+  instrument?: string;
 }): UnifiedAgentResponse {
-  const reg = inputs.regime;
+  const instrument = (inputs.instrument || inputs.regime?.instrument || 'XAUUSD').toUpperCase();
+  const candles = inputs.candles;
+  let reg = inputs.regime;
+
+  // Derive ATR and regime from verified candles if candle history is available
+  if ((!reg || reg.volatilityRegime === 'UNKNOWN') && Array.isArray(candles) && candles.length >= 15) {
+    let trSum14 = 0;
+    let trTotalSum = 0;
+    for (let i = 1; i < candles.length; i++) {
+      const cur = candles[i];
+      const prev = candles[i - 1];
+      const tr = Math.max(
+        cur.high - cur.low,
+        Math.abs(cur.high - prev.close),
+        Math.abs(cur.low - prev.close)
+      );
+      trTotalSum += tr;
+      if (i >= candles.length - 14) {
+        trSum14 += tr;
+      }
+    }
+    const currentAtr = trSum14 / 14;
+    const historicalAtrAverage = trTotalSum / (candles.length - 1);
+    const ratio = historicalAtrAverage > 0 ? currentAtr / historicalAtrAverage : 1.0;
+    const volRegime: VolatilityRegime = ratio > 1.3 ? 'HIGH_VOLATILITY' : ratio < 0.75 ? 'LOW_VOLATILITY' : 'NORMAL_VOLATILITY';
+
+    reg = {
+      instrument,
+      trendRegime: 'UNKNOWN',
+      volatilityRegime: volRegime,
+      riskRegime: 'UNKNOWN',
+      macroRegime: 'UNKNOWN',
+      liquidityRegime: 'BALANCED',
+      regimeSummary: `Derived ATR=${currentAtr.toFixed(4)} (Historical Avg=${historicalAtrAverage.toFixed(4)}, Ratio=${ratio.toFixed(2)}). Volatility classified as ${volRegime}.`,
+      confidence: 80,
+      evidenceCount: 1,
+      missingInputs: [],
+      assessedAt: Date.now(),
+    };
+  }
+
+  const hasValidRegime = Boolean(reg && reg.volatilityRegime !== 'UNKNOWN' && reg.confidence > 0);
   const isHighVol = reg?.volatilityRegime === 'HIGH_VOLATILITY';
-  const isLowVol = reg?.volatilityRegime === 'LOW_VOLATILITY';
+  const confidence = hasValidRegime ? reg!.confidence : 0;
+  const evidenceTrust = hasValidRegime ? 85 : 0;
+  const readiness: AgentReadinessState = hasValidRegime && reg!.confidence >= 50 ? 'READY' : 'DATA_LIMITED';
+  const direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'CAUTION' = hasValidRegime && isHighVol ? 'CAUTION' : 'NEUTRAL';
+  const provenanceBadge: ProvenanceBadgeType = hasValidRegime ? 'DERIVED' : 'DATA LIMITED';
 
   return {
     agentId: 'VOLATILITY_AGENT',
     agentName: 'Volatility & Expansion Specialist',
     role: 'ATR, Expansion Cycles & Risk Volatility Regimes',
     domainFamily: 'VOLATILITY',
-    instrument: reg?.instrument || 'XAUUSD',
-    direction: isHighVol ? 'CAUTION' : 'NEUTRAL',
-    confidence: reg ? reg.confidence : 0,
-    evidenceTrust: reg && reg.confidence > 0 ? 85 : 0,
-    readiness: reg && reg.confidence >= 50 ? 'READY' : 'DATA_LIMITED',
-    primaryThesis: reg
-      ? `Volatility regime classified as ${reg.volatilityRegime} (${reg.trendRegime}).`
-      : 'Volatility inputs data-limited.',
-    evidence: reg ? [{
+    instrument,
+    direction: direction as any,
+    confidence,
+    evidenceTrust,
+    readiness,
+    primaryThesis: hasValidRegime
+      ? `Volatility regime classified as ${reg!.volatilityRegime} (${reg!.trendRegime}).`
+      : 'Insufficient verified candle history for ATR calculation (DATA_LIMITED).',
+    evidence: hasValidRegime && reg ? [{
       id: 'vol-regime',
       agentId: 'VOLATILITY_AGENT',
       domainFamily: 'VOLATILITY',
@@ -233,7 +281,7 @@ export function evaluateVolatilityAgent(inputs: {
       classification: 'DERIVED_FROM_VERIFIED',
       polarity: isHighVol ? 'CAUTION' : 'NEUTRAL',
       strength: 0.8,
-      confidence: reg.confidence,
+      confidence,
       claim: reg.regimeSummary,
       source: 'Market Regime Engine',
       provider: 'FEF_ANALYTICS',
@@ -244,10 +292,10 @@ export function evaluateVolatilityAgent(inputs: {
       instrument: reg.instrument,
     }] : [],
     conflicts: [],
-    missingEvidence: reg?.missingInputs || ['Volatility telemetry'],
+    missingEvidence: hasValidRegime ? [] : ['Verified candle history for ATR derivation'],
     invalidation: 'ATR spike beyond 2.0x historical band',
     keyRisk: 'Volatility expansion during illiquid session transitions',
-    provenanceBadge: 'DERIVED',
+    provenanceBadge,
     generatedAt: Date.now(),
   };
 }
@@ -262,6 +310,12 @@ export function evaluateCrossAssetAgent(inputs: {
   const instrument = (inputs.instrument || 'XAUUSD').toUpperCase();
   const matrix = inputs.matrix;
   const activeCount = matrix?.activePairCount || 0;
+  const hasValidMatrix = activeCount >= 2;
+
+  const confidence = hasValidMatrix ? 75 : 0;
+  const evidenceTrust = hasValidMatrix ? 80 : 0;
+  const readiness: AgentReadinessState = hasValidMatrix ? 'READY' : (activeCount > 0 ? 'PARTIAL' : 'DATA_LIMITED');
+  const provenanceBadge: ProvenanceBadgeType = hasValidMatrix ? 'DERIVED' : 'DATA LIMITED';
 
   return {
     agentId: 'CROSS_ASSET_AGENT',
@@ -270,19 +324,21 @@ export function evaluateCrossAssetAgent(inputs: {
     domainFamily: 'CROSS_ASSET',
     instrument,
     direction: 'NEUTRAL',
-    confidence: activeCount > 0 ? 75 : 0,
-    evidenceTrust: activeCount > 0 ? 80 : 0,
-    readiness: activeCount >= 2 ? 'READY' : activeCount > 0 ? 'PARTIAL' : 'DATA_LIMITED',
-    primaryThesis: matrix?.summary || 'Cross-asset telemetry uninitialized.',
-    evidence: matrix ? Object.entries(matrix.relationships).map(([key, rel]) => ({
+    confidence,
+    evidenceTrust,
+    readiness,
+    primaryThesis: hasValidMatrix && matrix
+      ? matrix.summary
+      : 'Synchronized live cross-asset series unavailable (DATA_LIMITED). Zero directional bias.',
+    evidence: hasValidMatrix && matrix ? Object.entries(matrix.relationships).map(([key, rel]) => ({
       id: `cross-${key}`,
       agentId: 'CROSS_ASSET_AGENT',
       domainFamily: 'CROSS_ASSET' as const,
       nature: 'ANALYSIS' as const,
-      classification: rel.status === 'VERIFIED' ? 'DERIVED_FROM_VERIFIED' as const : 'UNAVAILABLE' as const,
+      classification: rel.status === 'VERIFIED' ? 'DERIVED_FROM_VERIFIED' as const : 'STATIC_REFERENCE' as const,
       polarity: 'NEUTRAL' as const,
       strength: 0.6,
-      confidence: rel.sampleCount > 0 ? 80 : 0,
+      confidence: rel.sampleCount >= 5 ? 80 : 0,
       claim: `${rel.targetSymbol}: correlation=${rel.rollingCorrelation ?? 'N/A'} (n=${rel.sampleCount}). ${rel.notes}`,
       source: 'Cross-Asset Engine',
       provider: 'FEF_ANALYTICS',
@@ -293,12 +349,10 @@ export function evaluateCrossAssetAgent(inputs: {
       instrument,
     })) : [],
     conflicts: [],
-    missingEvidence: !matrix?.relationships['DXY'] || matrix.relationships['DXY'].status === 'UNAVAILABLE'
-      ? ['US Dollar Index (DXY) verified provider not configured']
-      : [],
+    missingEvidence: hasValidMatrix ? [] : ['Synchronized multi-asset benchmark feeds'],
     invalidation: 'Correlation regime breakdown',
     keyRisk: 'Intermarket covariance decoupling',
-    provenanceBadge: 'DERIVED',
+    provenanceBadge,
     generatedAt: Date.now(),
   };
 }
@@ -373,9 +427,25 @@ export function evaluateDataSentinelAgent(inputs: {
 export function evaluateQuantAgent(inputs: {
   metrics?: QuantMetricsResult;
   analogue?: HistoricalAnalogueResult;
+  candles?: OHLCCandle[];
+  instrument?: string;
 }): UnifiedAgentResponse {
-  const qm = inputs.metrics;
+  const instrument = (inputs.instrument || 'XAUUSD').toUpperCase();
+  let qm = inputs.metrics;
   const ha = inputs.analogue;
+
+  // Derive quant metrics from verified candles if metrics are absent
+  if ((!qm || qm.status !== 'VALID') && Array.isArray(inputs.candles) && inputs.candles.length >= 10) {
+    const bars: PriceBar[] = inputs.candles.map((c) => ({
+      date: new Date(c.timestamp).toISOString().split('T')[0],
+      timestamp: c.timestamp,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+    qm = calculateQuantMetrics(bars, 4.0);
+  }
 
   const isQuantValid = qm && qm.status === 'VALID';
   const isAnalogueValid = ha && ha.status === 'VALID';
@@ -389,20 +459,26 @@ export function evaluateQuantAgent(inputs: {
     }
   }
 
+  const hasValidData = isQuantValid || isAnalogueValid;
+  const confidence = hasValidData ? 75 : 0;
+  const evidenceTrust = hasValidData ? 80 : 0;
+  const readiness: AgentReadinessState = (isQuantValid && isAnalogueValid) ? 'READY' : (hasValidData ? 'PARTIAL' : 'DATA_LIMITED');
+  const provenanceBadge: ProvenanceBadgeType = hasValidData ? 'DERIVED' : 'DATA LIMITED';
+
   return {
     agentId: 'QUANT_AGENT',
     agentName: 'Quantitative & Historical Analogue Specialist',
     role: 'Distribution Analytics, Volatility Regimes & Historical Outcome Matching',
     domainFamily: 'QUANT_STATISTICAL',
-    instrument: 'XAUUSD',
-    direction,
-    confidence: isQuantValid || isAnalogueValid ? 75 : 0,
-    evidenceTrust: isQuantValid || isAnalogueValid ? 80 : 0,
-    readiness: isQuantValid && isAnalogueValid ? 'READY' : (isQuantValid || isAnalogueValid ? 'PARTIAL' : 'DATA_LIMITED'),
+    instrument,
+    direction: hasValidData ? direction : 'NEUTRAL',
+    confidence,
+    evidenceTrust,
+    readiness,
     primaryThesis: isAnalogueValid
       ? `Historical analogue matched ${ha.matchedSampleCount} regime periods. 5-day median forward return: ${ha.forward5dMedianReturnPct}%.`
-      : (isQuantValid ? `Annualized Volatility: ${qm.annualizedVolatilityPct}%, Max Drawdown: ${qm.maxDrawdownPct}%.` : 'Quant telemetry data-limited.'),
-    evidence: isQuantValid ? [{
+      : (isQuantValid && qm ? `Annualized Volatility: ${qm.annualizedVolatilityPct}%, Max Drawdown: ${qm.maxDrawdownPct}%.` : 'Quant telemetry data-limited (awaiting verified candle history).'),
+    evidence: (isQuantValid && qm) ? [{
       id: 'quant-metrics',
       agentId: 'QUANT_AGENT',
       domainFamily: 'QUANT_STATISTICAL',
@@ -418,13 +494,13 @@ export function evaluateQuantAgent(inputs: {
       receivedAt: Date.now(),
       freshnessMs: 0,
       isStale: false,
-      instrument: 'XAUUSD',
+      instrument,
     }] : [],
     conflicts: [],
-    missingEvidence: !isAnalogueValid ? [ha?.limitationsNotice || 'Historical analogue dataset uninitialized'] : [],
+    missingEvidence: hasValidData ? [] : ['Verified candle dataset for quant distribution calculation'],
     invalidation: 'Regime divergence exceeding historical analogue variance threshold',
     keyRisk: 'Overfitting or non-stationary structural shift in market dynamics',
-    provenanceBadge: 'DERIVED',
+    provenanceBadge,
     generatedAt: Date.now(),
   };
 }
@@ -1177,8 +1253,9 @@ export function evaluateCotPositioningAgent(inputs: {
 }): UnifiedAgentResponse {
   const instrument = (inputs.instrument || 'XAUUSD').toUpperCase();
   const live = inputs.liveCot;
+  const hasLive = live?.percentile !== undefined;
 
-  // Authoritative Baseline Matrix
+  // Authoritative Baseline Matrix (Contextual Reference Only)
   const baselineMatrix: Record<string, { percentile: number; bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; note: string }> = {
     XAUUSD: { percentile: 74, bias: 'BULLISH', note: 'Non-Commercials net long 74th percentile (Elevated institutional long)' },
     XAGUSD: { percentile: 62, bias: 'BULLISH', note: 'Silver managed money net long 62nd percentile' },
@@ -1191,28 +1268,38 @@ export function evaluateCotPositioningAgent(inputs: {
     BTCUSD: { percentile: 65, bias: 'BULLISH', note: 'CME Bitcoin futures institutional net long 65th percentile' },
   };
 
-  const matched = live?.percentile !== undefined
+  const matched = hasLive
     ? {
-        percentile: live.percentile,
-        bias: (live.percentile > 60 ? 'BULLISH' : live.percentile < 40 ? 'BEARISH' : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
+        percentile: live.percentile!,
+        bias: (live.percentile! > 60 ? 'BULLISH' : live.percentile! < 40 ? 'BEARISH' : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
         note: `Live CFTC COT report net percentile ${live.percentile}%`,
       }
     : baselineMatrix[instrument] || { percentile: 50, bias: 'NEUTRAL', note: 'Benchmark COT positioning at neutral baseline' };
 
   const isCrowded = matched.percentile > 85 || matched.percentile < 15;
-  const direction = isCrowded ? 'CAUTION' : matched.bias;
+  const direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'CAUTION' = hasLive
+    ? (isCrowded ? 'CAUTION' : matched.bias)
+    : 'NEUTRAL';
+
+  const classification: EvidenceClassification = hasLive ? 'DERIVED_FROM_VERIFIED' : 'STATIC_REFERENCE';
+  const confidence = hasLive ? 75 : 0;
+  const evidenceTrust = hasLive ? 75 : 0;
+  const readiness: AgentReadinessState = hasLive ? 'READY' : 'DATA_LIMITED';
+  const provenanceBadge: ProvenanceBadgeType = hasLive ? 'INDEPENDENT' : 'DATA LIMITED';
 
   const evidence = [{
     id: `cot-${instrument}`,
     agentId: 'COT_POSITIONING_AGENT',
     domainFamily: 'INSTITUTIONAL' as const,
-    nature: 'ANALYSIS' as const,
-    classification: 'DERIVED_FROM_VERIFIED' as const,
+    nature: hasLive ? ('ANALYSIS' as const) : ('DATA' as const),
+    classification,
     polarity: direction as any,
-    strength: 0.8,
-    confidence: 75,
-    claim: `CFTC Commitments of Traders (COT) percentile: ${matched.percentile}%. ${matched.note}.${isCrowded ? ' Warning: Institutional crowding indicates structural exhaustion risk.' : ''}`,
-    source: 'CFTC Institutional Positioning Feed',
+    strength: hasLive ? 0.8 : 0.0,
+    confidence,
+    claim: hasLive
+      ? `CFTC Commitments of Traders (COT) percentile: ${matched.percentile}%. ${matched.note}.${isCrowded ? ' Warning: Institutional crowding indicates structural exhaustion risk.' : ''}`
+      : `LIVE CFTC DATA NOT CONNECTED (STATIC CONTEXTUAL BASELINE ONLY). Historical benchmark reference: ${matched.note} (${matched.percentile}% percentile). Zero actionable directional bias.`,
+    source: hasLive ? 'CFTC Institutional Positioning Feed' : 'CFTC Benchmark Matrix (Static Baseline)',
     provider: 'CFTC_BENCHMARK',
     observedAt: new Date().toISOString(),
     receivedAt: Date.now(),
@@ -1228,16 +1315,18 @@ export function evaluateCotPositioningAgent(inputs: {
     domainFamily: 'INSTITUTIONAL',
     instrument,
     direction: direction as any,
-    confidence: 75,
-    evidenceTrust: 75,
-    readiness: 'READY',
-    primaryThesis: `COT institutional positioning (${matched.percentile}% percentile) provides ${direction.toLowerCase()} structural backdrop for ${instrument}.`,
+    confidence,
+    evidenceTrust,
+    readiness,
+    primaryThesis: hasLive
+      ? `COT institutional positioning (${matched.percentile}% percentile) provides ${direction.toLowerCase()} structural backdrop for ${instrument}.`
+      : `LIVE CFTC DATA NOT CONNECTED (STATIC CONTEXTUAL BASELINE ONLY). Baseline reference: ${matched.note}. Zero directional weight contributed to consensus.`,
     evidence,
     conflicts: [],
-    missingEvidence: [],
+    missingEvidence: hasLive ? [] : ['LIVE CFTC data feed not connected'],
     invalidation: 'Weekly CFTC release showing > 20% institutional contract liquidation',
     keyRisk: 'Delayed reporting latency (CFTC reports lag real-time Tuesday positions)',
-    provenanceBadge: 'INDEPENDENT',
+    provenanceBadge,
     generatedAt: Date.now(),
   };
 }
@@ -1253,7 +1342,7 @@ export function evaluateCentralBankPolicyAgent(inputs: {
   const instrument = (inputs.instrument || 'EURUSD').toUpperCase();
   const live = inputs.liveCentralBanks;
 
-  // Authoritative Baseline Matrix
+  // Authoritative Baseline Matrix (Contextual Reference Only)
   const baselineRates: Record<string, { rate: number; stance: string; name: string }> = {
     USD: { rate: 5.375, stance: 'RESTRICTIVE_HOLD', name: 'Federal Reserve' },
     EUR: { rate: 3.65, stance: 'EASING_CYCLE', name: 'European Central Bank' },
@@ -1268,24 +1357,37 @@ export function evaluateCentralBankPolicyAgent(inputs: {
   const baseCurr = instrument.substring(0, 3);
   const quoteCurr = instrument.substring(3, 6);
 
+  const hasLiveBase = live?.[baseCurr] !== undefined;
+  const hasLiveQuote = live?.[quoteCurr] !== undefined;
+  const hasLive = Boolean(hasLiveBase && hasLiveQuote);
+
   const baseData = live?.[baseCurr] || baselineRates[baseCurr] || baselineRates['USD'];
   const quoteData = live?.[quoteCurr] || baselineRates[quoteCurr] || baselineRates['USD'];
 
   const spreadBps = Math.round((baseData.rate - quoteData.rate) * 100);
-  const direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' =
-    spreadBps > 100 ? 'BULLISH' : spreadBps < -100 ? 'BEARISH' : 'NEUTRAL';
+  const direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = hasLive
+    ? (spreadBps > 100 ? 'BULLISH' : spreadBps < -100 ? 'BEARISH' : 'NEUTRAL')
+    : 'NEUTRAL';
+
+  const classification: EvidenceClassification = hasLive ? 'DERIVED_FROM_VERIFIED' : 'STATIC_REFERENCE';
+  const confidence = hasLive ? 85 : 0;
+  const evidenceTrust = hasLive ? 85 : 0;
+  const readiness: AgentReadinessState = hasLive ? 'READY' : 'DATA_LIMITED';
+  const provenanceBadge: ProvenanceBadgeType = hasLive ? 'INDEPENDENT' : 'DATA LIMITED';
 
   const evidence = [{
     id: `cb-policy-${instrument}`,
     agentId: 'CENTRAL_BANK_POLICY_AGENT',
     domainFamily: 'MACRO_REGIME' as const,
     nature: 'DATA' as const,
-    classification: 'DERIVED_FROM_VERIFIED' as const,
+    classification,
     polarity: direction,
-    strength: Math.min(1.0, Math.abs(spreadBps) / 400),
-    confidence: 85,
-    claim: `Central bank policy spread is ${spreadBps > 0 ? '+' : ''}${spreadBps} bps (${baseCurr}: ${baseData.rate}% vs ${quoteCurr}: ${quoteData.rate}%). Carry momentum aligns ${direction.toLowerCase()}.`,
-    source: 'Central Bank Policy Matrix',
+    strength: hasLive ? Math.min(1.0, Math.abs(spreadBps) / 400) : 0.0,
+    confidence,
+    claim: hasLive
+      ? `Central bank policy spread is ${spreadBps > 0 ? '+' : ''}${spreadBps} bps (${baseCurr}: ${baseData.rate}% vs ${quoteCurr}: ${quoteData.rate}%). Carry momentum aligns ${direction.toLowerCase()}.`
+      : `LIVE POLICY FEED NOT CONNECTED (STATIC CONTEXTUAL BASELINE ONLY). Historical policy baseline differential: ${spreadBps > 0 ? '+' : ''}${spreadBps} bps (${baseCurr}: ${baseData.rate}% vs ${quoteCurr}: ${quoteData.rate}%). Zero actionable directional bias.`,
+    source: hasLive ? 'Central Bank Policy Matrix' : 'Central Bank Policy Matrix (Static Baseline)',
     provider: 'BIS_CENTRAL_BANKS',
     observedAt: new Date().toISOString(),
     receivedAt: Date.now(),
@@ -1301,16 +1403,18 @@ export function evaluateCentralBankPolicyAgent(inputs: {
     domainFamily: 'MACRO_REGIME',
     instrument,
     direction,
-    confidence: 85,
-    evidenceTrust: 85,
-    readiness: 'READY',
-    primaryThesis: `Monetary policy spread of ${spreadBps > 0 ? '+' : ''}${spreadBps} bps provides ${direction.toLowerCase()} carry tailwind for ${instrument}.`,
+    confidence,
+    evidenceTrust,
+    readiness,
+    primaryThesis: hasLive
+      ? `Monetary policy spread of ${spreadBps > 0 ? '+' : ''}${spreadBps} bps provides ${direction.toLowerCase()} carry tailwind for ${instrument}.`
+      : `LIVE POLICY FEED NOT CONNECTED (STATIC CONTEXTUAL BASELINE ONLY). Baseline policy spread is ${spreadBps > 0 ? '+' : ''}${spreadBps} bps. Zero directional weight contributed to consensus.`,
     evidence,
     conflicts: [],
-    missingEvidence: [],
+    missingEvidence: hasLive ? [] : ['Live central bank policy feed not connected'],
     invalidation: 'Inter-meeting emergency rate change or unexpected forward guidance pivot',
     keyRisk: 'Market pricing in earlier cuts than central bank dot plot guidance',
-    provenanceBadge: 'INDEPENDENT',
+    provenanceBadge,
     generatedAt: Date.now(),
   };
 }

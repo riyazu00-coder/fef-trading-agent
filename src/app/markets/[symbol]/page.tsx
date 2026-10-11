@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, use } from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
@@ -10,28 +10,39 @@ import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMemberAuth } from '@/context/MemberAuthContext';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
+import { getMarketDefinition } from '@/lib/registry/market-registry';
 
 interface SymbolPageProps {
   params: { symbol: string } | Promise<{ symbol: string }>;
 }
 
 export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
-  // Extract initial symbol synchronously if params is already an object
-  const initialSym = (params && typeof (params as any).then !== 'function' && (params as any).symbol)
-    ? String((params as any).symbol).toUpperCase()
-    : 'XAUUSD';
+  const routeParams = useParams();
+  const rawParamSymbol = routeParams?.symbol
+    ? (Array.isArray(routeParams.symbol) ? routeParams.symbol[0] : routeParams.symbol)
+    : (params && typeof (params as any).then !== 'function' && (params as any).symbol
+      ? (Array.isArray((params as any).symbol) ? (params as any).symbol[0] : (params as any).symbol)
+      : undefined);
 
+  const initialSym = rawParamSymbol ? String(rawParamSymbol).toUpperCase() : 'XAUUSD';
   const [resolvedSymbol, setResolvedSymbol] = React.useState<string>(initialSym);
 
   useEffect(() => {
-    if (params && typeof (params as any).then === 'function') {
+    if (routeParams?.symbol) {
+      const s = Array.isArray(routeParams.symbol) ? routeParams.symbol[0] : routeParams.symbol;
+      if (s) setResolvedSymbol(String(s).toUpperCase());
+    } else if (params && typeof (params as any).then === 'function') {
       (params as Promise<{ symbol: string }>).then(p => {
-        if (p?.symbol) setResolvedSymbol(p.symbol.toUpperCase());
+        if (p?.symbol) {
+          const s = Array.isArray(p.symbol) ? p.symbol[0] : p.symbol;
+          if (s) setResolvedSymbol(String(s).toUpperCase());
+        }
       });
     } else if (params && (params as any).symbol) {
-      setResolvedSymbol((params as any).symbol.toUpperCase());
+      const s = Array.isArray((params as any).symbol) ? (params as any).symbol[0] : (params as any).symbol;
+      if (s) setResolvedSymbol(String(s).toUpperCase());
     }
-  }, [params]);
+  }, [params, routeParams]);
 
   const rawSymbol = resolvedSymbol || 'XAUUSD';
   const router = useRouter();
@@ -44,9 +55,24 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
     }
   }, [rawSymbol, activeSymbol, setActiveSymbol]);
 
-  const p = activeAsset.price;
-  const isPos = activeAsset.change24h >= 0;
+  // Safe decimal precision for active symbol
+  const marketDef = getMarketDefinition(rawSymbol);
+  const precision = marketDef?.decimalPrecision ?? 2;
+
+  const p = typeof activeAsset?.price === 'number' && !isNaN(activeAsset.price) ? activeAsset.price : 0;
+  const change24hVal = typeof activeAsset?.change24h === 'number' ? activeAsset.change24h : 0;
+  const isPos = change24hVal >= 0;
   const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+
+  // Check if active verified trade blueprint levels exist
+  const hasActiveBlueprint = Boolean(
+    assetProfile?.entryZone &&
+    Array.isArray(assetProfile.entryZone) &&
+    typeof assetProfile.entryZone[0] === 'number' &&
+    typeof assetProfile.entryZone[1] === 'number' &&
+    typeof assetProfile.stopLoss === 'number' &&
+    typeof assetProfile.tp1 === 'number'
+  );
 
   // Synthetic SMC and Multi-Timeframe Matrix based on current symbol
   const multiTfMatrix = [
@@ -71,7 +97,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black">
+    <div className="relative min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black overflow-x-hidden">
       {/* Static Premium CORTEX Visual Foundation */}
       <BackgroundLiveChart symbol={rawSymbol} isPositive={isPos} />
 
@@ -153,14 +179,14 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl sm:text-3xl font-black text-white tracking-wider">{rawSymbol}</h1>
                 <span className="text-[10px] bg-cyan-950/60 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-bold font-mono uppercase">
-                  {assetProfile.category}
+                  {assetProfile?.category || marketDef?.category || 'MARKET'}
                 </span>
                 <MarketStatusBadge symbol={rawSymbol} size="xs" showCountdown={true} />
                 <span className="text-[10px] bg-emerald-950/60 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded font-bold font-mono uppercase">
                   BROKER FEED VERIFIED
                 </span>
               </div>
-              <div className="text-xs text-gray-400 mt-1">{assetProfile.name}</div>
+              <div className="text-xs text-gray-400 mt-1">{assetProfile?.name || marketDef?.displayName || rawSymbol}</div>
             </div>
 
             {/* Live Price Block */}
@@ -168,7 +194,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
               <div>
                 <span className="text-[10px] text-gray-400 block text-left sm:text-right">LIVE PRICE</span>
                 <span className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                  ${p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                  ${p > 0 ? p.toLocaleString(undefined, { minimumFractionDigits: precision > 2 ? precision : 2, maximumFractionDigits: precision > 2 ? precision : 4 }) : '--'}
                 </span>
               </div>
               <div className={`text-xs sm:text-sm font-bold px-2.5 py-1 rounded-lg border ${
@@ -176,7 +202,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
                   : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
               }`}>
-                {isPos ? '+' : ''}{activeAsset.change24h.toFixed(2)}%
+                {isPos ? '+' : ''}{change24hVal.toFixed(2)}%
               </div>
             </div>
           </div>
@@ -186,19 +212,23 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
             <div className="bg-black/30 border border-white/5 p-2 rounded-lg">
               <span className="text-[9.5px] text-gray-400 block">BID</span>
               <span className="text-xs font-bold text-white">
-                ${(activeAsset.bid || p).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                ${typeof activeAsset?.bid === 'number'
+                  ? activeAsset.bid.toLocaleString(undefined, { minimumFractionDigits: precision > 2 ? precision : 2, maximumFractionDigits: precision > 2 ? precision : 4 })
+                  : (p > 0 ? p.toLocaleString(undefined, { minimumFractionDigits: precision > 2 ? precision : 2, maximumFractionDigits: precision > 2 ? precision : 4 }) : '--')}
               </span>
             </div>
             <div className="bg-black/30 border border-white/5 p-2 rounded-lg">
               <span className="text-[9.5px] text-gray-400 block">ASK</span>
               <span className="text-xs font-bold text-white">
-                ${(activeAsset.ask || p).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                ${typeof activeAsset?.ask === 'number'
+                  ? activeAsset.ask.toLocaleString(undefined, { minimumFractionDigits: precision > 2 ? precision : 2, maximumFractionDigits: precision > 2 ? precision : 4 })
+                  : (p > 0 ? p.toLocaleString(undefined, { minimumFractionDigits: precision > 2 ? precision : 2, maximumFractionDigits: precision > 2 ? precision : 4 }) : '--')}
               </span>
             </div>
             <div className="bg-black/30 border border-white/5 p-2 rounded-lg">
               <span className="text-[9.5px] text-gray-400 block">SPREAD</span>
               <span className="text-xs font-bold text-cyan-300">
-                {activeAsset.spread}
+                {activeAsset?.spread !== undefined ? activeAsset.spread : '--'}
               </span>
             </div>
           </div>
@@ -207,27 +237,33 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 pt-1 text-xs">
             <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
               <span className="text-gray-400 text-[10px] block">SPREAD</span>
-              <span className="text-white font-bold font-mono text-xs sm:text-sm">{activeAsset.spread}</span>
+              <span className="text-white font-bold font-mono text-xs sm:text-sm">{activeAsset?.spread !== undefined ? activeAsset.spread : '--'}</span>
             </div>
             <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
               <span className="text-gray-400 text-[10px] block">24H HIGH</span>
-              <span className="text-emerald-400 font-bold font-mono text-xs sm:text-sm">${activeAsset.high24h.toLocaleString()}</span>
+              <span className="text-emerald-400 font-bold font-mono text-xs sm:text-sm">
+                ${typeof activeAsset?.high24h === 'number' ? activeAsset.high24h.toLocaleString() : '--'}
+              </span>
             </div>
             <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
               <span className="text-gray-400 text-[10px] block">24H LOW</span>
-              <span className="text-rose-400 font-bold font-mono text-xs sm:text-sm">${activeAsset.low24h.toLocaleString()}</span>
+              <span className="text-rose-400 font-bold font-mono text-xs sm:text-sm">
+                ${typeof activeAsset?.low24h === 'number' ? activeAsset.low24h.toLocaleString() : '--'}
+              </span>
             </div>
             <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
               <span className="text-gray-400 text-[10px] block">SESSION</span>
-              <span className="text-amber-400 font-bold font-mono text-[11px] sm:text-xs truncate block">{assetProfile.session}</span>
+              <span className="text-amber-400 font-bold font-mono text-[11px] sm:text-xs truncate block">{assetProfile?.session || 'ACTIVE'}</span>
             </div>
             <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
               <span className="text-gray-400 text-[10px] block">VOLATILITY (ATR)</span>
-              <span className="text-purple-400 font-bold font-mono text-[11px] sm:text-xs truncate block">{assetProfile.volatility}</span>
+              <span className="text-purple-400 font-bold font-mono text-[11px] sm:text-xs truncate block">{assetProfile?.volatility || 'NORMAL'}</span>
             </div>
             <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
               <span className="text-gray-400 text-[10px] block">CONSENSUS</span>
-              <span className="text-cyan-400 font-bold font-mono text-[11px] sm:text-xs truncate block">{assetProfile.confidence}% {assetProfile.setupDirection}</span>
+              <span className="text-cyan-400 font-bold font-mono text-[11px] sm:text-xs truncate block">
+                {assetProfile?.confidence ?? 0}% {assetProfile?.setupDirection || 'NEUTRAL'}
+              </span>
             </div>
           </div>
         </div>
@@ -378,15 +414,15 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                   <div className="space-y-1.5 text-[11px]">
                     <div className="flex items-center justify-between py-1.5 gap-2 border-b border-rose-500/10">
                       <span className="text-gray-400 text-[10.5px] truncate">R3 (Macro Liquidity Pool)</span>
-                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 1.018).toFixed(2)}</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${p > 0 ? (p * 1.018).toFixed(precision) : '--'}</span>
                     </div>
                     <div className="flex items-center justify-between py-1.5 gap-2 border-b border-rose-500/10">
                       <span className="text-gray-400 text-[10.5px] truncate">R2 (H4 Bearish Order Block)</span>
-                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 1.010).toFixed(2)}</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${p > 0 ? (p * 1.010).toFixed(precision) : '--'}</span>
                     </div>
                     <div className="flex items-center justify-between py-1.5 gap-2">
                       <span className="text-gray-400 text-[10.5px] truncate">R1 (Previous Day High Sweep)</span>
-                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 1.004).toFixed(2)}</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${p > 0 ? (p * 1.004).toFixed(precision) : '--'}</span>
                     </div>
                   </div>
                 </div>
@@ -400,15 +436,15 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                   <div className="space-y-1.5 text-[11px]">
                     <div className="flex items-center justify-between py-1.5 gap-2 border-b border-emerald-500/10">
                       <span className="text-gray-400 text-[10.5px] truncate">S1 (M15 Mitigation Block)</span>
-                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 0.996).toFixed(2)}</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${p > 0 ? (p * 0.996).toFixed(precision) : '--'}</span>
                     </div>
                     <div className="flex items-center justify-between py-1.5 gap-2 border-b border-emerald-500/10">
                       <span className="text-gray-400 text-[10.5px] truncate">S2 (H1 Fair Value Gap)</span>
-                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 0.991).toFixed(2)}</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${p > 0 ? (p * 0.991).toFixed(precision) : '--'}</span>
                     </div>
                     <div className="flex items-center justify-between py-1.5 gap-2">
                       <span className="text-gray-400 text-[10.5px] truncate">S3 (Weekly Low Institutional Base)</span>
-                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 0.984).toFixed(2)}</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${p > 0 ? (p * 0.984).toFixed(precision) : '--'}</span>
                     </div>
                   </div>
                 </div>
@@ -428,7 +464,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                   </h3>
                 </div>
                 <span className="text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-bold">
-                  {assetProfile.setupDirection}
+                  {assetProfile?.setupDirection || 'NEUTRAL'}
                 </span>
               </div>
 
@@ -456,54 +492,98 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                     MEMBER LOGIN &rarr;
                   </Link>
                 </div>
-              ) : (
+              ) : hasActiveBlueprint ? (
                 <>
                   <div className="space-y-2.5 text-xs">
                     <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
                       <span className="text-gray-400">ENTRY ZONE</span>
                       <span className="font-bold text-cyan-400 font-mono">
-                        ${assetProfile.entryZone[0].toFixed(2)} - ${assetProfile.entryZone[1].toFixed(2)}
+                        ${assetProfile!.entryZone![0].toFixed(precision)} - ${assetProfile!.entryZone![1].toFixed(precision)}
                       </span>
                     </div>
 
                     <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
                       <span className="text-rose-400 font-bold">STOP LOSS</span>
-                      <span className="font-bold text-rose-400 font-mono">${assetProfile.stopLoss.toFixed(2)}</span>
+                      <span className="font-bold text-rose-400 font-mono">${assetProfile!.stopLoss!.toFixed(precision)}</span>
                     </div>
 
                     <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 space-y-1">
                       <div className="flex justify-between items-center text-[11px]">
                         <span className="text-emerald-400 font-bold">TAKE PROFIT 1</span>
-                        <span className="font-bold text-emerald-400 font-mono">${assetProfile.tp1.toFixed(2)}</span>
+                        <span className="font-bold text-emerald-400 font-mono">${assetProfile!.tp1!.toFixed(precision)}</span>
                       </div>
                       <div className="flex justify-between items-center text-[11px]">
                         <span className="text-emerald-300">TAKE PROFIT 2</span>
-                        <span className="font-bold text-emerald-300 font-mono">${assetProfile.tp2.toFixed(2)}</span>
+                        <span className="font-bold text-emerald-300 font-mono">
+                          {typeof assetProfile?.tp2 === 'number' ? `$${assetProfile.tp2.toFixed(precision)}` : 'Trailing / Open'}
+                        </span>
                       </div>
                       <div className="flex justify-between items-center text-[11px]">
                         <span className="text-emerald-200">TAKE PROFIT 3 (RUNNER)</span>
-                        <span className="font-bold text-emerald-200 font-mono">${assetProfile.tp3.toFixed(2)}</span>
+                        <span className="font-bold text-emerald-200 font-mono">
+                          {typeof assetProfile?.tp3 === 'number' ? `$${assetProfile.tp3.toFixed(precision)}` : 'Runner Position'}
+                        </span>
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between text-xs px-1">
                       <span className="text-gray-400">RISK / REWARD:</span>
-                      <span className="font-bold text-purple-400">{assetProfile.rr}</span>
+                      <span className="font-bold text-purple-400">{assetProfile?.rr || '1:1.5'}</span>
                     </div>
                   </div>
 
                   {/* Invalidation Clause */}
                   <div className="bg-rose-950/20 border border-rose-500/30 p-2.5 rounded-xl text-[11px] text-rose-300">
                     <span className="font-bold block text-rose-400 mb-0.5">⚠️ INVALIDATION THRESHOLD:</span>
-                    {assetProfile.invalidation}
+                    {assetProfile?.invalidation || 'Awaiting structural invalidation parameters'}
                   </div>
 
                   {/* Quick Action Button */}
                   <button
                     onClick={handleSendToExecution}
-                    className="w-full bg-gradient-to-r from-cyan-500/30 via-emerald-500/30 to-purple-500/30 hover:from-cyan-500/40 hover:via-emerald-500/40 hover:to-purple-500/40 border border-cyan-500/50 text-white font-bold py-2.5 rounded-xl text-xs tracking-wider transition-all shadow-lg"
+                    className="w-full bg-gradient-to-r from-cyan-500/30 via-emerald-500/30 to-purple-500/30 hover:from-cyan-500/40 hover:via-emerald-500/40 hover:to-purple-500/40 border border-cyan-500/50 text-white font-bold py-2.5 rounded-xl text-xs tracking-wider transition-all shadow-lg cursor-pointer"
                   >
                     EXECUTE ORDER WITH RISK BUDGET &rarr;
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="bg-cyan-950/20 border border-cyan-500/20 rounded-xl p-3.5 space-y-2 text-xs font-mono">
+                    <div className="flex items-center space-x-2 text-cyan-400 text-[11px] font-bold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      <span>STRUCTURAL REVALIDATION IN PROGRESS</span>
+                    </div>
+                    <p className="text-[10.5px] text-gray-400 font-sans leading-relaxed">
+                      Institutional CORTEX Council requires confirmed M15 candle close and structure alignment before issuing an actionable trade blueprint.
+                    </p>
+                    <div className="pt-1 space-y-1.5 text-[11px] border-t border-white/5">
+                      <div className="flex justify-between items-center text-gray-400">
+                        <span>ENTRY POSTURE:</span>
+                        <span className="text-cyan-300 font-bold">{assetProfile?.setupDirection || 'OBSERVATION'}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-gray-400">
+                        <span>CONFIDENCE:</span>
+                        <span className="text-white font-bold">{assetProfile?.confidence ?? 0}%</span>
+                      </div>
+                      <div className="flex justify-between items-center text-gray-400">
+                        <span>STRUCTURE:</span>
+                        <span className="text-amber-300 font-bold">Awaiting M15 Close</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Invalidation Clause */}
+                  <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl text-[11px] text-gray-400">
+                    <span className="font-bold block text-gray-300 mb-0.5">STRUCTURAL STATUS:</span>
+                    {assetProfile?.invalidation || 'No structural invalidation computed yet — awaiting verified candles.'}
+                  </div>
+
+                  {/* Quick Action Button */}
+                  <button
+                    onClick={handleSendToExecution}
+                    className="w-full bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 text-cyan-300 font-bold py-2.5 rounded-xl text-xs tracking-wider transition-all cursor-pointer"
+                  >
+                    OPEN IN EXECUTION TERMINAL &rarr;
                   </button>
                 </>
               )}
@@ -515,7 +595,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                 ✓ WHY THIS TRADE (CONFLUENCE)
               </h3>
               <ul className="space-y-1.5 text-[11px] text-gray-300">
-                {assetProfile.whyThisTrade.map((point, idx) => (
+                {(assetProfile?.whyThisTrade && assetProfile.whyThisTrade.length > 0 ? assetProfile.whyThisTrade : ['Market structure alignment under observation.']).map((point, idx) => (
                   <li key={idx} className="flex items-start space-x-2">
                     <span className="text-emerald-400 mt-0.5 shrink-0">&bull;</span>
                     <span className="break-words leading-relaxed">{point}</span>
@@ -527,7 +607,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                 ✕ OPPOSING RISKS (MANDATORY)
               </h3>
               <ul className="space-y-1.5 text-[11px] text-gray-300">
-                {assetProfile.opposingRisks.map((risk, idx) => (
+                {(assetProfile?.opposingRisks && assetProfile.opposingRisks.length > 0 ? assetProfile.opposingRisks : ['Market structure preservation and volatility guard active.']).map((risk, idx) => (
                   <li key={idx} className="flex items-start space-x-2">
                     <span className="text-rose-400 mt-0.5 shrink-0">&bull;</span>
                     <span className="break-words leading-relaxed">{risk}</span>
@@ -585,7 +665,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {assetProfile.agents.map((ag) => (
+              {(assetProfile?.agents || []).map((ag) => (
                 <div
                   key={ag.name}
                   className="bg-black/40 border border-white/5 hover:border-cyan-500/30 rounded-xl p-3 sm:p-3.5 space-y-2 transition-all min-w-0"

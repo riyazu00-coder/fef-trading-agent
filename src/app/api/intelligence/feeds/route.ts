@@ -92,8 +92,7 @@ export async function GET() {
 
       regimeResult = classifyMarketRegime({
         instrument: 'XAUUSD',
-        atr: 18.5,
-        historicalAtrAverage: 15.0,
+        // Verified candles absent in macro route: do NOT invent or hardcode ATR values
         tenYearYieldBpChange: tenYearBp,
         realYieldBpChange: realYieldBp,
         breakevenBpChange: breakevenBp,
@@ -126,15 +125,9 @@ export async function GET() {
           value: o.value,
         }));
 
-      // Invert yield series as proxy for baseline gold relationship if direct aligned gold series unavailable
-      const goldSeries: TimeSeriesPoint[] = realYieldSeries.map((pt, i) => ({
-        date: pt.date,
-        timestamp: pt.timestamp,
-        value: 2650 - (pt.value * 50) + (i * 2),
-      }));
-
+      // Zero synthetic market-price series: aligned live series absent without verified gold candle stream
       crossAssetResult = buildCrossAssetMatrix({
-        goldSeries: goldSeries.length >= 5 ? goldSeries : [],
+        goldSeries: [],
         realYieldSeries: realYieldSeries.length >= 5 ? realYieldSeries : undefined,
         tenYearYieldSeries: tenYearSeries.length >= 5 ? tenYearSeries : undefined,
         hasVerifiedDxy: false, // DXY strictly absent in FRED connector, truthfully UNAVAILABLE
@@ -144,58 +137,8 @@ export async function GET() {
     }
 
     // 4. Quant Foundation & Historical Analogue Evaluation
-    let quantResult: { metrics: QuantMetricsResult; analogue: HistoricalAnalogueResult } | null = null;
-    try {
-      const now = Date.now();
-      const mockBars = [
-        { date: '2026-10-01', timestamp: now - 86400000 * 5, open: 2640, high: 2652, low: 2638, close: 2650 },
-        { date: '2026-10-02', timestamp: now - 86400000 * 4, open: 2650, high: 2658, low: 2645, close: 2655 },
-        { date: '2026-10-03', timestamp: now - 86400000 * 3, open: 2655, high: 2665, low: 2650, close: 2662 },
-        { date: '2026-10-04', timestamp: now - 86400000 * 2, open: 2662, high: 2670, low: 2658, close: 2668 },
-        { date: '2026-10-05', timestamp: now - 86400000 * 1, open: 2668, high: 2674, low: 2660, close: 2671 },
-      ];
-
-      const metrics = calculateQuantMetrics(mockBars, 4.0);
-
-      const ryDir = detailedMacro?.realYield?.direction === 'FALLING'
-        ? 'FALLING'
-        : detailedMacro?.realYield?.direction === 'RISING'
-        ? 'RISING'
-        : 'FLAT';
-
-      const analogue = matchHistoricalAnalogues({
-        currentTrend: 'BULLISH',
-        realYieldDirection: ryDir,
-        volatilityLevel: 'NORMAL',
-        historicalPeriods: [
-          {
-            date: '2024-03-15',
-            trend: 'BULLISH',
-            realYieldDirection: 'FALLING',
-            volatilityLevel: 'NORMAL',
-            forwardReturnsPct: { tPlus5: 1.8, tPlus20: 4.2 },
-          },
-          {
-            date: '2024-07-20',
-            trend: 'BULLISH',
-            realYieldDirection: 'FALLING',
-            volatilityLevel: 'NORMAL',
-            forwardReturnsPct: { tPlus5: 1.2, tPlus20: 3.5 },
-          },
-          {
-            date: '2024-11-10',
-            trend: 'BULLISH',
-            realYieldDirection: 'FALLING',
-            volatilityLevel: 'NORMAL',
-            forwardReturnsPct: { tPlus5: 0.9, tPlus20: 2.8 },
-          },
-        ],
-      });
-
-      quantResult = { metrics, analogue };
-    } catch {
-      quantResult = null;
-    }
+    // Verified candles absent in macro feeds route: fail closed without synthetic mock bars
+    const quantResult: { metrics: QuantMetricsResult; analogue: HistoricalAnalogueResult } | null = null;
 
     const payload: LiveIntelligenceFeeds = {
       timestamp: new Date().toISOString(),
