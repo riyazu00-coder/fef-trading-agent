@@ -191,29 +191,29 @@ export const MasterTopNav: React.FC = () => {
             </Link>
 
             {/* Brand Typography Block */}
-            <div className="flex flex-col justify-center text-left select-none">
+            <div className="flex flex-col justify-center text-left select-none min-w-0 flex-shrink">
               {/* Line 1: FEF CORTEX (Dominant, clean futuristic geometric lettering, cyan/ice-blue/white glow) */}
               <Link
                 href="/cockpit"
-                className="text-[16px] sm:text-[18px] font-black tracking-[0.12em] font-sans uppercase leading-none text-transparent bg-clip-text bg-gradient-to-r from-white via-[#F0F9FF] to-[#67E8F9] drop-shadow-[0_0_14px_rgba(34,211,238,0.5)] flex items-center space-x-1 cursor-pointer"
+                className="text-[14px] xs:text-[15px] sm:text-[18px] font-black tracking-[0.10em] sm:tracking-[0.12em] font-sans uppercase leading-none text-transparent bg-clip-text bg-gradient-to-r from-white via-[#F0F9FF] to-[#67E8F9] drop-shadow-[0_0_14px_rgba(34,211,238,0.5)] flex items-center space-x-1 cursor-pointer whitespace-nowrap"
                 title="FEF Trading Intelligence Cockpit"
               >
                 <span>FEF</span>
-                <span className="text-[#38BDF8] tracking-[0.16em]">CORTEX</span>
+                <span className="text-[#38BDF8] tracking-[0.14em] sm:tracking-[0.16em]">CORTEX</span>
               </Link>
 
-              {/* Line 2: AUTONOMOUS TRADING INTELLIGENCE (High-tech cyan) */}
-              <div className="text-[7.5px] sm:text-[8.5px] font-black tracking-[0.18em] font-sans uppercase text-[#38BDF8] group-hover/brand:text-[#67E8F9] transition-colors leading-none mt-0.5">
+              {/* Line 2: AUTONOMOUS TRADING INTELLIGENCE (High-tech cyan, hidden on mobile) */}
+              <div className="hidden sm:block text-[7.5px] sm:text-[8.5px] font-black tracking-[0.16em] sm:tracking-[0.18em] font-sans uppercase text-[#38BDF8] group-hover/brand:text-[#67E8F9] transition-colors leading-none mt-0.5 truncate">
                 AUTONOMOUS TRADING INTELLIGENCE
               </div>
 
               {/* Line 3: AI • MARKETS • RISK • EXECUTION (Descriptor, muted ice-blue/grey) */}
-              <div className="text-[6px] sm:text-[7px] font-semibold tracking-[0.18em] font-mono text-[#94A3B8] group-hover/brand:text-[#CBD5E1] transition-colors leading-none mt-0.5 block">
+              <div className="hidden sm:block text-[6px] sm:text-[7px] font-semibold tracking-[0.18em] font-mono text-[#94A3B8] group-hover/brand:text-[#CBD5E1] transition-colors leading-none mt-0.5">
                 AI • MARKETS • RISK • EXECUTION
               </div>
 
-              {/* Line 4: Product Ownership / Domain Link (Official Institutional Line) */}
-              <div className="text-[10px] sm:text-[10.5px] font-medium tracking-[0.08em] font-mono leading-none mt-1.5 flex items-center space-x-1.5">
+              {/* Line 4: Product Ownership / Domain Link (Institutional Line, desktop/tablet only) */}
+              <div className="hidden md:flex text-[10px] sm:text-[10.5px] font-medium tracking-[0.08em] font-mono leading-none mt-1.5 items-center space-x-1.5">
                 <span className="text-[#E2E8F0] font-semibold">FEF Trading Solutions</span>
                 <span className="text-cyan-400/60 font-bold">•</span>
                 <a
@@ -529,195 +529,235 @@ export const MasterTopNav: React.FC = () => {
         </div>
       </header>
 
-      {/* Responsive Mobile Navigation Drawer */}
+      {/* Responsive Mobile Navigation Drawer (Modal Drawer with Backdrop and Close Control) */}
       {isMobileMenuOpen && (
-        <div className="lg:hidden w-full mt-2 ghost-glass-panel rounded-2xl p-4 border border-cyan-500/30 shadow-[0_16px_50px_rgba(0,0,0,0.95)] animate-in fade-in slide-in-from-top-2 duration-200 space-y-4 font-sans relative z-30 max-h-[80vh] overflow-y-auto">
-          {/* Mobile Search Field */}
-          <form onSubmit={handleSearchSubmit} className="relative flex items-center">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search CORTEX context..."
-              className="w-full bg-black/60 border border-white/10 focus:border-cyan-400/60 rounded-xl pl-9 pr-12 py-2 text-xs text-gray-200 placeholder-gray-500 transition-all outline-none"
-            />
-            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <button
-              type="submit"
-              className="absolute right-2 px-2 py-0.5 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[10px] text-cyan-300 font-mono"
-            >
-              VIEW
-            </button>
-          </form>
+        <div className="fixed inset-0 z-50 lg:hidden flex justify-end">
+          {/* Backdrop (Closes drawer on tap) */}
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsMobileMenuOpen(false)}
+            aria-hidden="true"
+          />
 
-          {/* Group 1: TRADING & INTELLIGENCE */}
-          <div className="space-y-1.5">
-            <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
-              TRADING & INTELLIGENCE
+          {/* Drawer Panel */}
+          <div className="relative w-full max-w-[340px] bg-[#07101D] border-l border-cyan-500/30 p-5 shadow-[-10px_0_40px_rgba(0,0,0,0.9)] flex flex-col h-full z-10 overflow-y-auto space-y-4 font-sans animate-in slide-in-from-right duration-200">
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center space-x-2">
+                <img
+                  src="/images/fef-logo.png"
+                  alt="FEF Logo"
+                  className="w-7 h-7 object-contain drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]"
+                />
+                <div>
+                  <div className="text-xs font-black tracking-wider uppercase text-white font-sans">
+                    FEF <span className="text-[#38BDF8]">CORTEX</span>
+                  </div>
+                  <div className="text-[8px] font-mono text-cyan-400 font-semibold tracking-wide">
+                    NAVIGATION MENU
+                  </div>
+                </div>
+              </div>
+
+              {/* Close Button */}
+              <button
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-1.5 rounded-xl bg-black/50 border border-white/10 hover:border-cyan-400/50 text-gray-400 hover:text-white transition-all cursor-pointer"
+                aria-label="Close Navigation Menu"
+              >
+                <svg className="w-5 h-5 text-gray-300 hover:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {[
-                { name: 'Cockpit', path: '/cockpit', icon: '⚡' },
-                { name: 'Agents', path: '/agents', icon: '🤖' },
-                { name: 'Markets', path: '/markets', icon: '🌐' },
-                { name: 'TradingView', path: '/tradingview', icon: '📈' },
-                { name: 'Execution', path: '/execution', icon: '🎯' },
-                { name: 'Chart Analyzer', path: '/chart-analyzer', icon: '🔍' },
-                { name: 'Journal', path: '/journal', icon: '📔' },
-              ].map((item) => {
-                const isRoot = pathname === '/' && item.path === '/cockpit';
-                const isActive = pathname === item.path || (item.path !== '/cockpit' && pathname?.startsWith(item.path + '/')) || isRoot;
-                return (
+
+            {/* Mobile Search Field */}
+            <form onSubmit={handleSearchSubmit} className="relative flex items-center">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search CORTEX context..."
+                className="w-full bg-black/60 border border-white/10 focus:border-cyan-400/60 rounded-xl pl-9 pr-12 py-2 text-xs text-gray-200 placeholder-gray-500 transition-all outline-none"
+              />
+              <svg className="w-3.5 h-3.5 text-gray-400 absolute left-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <button
+                type="submit"
+                className="absolute right-2 px-2 py-0.5 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[10px] text-cyan-300 font-mono"
+              >
+                VIEW
+              </button>
+            </form>
+
+            {/* Group 1: TRADING & INTELLIGENCE */}
+            <div className="space-y-1.5">
+              <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
+                TRADING & INTELLIGENCE
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { name: 'Cockpit', path: '/cockpit', icon: '⚡' },
+                  { name: 'Agents', path: '/agents', icon: '🤖' },
+                  { name: 'Markets', path: '/markets', icon: '🌐' },
+                  { name: 'TradingView', path: '/tradingview', icon: '📈' },
+                  { name: 'Execution', path: '/execution', icon: '🎯' },
+                  { name: 'Chart Analyzer', path: '/chart-analyzer', icon: '🔍' },
+                  { name: 'Journal', path: '/journal', icon: '📔' },
+                ].map((item) => {
+                  const isRoot = pathname === '/' && item.path === '/cockpit';
+                  const isActive = pathname === item.path || (item.path !== '/cockpit' && pathname?.startsWith(item.path + '/')) || isRoot;
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.path}
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all ${
+                        isActive
+                          ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50 shadow-[0_0_12px_rgba(34,211,238,0.3)]'
+                          : 'text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5 hover:border-cyan-500/30'
+                      }`}
+                    >
+                      <span className="flex items-center space-x-1.5">
+                        <span className="text-[11px]">{item.icon}</span>
+                        <span>{item.name}</span>
+                      </span>
+                      {item.path === '/execution' && (
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
+                              ? 'bg-emerald-400 animate-pulse'
+                              : isMt5Connected
+                                ? 'bg-amber-400'
+                                : 'bg-slate-500'
+                          }`}
+                        />
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Group 2: MARKET FEEDS & SHORTCUTS */}
+            <div className="space-y-1.5 pt-1 border-t border-white/10">
+              <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
+                MARKETS & SHORTCUTS
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 text-center">
+                {[
+                  { name: 'Metals', path: '/markets/XAUUSD' },
+                  { name: 'Forex', path: '/markets/EURUSD' },
+                  { name: 'Indices', path: '/markets/US100' },
+                  { name: 'Commodities', path: '/markets/USOIL' },
+                  { name: 'Crypto', path: '/markets/BTCUSD' },
+                  { name: 'Overview', path: '/markets' },
+                ].map((item) => (
                   <Link
                     key={item.name}
                     href={item.path}
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all ${
-                      isActive
-                        ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50 shadow-[0_0_12px_rgba(34,211,238,0.3)]'
-                        : 'text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5 hover:border-cyan-500/30'
-                    }`}
+                    className="px-2 py-1.5 rounded-lg bg-black/30 hover:bg-cyan-950/40 border border-white/5 hover:border-cyan-500/30 text-[10.5px] font-medium text-gray-300 hover:text-white transition-all uppercase"
                   >
-                    <span className="flex items-center space-x-1.5">
-                      <span className="text-[11px]">{item.icon}</span>
-                      <span>{item.name}</span>
-                    </span>
-                    {item.path === '/execution' && (
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          telemetry.operatingMode === 'DEMO_EXECUTION' && isMt5Connected
-                            ? 'bg-emerald-400 animate-pulse'
-                            : isMt5Connected
-                              ? 'bg-amber-400'
-                              : 'bg-slate-500'
-                        }`}
-                      />
-                    )}
+                    {item.name}
                   </Link>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
 
-          {/* Group 2: MARKET FEEDS & SHORTCUTS */}
-          <div className="space-y-1.5 pt-1 border-t border-white/10">
-            <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
-              MARKETS & SHORTCUTS
-            </div>
-            <div className="grid grid-cols-3 gap-1.5 text-center">
-              {[
-                { name: 'Metals', path: '/markets/XAUUSD' },
-                { name: 'Forex', path: '/markets/EURUSD' },
-                { name: 'Indices', path: '/markets/US100' },
-                { name: 'Commodities', path: '/markets/USOIL' },
-                { name: 'Crypto', path: '/markets/BTCUSD' },
-                { name: 'Overview', path: '/markets' },
-              ].map((item) => (
+            {/* Group 3: ACCOUNT & SYSTEM */}
+            <div className="space-y-1.5 pt-1 border-t border-white/10">
+              <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
+                ACCOUNT & SYSTEM
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
                 <Link
-                  key={item.name}
-                  href={item.path}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="px-2 py-1.5 rounded-lg bg-black/30 hover:bg-cyan-950/40 border border-white/5 hover:border-cyan-500/30 text-[10.5px] font-medium text-gray-300 hover:text-white transition-all uppercase"
-                >
-                  {item.name}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {/* Group 3: ACCOUNT & SYSTEM */}
-          <div className="space-y-1.5 pt-1 border-t border-white/10">
-            <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
-              ACCOUNT & SYSTEM
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              <Link
-                href="/member"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all ${
-                  pathname === '/member'
-                    ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50'
-                    : 'text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5'
-                }`}
-              >
-                <span>👤</span>
-                <span>Member Portal</span>
-              </Link>
-              {isMaster && (
-                <Link
-                  href="/admin/members"
+                  href="/member"
                   onClick={() => setIsMobileMenuOpen(false)}
                   className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all ${
-                    pathname === '/admin/members'
-                      ? 'bg-amber-500/20 text-amber-200 border border-amber-400/50'
-                      : 'text-amber-300 hover:text-amber-100 bg-amber-950/30 border border-amber-500/20'
+                    pathname === '/member'
+                      ? 'bg-cyan-500/20 text-[#F8FAFC] border border-[#22D3EE]/50'
+                      : 'text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5'
                   }`}
                 >
-                  <span>👑</span>
-                  <span>Admin Console</span>
+                  <span>👤</span>
+                  <span>Member Portal</span>
                 </Link>
-              )}
-              <Link
-                href="/member/setup"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="px-3 py-2 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5 flex items-center space-x-1.5"
-              >
-                <span>⬇️</span>
-                <span>Connector Setup</span>
-              </Link>
-              <Link
-                href="/settings"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="px-3 py-2 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5 flex items-center space-x-1.5"
-              >
-                <span>⚙️</span>
-                <span>Settings</span>
-              </Link>
-            </div>
-          </div>
-
-          {/* Group 4: SUPPORT & INTEL CHANNELS */}
-          <div className="space-y-1.5 pt-1 border-t border-white/10">
-            <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
-              HELP & TELEMETRY
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Link
-                href="/how-to-use"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="flex-1 py-1.5 px-2 rounded-lg bg-black/40 border border-white/10 text-cyan-300 text-[10px] font-bold flex items-center justify-center space-x-1"
-              >
-                <span>📖</span>
-                <span>GUIDE</span>
-              </Link>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  setIsSupportOpen(true);
-                }}
-                className="flex-1 py-1.5 px-2 rounded-lg bg-black/40 border border-white/10 text-emerald-300 text-[10px] font-bold flex items-center justify-center space-x-1"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>SUPPORT</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  setIsDrawerOpen(true);
-                }}
-                className="flex-1 py-1.5 px-2 rounded-lg bg-black/40 border border-white/10 text-cyan-300 text-[10px] font-bold flex items-center justify-center space-x-1"
-              >
-                <span>RADAR</span>
-                {unreadCount > 0 && (
-                  <span className="px-1 rounded-full bg-cyan-400 text-black font-bold text-[8.5px]">
-                    {unreadCount}
-                  </span>
+                {isMaster && (
+                  <Link
+                    href="/admin/members"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all ${
+                      pathname === '/admin/members'
+                        ? 'bg-amber-500/20 text-amber-200 border border-amber-400/50'
+                        : 'text-amber-300 hover:text-amber-100 bg-amber-950/30 border border-amber-500/20'
+                    }`}
+                  >
+                    <span>👑</span>
+                    <span>Admin Console</span>
+                  </Link>
                 )}
-              </button>
+                <Link
+                  href="/member/setup"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="px-3 py-2 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5 flex items-center space-x-1.5"
+                >
+                  <span>⬇️</span>
+                  <span>Connector Setup</span>
+                </Link>
+                <Link
+                  href="/settings"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="px-3 py-2 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-[#CBD5E1] bg-black/40 border border-white/5 flex items-center space-x-1.5"
+                >
+                  <span>⚙️</span>
+                  <span>Settings</span>
+                </Link>
+              </div>
+            </div>
+
+            {/* Group 4: SUPPORT & INTEL CHANNELS */}
+            <div className="space-y-1.5 pt-1 border-t border-white/10">
+              <div className="text-[10px] text-cyan-400/80 font-mono font-bold tracking-wider uppercase px-1">
+                HELP & TELEMETRY
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Link
+                  href="/how-to-use"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="flex-1 py-1.5 px-2 rounded-lg bg-black/40 border border-white/10 text-cyan-300 text-[10px] font-bold flex items-center justify-center space-x-1"
+                >
+                  <span>📖</span>
+                  <span>GUIDE</span>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setIsSupportOpen(true);
+                  }}
+                  className="flex-1 py-1.5 px-2 rounded-lg bg-black/40 border border-white/10 text-emerald-300 text-[10px] font-bold flex items-center justify-center space-x-1"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>SUPPORT</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setIsDrawerOpen(true);
+                  }}
+                  className="flex-1 py-1.5 px-2 rounded-lg bg-black/40 border border-white/10 text-cyan-300 text-[10px] font-bold flex items-center justify-center space-x-1"
+                >
+                  <span>RADAR</span>
+                  {unreadCount > 0 && (
+                    <span className="px-1 rounded-full bg-cyan-400 text-black font-bold text-[8.5px]">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
