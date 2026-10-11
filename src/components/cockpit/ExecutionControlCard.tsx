@@ -126,7 +126,7 @@ export const LiveExecutionTelemetryPanel: React.FC = () => {
             {telemetry.account?.broker || telemetry.terminal?.brokerName || 'MT5 Standby'}
           </div>
           <span className="text-[7.5px] text-gray-500 block truncate">
-            {telemetry.terminal?.brokerServer || 'Local Bridge :5560'}
+            {telemetry.terminal?.brokerServer || 'Local Bridge :5556'}
           </span>
         </div>
 
@@ -134,7 +134,7 @@ export const LiveExecutionTelemetryPanel: React.FC = () => {
         <div className="bg-black/40 border border-white/5 rounded-xl p-2 space-y-0.5">
           <span className="text-[8px] text-gray-400 uppercase block font-bold">Bridge Transport</span>
           <div className={`text-[10px] font-bold truncate ${isMt5Connected ? 'text-emerald-300' : 'text-rose-400'}`}>
-            {isMt5Connected ? (isRemoteRelay ? 'Remote Relay Online' : 'Bridge V2 Live ⚡') : 'Bridge Offline'}
+            {isMt5Connected ? (isRemoteRelay ? 'Remote Relay Online' : 'Local Bridge Live ⚡') : 'Bridge Offline'}
           </div>
           <span className="text-[7.5px] text-gray-500 block">
             {pingMs != null ? `Broker Ping: ${pingMs}ms` : 'Latency: Synchronized'}

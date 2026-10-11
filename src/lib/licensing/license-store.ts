@@ -66,6 +66,39 @@ class LicenseStore {
           }
         }
       }
+
+      // Dual-Source Persistence: In serverless (Vercel) or containerized environments where
+      // the local filesystem is ephemeral or data files are not deployed, allow Master account
+      // to be securely hydrated from server-side environment variables if no Master exists on disk.
+      const hasMasterInStore = Array.from(this.membersCache.values()).some(m => m.role === 'MASTER');
+      if (!hasMasterInStore) {
+        const envMasterUsername = (process.env.FEF_MASTER_USERNAME || '').trim().toLowerCase();
+        const envMasterEmail = (process.env.FEF_MASTER_EMAIL || '').trim().toLowerCase();
+        const envMasterPasswordHash = (process.env.FEF_MASTER_PASSWORD_HASH || '').trim();
+        const envMasterName = (process.env.FEF_MASTER_NAME || 'Master Administrator').trim();
+
+        if (envMasterEmail && envMasterPasswordHash) {
+          const envMasterId = (process.env.FEF_MASTER_ID || 'master_89411f3884cc').trim();
+          const envMaster: MemberRecord = {
+            memberId: envMasterId,
+            email: envMasterEmail,
+            username: envMasterUsername || 'master',
+            passwordHash: envMasterPasswordHash,
+            name: envMasterName,
+            role: 'MASTER',
+            status: 'ACTIVE',
+            mustChangePassword: false,
+            assignedLicenseId: null,
+            createdAt: 1704067200000,
+            lastLoginAt: null,
+          };
+          this.membersCache.set(envMaster.memberId, envMaster);
+          this.memberEmailIndex.set(envMaster.email.toLowerCase(), envMaster.memberId);
+          if (envMaster.username) {
+            this.memberUsernameIndex.set(envMaster.username.toLowerCase(), envMaster.memberId);
+          }
+        }
+      }
     } catch (err) {
       console.error('Failed to load license or member store from disk:', err);
     }

@@ -506,9 +506,9 @@ export const CentralIntelligenceHub: React.FC = () => {
       </div>
 
       {/* Visual Hub: FEF CORTEX Compact Radial Multi-Agent Intelligence Architecture */}
-      <div className="relative py-1 w-full h-[280px] min-h-[280px] max-h-[280px] overflow-hidden flex items-center justify-center">
+      <div className="relative py-1 w-full h-[220px] sm:h-[260px] md:h-[280px] min-h-[220px] max-h-[280px] overflow-hidden flex items-center justify-center">
         {/* Proportional Radial Stage (730x280 natural space scaled smoothly to fit available container width) */}
-        <div className="relative w-[730px] h-[280px] flex-shrink-0 origin-center scale-[0.62] sm:scale-[0.82] md:scale-[0.92] xl:scale-100 transition-transform">
+        <div className="relative w-[730px] h-[280px] flex-shrink-0 origin-center scale-[0.44] min-[390px]:scale-[0.49] min-[430px]:scale-[0.55] sm:scale-[0.80] md:scale-[0.92] xl:scale-100 transition-transform">
           {/* SVG Animated Connector Tendrils & Structured Digital Pulses */}
           <HubRadialNetworkSvg
             orbitalNodes={orbitalNodeLayouts}

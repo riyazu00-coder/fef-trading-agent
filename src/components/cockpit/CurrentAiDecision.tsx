@@ -4,10 +4,12 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { useMemberAuth } from '@/context/MemberAuthContext';
 
 export const CurrentAiDecision: React.FC = () => {
   const { activeSymbol, assetProfile } = useActiveAsset();
   const { telemetry, isMt5Connected } = useMT5Telemetry();
+  const { isAuthenticated, isMaster } = useMemberAuth();
   const [status, setStatus] = useState<'IDLE' | 'APPROVED' | 'REJECTED'>('IDLE');
   const [mounted, setMounted] = useState<boolean>(false);
 
@@ -39,7 +41,13 @@ export const CurrentAiDecision: React.FC = () => {
   let buttonTitle: string | undefined = 'Trade setup review: Armed with confirmation for direct MT5 execution.';
   let supportingText: string | null = null;
 
-  if (isMarketClosed) {
+  if (!isAuthenticated && !isMaster && isActionable) {
+    buttonLabel = 'MEMBER ACCESS REQUIRED';
+    buttonIcon = '🔒';
+    buttonStyle = 'bg-cyan-950/70 text-cyan-300 border-cyan-500/40 hover:border-cyan-400 cursor-pointer shadow-[0_0_12px_rgba(34,211,238,0.2)]';
+    buttonTitle = 'Member authentication required to review trade setups and dispatch orders.';
+    supportingText = 'Sign in to access Member trade execution controls';
+  } else if (isMarketClosed) {
     buttonLabel = 'MARKET CLOSED';
     buttonIcon = '🔒';
     buttonStyle = 'bg-gray-900/80 text-gray-500 border-white/10 cursor-not-allowed opacity-80';
@@ -311,16 +319,27 @@ export const CurrentAiDecision: React.FC = () => {
       {/* Action Buttons */}
       <div className="space-y-1.5 pt-1 text-[9.5px]">
         <div className="flex items-center gap-1.5">
-          <button
-            onClick={isActionable ? () => setStatus('APPROVED') : undefined}
-            disabled={!isActionable}
-            aria-disabled={!isActionable}
-            className={`flex-1 py-1.5 rounded-xl font-black transition-all flex items-center justify-center space-x-1 border ${buttonStyle}`}
-            title={buttonTitle}
-          >
-            <span>{buttonIcon}</span>
-            <span>{buttonLabel}</span>
-          </button>
+          {!isAuthenticated && !isMaster && isActionable ? (
+            <Link
+              href="/member"
+              className={`flex-1 py-1.5 rounded-xl font-black transition-all flex items-center justify-center space-x-1 border ${buttonStyle}`}
+              title={buttonTitle}
+            >
+              <span>{buttonIcon}</span>
+              <span>{buttonLabel}</span>
+            </Link>
+          ) : (
+            <button
+              onClick={isActionable ? () => setStatus('APPROVED') : undefined}
+              disabled={!isActionable}
+              aria-disabled={!isActionable}
+              className={`flex-1 py-1.5 rounded-xl font-black transition-all flex items-center justify-center space-x-1 border ${buttonStyle}`}
+              title={buttonTitle}
+            >
+              <span>{buttonIcon}</span>
+              <span>{buttonLabel}</span>
+            </button>
+          )}
           <button
             onClick={() => {
               const calcElem = document.getElementById('smart-position-calculator') || document.querySelector('[data-card="position-calculator"]');

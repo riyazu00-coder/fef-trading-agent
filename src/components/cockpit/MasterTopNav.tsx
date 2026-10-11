@@ -227,21 +227,21 @@ export const MasterTopNav: React.FC = () => {
           </div>
 
           {/* Ask FEF AI Search Field (Responsive flexible width, clean non-absolute flex row) */}
-          <form onSubmit={handleSearchSubmit} className="relative hidden md:flex items-center flex-shrink min-w-[110px]">
+          <form onSubmit={handleSearchSubmit} className="relative hidden md:flex items-center flex-shrink min-w-[95px]">
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search CORTEX..."
-              className="bg-black/50 border border-white/10 hover:border-cyan-500/30 focus:border-cyan-400/70 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] rounded-xl pl-6 pr-5 py-1 text-[11px] text-gray-200 placeholder-gray-500 w-28 sm:w-32 lg:w-36 xl:w-40 transition-all outline-none"
+              placeholder="Search..."
+              className="bg-black/50 border border-white/10 hover:border-cyan-500/30 focus:border-cyan-400/70 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] rounded-xl pl-5 pr-4 py-1 text-[10.5px] text-gray-200 placeholder-gray-500 w-20 sm:w-24 lg:w-28 xl:w-32 transition-all outline-none"
             />
-            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-1.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3 h-3 text-gray-400 absolute left-1.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <button
               type="submit"
-              className="absolute right-1 px-1 py-0.2 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[8px] text-cyan-300 font-mono transition-colors"
+              className="absolute right-1 px-1 py-0.2 bg-cyan-950/60 hover:bg-cyan-800/80 border border-cyan-500/30 rounded text-[7.5px] text-cyan-300 font-mono transition-colors"
               title="Press / anywhere to search"
             >
               /
@@ -611,8 +611,34 @@ export const MasterTopNav: React.FC = () => {
               </span>
             )}
 
-            {/* Quick action buttons */}
-            <div className="flex items-center space-x-2">
+              {/* Quick action buttons & Portals */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Link
+                href="/member"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
+              >
+                <span>👤</span>
+                <span>MEMBER</span>
+              </Link>
+              {isMaster && (
+                <Link
+                  href="/admin/members"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="px-2 py-1 rounded-lg bg-amber-950/50 border border-amber-500/30 text-amber-300 text-[10px] font-bold flex items-center space-x-1"
+                >
+                  <span>👑</span>
+                  <span>ADMIN</span>
+                </Link>
+              )}
+              <Link
+                href="/member/setup"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center space-x-1"
+              >
+                <span>⬇️</span>
+                <span>CONNECTOR</span>
+              </Link>
               <Link
                 href="/how-to-use"
                 onClick={() => setIsMobileMenuOpen(false)}

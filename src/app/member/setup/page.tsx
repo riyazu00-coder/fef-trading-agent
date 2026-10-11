@@ -81,7 +81,7 @@ export default function MemberSetupPage() {
 
               <div className="pl-10 pt-2 flex flex-wrap gap-3">
                 <a
-                  href="/downloads/FEF_HTTP_Bridge.ex5"
+                  href="/api/downloads/connector"
                   download="FEF_HTTP_Bridge.ex5"
                   className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-black font-bold text-xs rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.35)] flex items-center space-x-2 cursor-pointer transition-all"
                 >

@@ -522,8 +522,96 @@ export const GlobalOpportunityRadar: React.FC = () => {
 
       {/* 4. Tab Views */}
       {subTab === 'RADAR_TABLE' && (
-        <div className="overflow-x-auto max-h-[520px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-cyan-500/20 rounded-xl border border-white/10 bg-black/40 relative">
-          <table className="w-full text-left font-mono text-[11px] border-collapse">
+        <>
+          {/* Mobile Card List View (Visible on screens < md) */}
+          <div className="md:hidden space-y-2 max-h-[500px] overflow-y-auto pr-1">
+            {filteredOpportunities.length === 0 ? (
+              <div className="py-6 text-center bg-black/40 rounded-xl border border-white/10 p-4">
+                <span className="text-amber-300 font-bold text-xs uppercase tracking-wider block">
+                  NO MATCHING {categoryFilter} OPPORTUNITIES
+                </span>
+                <span className="text-gray-400 text-[10px] mt-1 block">
+                  Try switching session filters or connecting additional demo instruments.
+                </span>
+              </div>
+            ) : (
+              filteredOpportunities.map((item) => {
+                const isActive = item.symbol === activeSymbol;
+                return (
+                  <div
+                    key={item.symbol}
+                    onClick={() => handleSelectAsset(item.symbol)}
+                    className={`p-3 rounded-xl border font-mono transition-all cursor-pointer space-y-2 ${
+                      isActive
+                        ? 'bg-cyan-950/40 border-cyan-400/60 shadow-[0_0_12px_rgba(34,211,238,0.15)]'
+                        : 'bg-black/40 border-white/10 hover:border-cyan-500/30'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-black text-amber-400">#{item.rank}</span>
+                        <span className="text-sm font-bold text-white">{item.symbol}</span>
+                        <span className="text-[10px] text-gray-400">{item.name}</span>
+                        {isActive && (
+                          <span className="px-1 py-0.2 rounded text-[7.5px] bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">
+                            ACTIVE
+                          </span>
+                        )}
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[9px] border ${getStateBadge(item.state)}`}>
+                        {item.state}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[9.5px] bg-black/30 p-2 rounded-lg border border-white/5">
+                      <div>
+                        <span className="text-gray-400 block text-[8px] uppercase">Opportunity Score</span>
+                        <span className="text-cyan-300 font-bold text-xs">{item.opportunityScore} / 100</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[8px] uppercase">AI Confidence</span>
+                        <span className="text-purple-300 font-bold text-xs">{item.aiConfidence}%</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[8px] uppercase">Estimated R:R</span>
+                        <span className="text-white font-bold">{item.rr}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[8px] uppercase">Risk Level</span>
+                        <span className={`font-bold ${
+                          item.riskLevel === 'LOW' ? 'text-emerald-400' :
+                          item.riskLevel === 'MEDIUM' ? 'text-yellow-400' :
+                          item.riskLevel === 'ELEVATED' ? 'text-amber-400' : 'text-rose-400'
+                        }`}>
+                          {item.riskLevel}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center space-x-1.5">
+                        <MarketStatusBadge symbol={item.symbol} size="xs" showCountdown={false} />
+                        <ExecutabilityBadge executable={item.tradeExecutable} score={item.executabilityScore} size="xs" />
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectAsset(item.symbol);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-cyan-950/70 hover:bg-cyan-800 border border-cyan-500/40 text-cyan-300 text-[10px] font-bold"
+                      >
+                        {isActive ? 'INSPECTING' : 'INSPECT'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Radar Table (Visible on screens >= md) */}
+          <div className="hidden md:block overflow-x-auto max-h-[520px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-cyan-500/20 rounded-xl border border-white/10 bg-black/40 relative">
+            <table className="w-full text-left font-mono text-[11px] border-collapse">
             <thead className="sticky top-0 z-10 bg-[#060D1E] shadow-sm">
               <tr className="border-b border-white/10 text-gray-300 text-[10px] uppercase font-bold">
                 <th className="py-2.5 px-3"># RANK</th>
@@ -651,6 +739,7 @@ export const GlobalOpportunityRadar: React.FC = () => {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* View: Developing Setups */}

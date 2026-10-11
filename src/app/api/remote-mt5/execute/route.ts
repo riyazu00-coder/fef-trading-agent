@@ -13,10 +13,46 @@ import {
   isMt5OrderTransportAllowed,
   READ_ONLY_EXECUTION_ERROR,
 } from '@/lib/execution/execution-policy';
+import { verifySessionToken } from '@/lib/licensing/member-session-token';
+import { licenseService } from '@/lib/licensing/license-service';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  // 0. Member / Master Authentication Gate
+  const sessionCookie = req.cookies.get('fef_member_session')?.value;
+  const authHeader = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+  const token = sessionCookie || authHeader;
+
+  if (!token) {
+    return NextResponse.json({
+      success: false,
+      status: 'REJECTED',
+      error: { code: 'MEMBER_AUTH_REQUIRED', message: 'Authentication required. Sign in as Member or Master to access execution.' },
+      timestamp: Date.now(),
+    }, { status: 401 });
+  }
+
+  const verified = verifySessionToken(token);
+  if (!verified.valid || !verified.memberId) {
+    return NextResponse.json({
+      success: false,
+      status: 'REJECTED',
+      error: { code: 'INVALID_SESSION', message: 'Session expired or invalid.' },
+      timestamp: Date.now(),
+    }, { status: 401 });
+  }
+
+  const member = licenseService.getMemberById(verified.memberId);
+  if (!member || member.status !== 'ACTIVE') {
+    return NextResponse.json({
+      success: false,
+      status: 'REJECTED',
+      error: { code: 'MEMBER_SUSPENDED', message: 'Account is inactive or suspended.' },
+      timestamp: Date.now(),
+    }, { status: 403 });
+  }
+
   if (!isMt5OrderTransportAllowed()) {
     return NextResponse.json({
       success: false,

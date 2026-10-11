@@ -23,7 +23,8 @@
     "bridge:service:status": "node scripts/fef-macos-service.js status",
     "bridge:service:restart": "node scripts/fef-macos-service.js restart",
     "cortex:master:create": "node scripts/cortex-master-create.js",
-    "cortex:master:reset-password": "node scripts/cortex-master-reset-password.js"
+    "cortex:master:reset-password": "node scripts/cortex-master-reset-password.js",
+    "cortex:master:provision-production": "node scripts/cortex-master-provision-production.js"
   },
   "dependencies": {
     "next": "13.5.6",

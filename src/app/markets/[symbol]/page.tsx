@@ -8,6 +8,7 @@ import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { useMemberAuth } from '@/context/MemberAuthContext';
 
 interface SymbolPageProps {
   params: Promise<{ symbol: string }>;
@@ -18,6 +19,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
   const rawSymbol = resolvedParams.symbol?.toUpperCase() || 'XAUUSD';
   const router = useRouter();
   const { activeSymbol, setActiveSymbol, activeAsset, assetProfile, timeframe, setTimeframe } = useActiveAsset();
+  const { isAuthenticated, isMaster } = useMemberAuth();
 
   useEffect(() => {
     if (rawSymbol && rawSymbol !== activeSymbol) {
@@ -315,53 +317,77 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
               </div>
 
               {/* Targets and RR Grid */}
-              <div className="space-y-2.5 text-xs">
-                <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
-                  <span className="text-gray-400">ENTRY ZONE</span>
-                  <span className="font-bold text-cyan-400 font-mono">
-                    ${assetProfile.entryZone[0].toFixed(2)} - ${assetProfile.entryZone[1].toFixed(2)}
-                  </span>
-                </div>
-
-                <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
-                  <span className="text-rose-400 font-bold">STOP LOSS</span>
-                  <span className="font-bold text-rose-400 font-mono">${assetProfile.stopLoss.toFixed(2)}</span>
-                </div>
-
-                <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 space-y-1">
-                  <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-emerald-400 font-bold">TAKE PROFIT 1</span>
-                    <span className="font-bold text-emerald-400 font-mono">${assetProfile.tp1.toFixed(2)}</span>
+              {!isAuthenticated && !isMaster ? (
+                <div className="bg-black/60 p-4 rounded-xl border border-cyan-500/30 text-center space-y-3 font-mono">
+                  <div className="w-8 h-8 rounded-full bg-cyan-950/80 border border-cyan-400/40 text-cyan-300 mx-auto flex items-center justify-center text-sm font-bold">
+                    🔒
                   </div>
-                  <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-emerald-300">TAKE PROFIT 2</span>
-                    <span className="font-bold text-emerald-300 font-mono">${assetProfile.tp2.toFixed(2)}</span>
+                  <div>
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                      MEMBER ACCESS REQUIRED
+                    </h4>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      Actionable execution levels (Entry, Stop Loss, Multi-Targets) and direct broker dispatch require member sign-in.
+                    </p>
                   </div>
-                  <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-emerald-200">TAKE PROFIT 3 (RUNNER)</span>
-                    <span className="font-bold text-emerald-200 font-mono">${assetProfile.tp3.toFixed(2)}</span>
+                  <Link
+                    href="/member"
+                    className="inline-block w-full py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl transition-all shadow-[0_0_15px_rgba(34,211,238,0.3)]"
+                  >
+                    SIGN IN TO ACCESS EXECUTION
+                  </Link>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2.5 text-xs">
+                    <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
+                      <span className="text-gray-400">ENTRY ZONE</span>
+                      <span className="font-bold text-cyan-400 font-mono">
+                        ${assetProfile.entryZone[0].toFixed(2)} - ${assetProfile.entryZone[1].toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
+                      <span className="text-rose-400 font-bold">STOP LOSS</span>
+                      <span className="font-bold text-rose-400 font-mono">${assetProfile.stopLoss.toFixed(2)}</span>
+                    </div>
+
+                    <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 space-y-1">
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-emerald-400 font-bold">TAKE PROFIT 1</span>
+                        <span className="font-bold text-emerald-400 font-mono">${assetProfile.tp1.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-emerald-300">TAKE PROFIT 2</span>
+                        <span className="font-bold text-emerald-300 font-mono">${assetProfile.tp2.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-emerald-200">TAKE PROFIT 3 (RUNNER)</span>
+                        <span className="font-bold text-emerald-200 font-mono">${assetProfile.tp3.toFixed(2)}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs px-1">
+                      <span className="text-gray-400">RISK / REWARD:</span>
+                      <span className="font-bold text-purple-400">{assetProfile.rr}</span>
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex items-center justify-between text-xs px-1">
-                  <span className="text-gray-400">RISK / REWARD:</span>
-                  <span className="font-bold text-purple-400">{assetProfile.rr}</span>
-                </div>
-              </div>
+                  {/* Invalidation Clause */}
+                  <div className="bg-rose-950/20 border border-rose-500/30 p-2.5 rounded-xl text-[11px] text-rose-300">
+                    <span className="font-bold block text-rose-400 mb-0.5">⚠️ INVALIDATION THRESHOLD:</span>
+                    {assetProfile.invalidation}
+                  </div>
 
-              {/* Invalidation Clause */}
-              <div className="bg-rose-950/20 border border-rose-500/30 p-2.5 rounded-xl text-[11px] text-rose-300">
-                <span className="font-bold block text-rose-400 mb-0.5">⚠️ INVALIDATION THRESHOLD:</span>
-                {assetProfile.invalidation}
-              </div>
-
-              {/* Quick Action Button */}
-              <button
-                onClick={handleSendToExecution}
-                className="w-full bg-gradient-to-r from-cyan-500/30 via-emerald-500/30 to-purple-500/30 hover:from-cyan-500/40 hover:via-emerald-500/40 hover:to-purple-500/40 border border-cyan-500/50 text-white font-bold py-2.5 rounded-xl text-xs tracking-wider transition-all shadow-lg"
-              >
-                EXECUTE ORDER WITH RISK BUDGET &rarr;
-              </button>
+                  {/* Quick Action Button */}
+                  <button
+                    onClick={handleSendToExecution}
+                    className="w-full bg-gradient-to-r from-cyan-500/30 via-emerald-500/30 to-purple-500/30 hover:from-cyan-500/40 hover:via-emerald-500/40 hover:to-purple-500/40 border border-cyan-500/50 text-white font-bold py-2.5 rounded-xl text-xs tracking-wider transition-all shadow-lg"
+                  >
+                    EXECUTE ORDER WITH RISK BUDGET &rarr;
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Why This Trade & Opposing Risks */}
