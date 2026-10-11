@@ -143,11 +143,21 @@ export default function MemberPortalPage() {
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
                 <span className="text-gray-400 uppercase tracking-wider text-[11px]">3. MT5 Connector</span>
                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                  isMt5Connected
+                  isMt5Connected && (isLocalBridgeOnline || telemetry.account?.broker)
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : isLocalBridgeOnline
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                    : telemetry.connectionStatus === 'DEGRADED'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                     : 'bg-gray-800 text-gray-400'
                 }`}>
-                  {isMt5Connected ? 'CONNECTED' : isLocalBridgeOnline ? 'BRIDGE ONLINE (NO MT5)' : 'NOT DETECTED'}
+                  {isMt5Connected && (isLocalBridgeOnline || telemetry.account?.broker)
+                    ? 'CONNECTED'
+                    : isLocalBridgeOnline
+                    ? 'BRIDGE ONLINE (NO MT5)'
+                    : telemetry.connectionStatus === 'DEGRADED'
+                    ? 'DEGRADED / RECONNECTING'
+                    : 'WAITING FOR MT5'}
                 </span>
               </div>
 

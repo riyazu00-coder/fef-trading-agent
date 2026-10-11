@@ -330,10 +330,10 @@ export const MasterTopNav: React.FC = () => {
             </Link>
           )}
 
-          {/* 2. Data Sentinel System Integrity Badge (Clickable to System Integrity deck) */}
+          {/* 2. Data Sentinel System Integrity Badge (Compact / tuck to 2xl so primary badges breathe) */}
           <Link
             href="/cockpit#sentinel-deck"
-            className={`inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl font-mono text-[9px] border whitespace-nowrap flex-shrink-0 cursor-pointer transition-all ${
+            className={`hidden 2xl:inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl font-mono text-[9px] border whitespace-nowrap flex-shrink-0 cursor-pointer transition-all ${
               assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
                 ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:border-emerald-400'
                 : telemetry.connectionStatus === 'DEGRADED'
@@ -356,9 +356,7 @@ export const MasterTopNav: React.FC = () => {
                 : 'bg-slate-500'
             }`} />
             <span className="font-bold tracking-wider">
-              <span className="hidden xl:inline">SENTINEL: </span>
-              <span className="xl:hidden">SNTL: </span>
-              {assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
+              SENTINEL: {assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
                 ? 'HEALTHY'
                 : telemetry.connectionStatus === 'DEGRADED'
                 ? 'DEGRADED'
@@ -425,24 +423,13 @@ export const MasterTopNav: React.FC = () => {
               </div>
             );
           })()}
-
-          {/* 5. Real Interactive TradingView Advanced Chart Workbench Trigger */}
-          <Link
-            href="/tradingview"
-            className="inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl font-mono text-[9px] bg-cyan-950/40 border border-cyan-400/50 hover:border-cyan-300 text-cyan-200 hover:text-white shadow-[0_0_10px_rgba(34,211,238,0.2)] whitespace-nowrap flex-shrink-0 cursor-pointer transition-all"
-            title="Open Dedicated Full-Screen TradingView Advanced Chart Workspace (/tradingview)"
-          >
-            <span className="text-[10px]">📈</span>
-            <span className="font-bold tracking-wider hidden 2xl:inline">TRADINGVIEW</span>
-            <span className="font-bold tracking-wider 2xl:hidden">TV</span>
-          </Link>
         </div>
 
         {/* =========================================================================
-            SECTION 3 (FAR RIGHT): ACTIONS (BELL + AVATAR + MOBILE HAMBURGER)
+            SECTION 3 (FAR RIGHT): ACTIONS (BELL + AVATAR + MOBILE DIRECT AUTH + MOBILE HAMBURGER)
            ========================================================================= */}
         <div className="flex items-center gap-1 xl:gap-1.5 border-l border-white/10 pl-1.5 xl:pl-2 ml-1 xl:ml-1.5 flex-shrink-0">
-          {/* Master Admin Console link (MASTER ONLY) */}
+          {/* Master Admin Console link (MASTER ONLY - Desktop) */}
           {isMaster && (
             <Link
               href="/admin/members"
@@ -454,20 +441,20 @@ export const MasterTopNav: React.FC = () => {
             </Link>
           )}
 
-          {/* Member Portal Trigger */}
+          {/* Member Portal Trigger (Desktop) */}
           <Link
             href="/member"
-            className="inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white font-mono text-[9px] font-bold transition-all cursor-pointer shadow-[0_0_8px_rgba(34,211,238,0.15)] flex-shrink-0"
+            className="hidden sm:inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white font-mono text-[9px] font-bold transition-all cursor-pointer shadow-[0_0_8px_rgba(34,211,238,0.15)] flex-shrink-0"
             title="Member Portal • License Details & MT5 Setup"
           >
             <span>👤</span>
-            <span className="hidden sm:inline">MEMBER</span>
+            <span>MEMBER</span>
           </Link>
 
           {/* How to Use / Onboarding Quick Help Trigger */}
           <Link
             href="/how-to-use"
-            className="inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white font-mono text-[9px] font-bold transition-all cursor-pointer shadow-[0_0_8px_rgba(34,211,238,0.15)] flex-shrink-0"
+            className="hidden sm:inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white font-mono text-[9px] font-bold transition-all cursor-pointer shadow-[0_0_8px_rgba(34,211,238,0.15)] flex-shrink-0"
             title="How to Use FEF CORTEX • Onboarding Guide & System Philosophy"
           >
             <span className="text-cyan-400 font-extrabold text-[10px]">?</span>
@@ -477,12 +464,32 @@ export const MasterTopNav: React.FC = () => {
           {/* Official Contact & Support Desk Trigger */}
           <button
             onClick={() => setIsSupportOpen(true)}
-            className="inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl bg-black/45 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-cyan-200 font-mono text-[9px] font-bold transition-all cursor-pointer shadow-sm flex-shrink-0"
+            className="hidden md:inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl bg-black/45 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-400/50 text-gray-300 hover:text-cyan-200 font-mono text-[9px] font-bold transition-all cursor-pointer shadow-sm flex-shrink-0"
             title="Official FEF Contact Desk (WhatsApp, Telegram, Email, Website)"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span>CONTACT</span>
           </button>
+
+          {/* Mobile Top-Header Direct Access Button (LOGIN / MEMBER / MASTER) */}
+          <Link
+            href="/member"
+            className={`lg:hidden inline-flex items-center space-x-1 px-2.5 py-1.5 min-h-[36px] rounded-xl font-mono text-[10px] font-extrabold border transition-all cursor-pointer flex-shrink-0 shadow-sm ${
+              isMaster
+                ? 'bg-amber-950/60 border-amber-500/60 text-amber-300 hover:border-amber-400 hover:text-white shadow-[0_0_8px_rgba(245,158,11,0.25)]'
+                : isAuthenticated
+                ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-300 hover:border-emerald-400 hover:text-white shadow-[0_0_8px_rgba(16,185,129,0.2)]'
+                : 'bg-cyan-950/60 border-cyan-400/60 text-cyan-300 hover:border-cyan-300 hover:text-white shadow-[0_0_8px_rgba(34,211,238,0.25)]'
+            }`}
+            title="Direct Authentication & Portal Access"
+          >
+            <span className="text-[11px] leading-none">
+              {isMaster ? '👑' : isAuthenticated ? '👤' : '⚡'}
+            </span>
+            <span className="tracking-wide">
+              {isMaster ? 'MASTER' : isAuthenticated ? 'MEMBER' : 'LOGIN'}
+            </span>
+          </Link>
 
           {/* Notification Bell & Radar Alert Trigger */}
           <button
@@ -501,8 +508,6 @@ export const MasterTopNav: React.FC = () => {
               <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-cyan-400/60" />
             )}
           </button>
-
-
 
           {/* Mobile Hamburger Menu Trigger */}
           <button
