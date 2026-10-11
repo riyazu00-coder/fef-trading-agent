@@ -9,6 +9,7 @@ import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilt
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMemberAuth } from '@/context/MemberAuthContext';
+import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 
 interface SymbolPageProps {
   params: { symbol: string } | Promise<{ symbol: string }>;
@@ -70,37 +71,40 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black overflow-x-hidden">
+    <div className="relative min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col font-sans selection:bg-[#22D3EE] selection:text-black">
       {/* Static Premium CORTEX Visual Foundation */}
       <BackgroundLiveChart symbol={rawSymbol} isPositive={isPos} />
 
       {/* Main Container */}
-      <div className="relative z-10 flex flex-col p-2 sm:p-4 space-y-4 w-full max-w-[1920px] mx-auto">
+      <div className="relative z-10 flex flex-col p-2 sm:p-4 space-y-4 w-full max-w-[1920px] mx-auto min-w-0">
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
         {/* Top Breadcrumb & Asset Banner */}
-        <div className="ghost-glass-panel rounded-2xl p-5 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center space-x-3">
+        <div className="ghost-glass-panel rounded-2xl p-3.5 sm:p-5 space-y-4 min-w-0 overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center space-x-2 text-xs flex-wrap">
               <Link
                 href="/markets"
-                className="text-xs bg-white/5 hover:bg-white/10 border border-white/[0.08] text-[#CBD5E1] hover:text-[#F8FAFC] px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition-colors font-sans"
+                className="bg-white/5 hover:bg-white/10 border border-white/[0.08] text-[#CBD5E1] hover:text-[#F8FAFC] px-2.5 sm:px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition-colors font-sans"
               >
                 <span>&larr;</span>
-                <span>BACK TO MARKETS DIRECTORY</span>
+                <span className="hidden sm:inline">BACK TO </span>
+                <span>MARKETS</span>
               </Link>
-              <span className="text-[#64748B] text-xs">/</span>
-              <span className="text-[#67E8F9] font-bold text-xs tracking-wider font-mono">{rawSymbol} INSTITUTIONAL DEEP DIVE</span>
+              <span className="text-[#64748B]">/</span>
+              <span className="text-[#67E8F9] font-bold tracking-wider font-mono">
+                {rawSymbol} <span className="hidden sm:inline">INSTITUTIONAL </span>DEEP DIVE
+              </span>
             </div>
 
             {/* Quick Action Navigation */}
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               {!isAuthenticated && !isMaster ? (
                 <>
                   <Link
                     href="/member"
-                    className="bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all"
+                    className="bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 text-[10px] sm:text-xs px-2.5 sm:px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all"
                     title="Member login required for direct broker execution"
                   >
                     <span>🔒</span>
@@ -108,7 +112,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                   </Link>
                   <Link
                     href="/member"
-                    className="bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/40 text-cyan-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all"
+                    className="bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/40 text-cyan-300 text-[10px] sm:text-xs px-2.5 sm:px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all"
                     title="Member login required for Vision AI analyzer"
                   >
                     <span>🔒</span>
@@ -119,14 +123,14 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                 <>
                   <button
                     onClick={handleSendToExecution}
-                    className="bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                    className="bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 text-[10px] sm:text-xs px-2.5 sm:px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)]"
                   >
                     <span>⚡</span>
                     <span>SEND TO EXECUTION</span>
                   </button>
                   <button
                     onClick={handleAnalyzeInVision}
-                    className="bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/50 text-cyan-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(6,182,212,0.2)]"
+                    className="bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/50 text-cyan-300 text-[10px] sm:text-xs px-2.5 sm:px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(6,182,212,0.2)]"
                   >
                     <span>👁️</span>
                     <span>VISION AI ANALYZER</span>
@@ -135,7 +139,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
               )}
               <Link
                 href="/cockpit"
-                className="bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all"
+                className="bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-300 text-[10px] sm:text-xs px-2.5 sm:px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all"
               >
                 <span>🎛️</span>
                 <span>COCKPIT VIEW</span>
@@ -144,14 +148,15 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
           </div>
 
           {/* Primary Asset Live Quote Row */}
-          <div className="flex flex-wrap items-end justify-between gap-4 pt-2 border-t border-white/5">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 pt-2 border-t border-white/5">
             <div>
-              <div className="flex items-center space-x-2">
-                <h1 className="text-3xl font-black text-white tracking-wider">{rawSymbol}</h1>
-                <span className="text-[10px] bg-cyan-950/60 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-bold">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-wider">{rawSymbol}</h1>
+                <span className="text-[10px] bg-cyan-950/60 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-bold font-mono uppercase">
                   {assetProfile.category}
                 </span>
-                <span className="text-[10px] bg-emerald-950/60 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded font-bold">
+                <MarketStatusBadge symbol={rawSymbol} size="xs" showCountdown={true} />
+                <span className="text-[10px] bg-emerald-950/60 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded font-bold font-mono uppercase">
                   BROKER FEED VERIFIED
                 </span>
               </div>
@@ -159,14 +164,14 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
             </div>
 
             {/* Live Price Block */}
-            <div className="flex items-baseline space-x-4">
+            <div className="flex items-baseline justify-between sm:justify-end gap-3 font-mono">
               <div>
-                <span className="text-xs text-gray-400 block text-right font-mono">LIVE BID/ASK</span>
-                <span className="text-3xl font-black text-white font-mono tracking-tight">
+                <span className="text-[10px] text-gray-400 block text-left sm:text-right">LIVE PRICE</span>
+                <span className="text-2xl sm:text-3xl font-black text-white tracking-tight">
                   ${p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                 </span>
               </div>
-              <div className={`text-sm font-bold font-mono px-2.5 py-1 rounded-lg border ${
+              <div className={`text-xs sm:text-sm font-bold px-2.5 py-1 rounded-lg border ${
                 isPos 
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
                   : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
@@ -176,55 +181,77 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
             </div>
           </div>
 
+          {/* Live Quote Mini Strip: BID, ASK, SPREAD */}
+          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 text-center font-mono">
+            <div className="bg-black/30 border border-white/5 p-2 rounded-lg">
+              <span className="text-[9.5px] text-gray-400 block">BID</span>
+              <span className="text-xs font-bold text-white">
+                ${(activeAsset.bid || p).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+              </span>
+            </div>
+            <div className="bg-black/30 border border-white/5 p-2 rounded-lg">
+              <span className="text-[9.5px] text-gray-400 block">ASK</span>
+              <span className="text-xs font-bold text-white">
+                ${(activeAsset.ask || p).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+              </span>
+            </div>
+            <div className="bg-black/30 border border-white/5 p-2 rounded-lg">
+              <span className="text-[9.5px] text-gray-400 block">SPREAD</span>
+              <span className="text-xs font-bold text-cyan-300">
+                {activeAsset.spread}
+              </span>
+            </div>
+          </div>
+
           {/* Key Metric Tags */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 pt-3 text-xs">
-            <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 pt-1 text-xs">
+            <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
               <span className="text-gray-400 text-[10px] block">SPREAD</span>
-              <span className="text-white font-bold font-mono text-sm">{activeAsset.spread}</span>
+              <span className="text-white font-bold font-mono text-xs sm:text-sm">{activeAsset.spread}</span>
             </div>
-            <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
+            <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
               <span className="text-gray-400 text-[10px] block">24H HIGH</span>
-              <span className="text-emerald-400 font-bold font-mono text-sm">${activeAsset.high24h.toLocaleString()}</span>
+              <span className="text-emerald-400 font-bold font-mono text-xs sm:text-sm">${activeAsset.high24h.toLocaleString()}</span>
             </div>
-            <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
+            <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
               <span className="text-gray-400 text-[10px] block">24H LOW</span>
-              <span className="text-rose-400 font-bold font-mono text-sm">${activeAsset.low24h.toLocaleString()}</span>
+              <span className="text-rose-400 font-bold font-mono text-xs sm:text-sm">${activeAsset.low24h.toLocaleString()}</span>
             </div>
-            <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
-              <span className="text-gray-400 text-[10px] block">CURRENT SESSION</span>
-              <span className="text-amber-400 font-bold font-mono text-xs truncate block">{assetProfile.session}</span>
+            <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
+              <span className="text-gray-400 text-[10px] block">SESSION</span>
+              <span className="text-amber-400 font-bold font-mono text-[11px] sm:text-xs truncate block">{assetProfile.session}</span>
             </div>
-            <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
+            <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
               <span className="text-gray-400 text-[10px] block">VOLATILITY (ATR)</span>
-              <span className="text-purple-400 font-bold font-mono text-xs truncate block">{assetProfile.volatility}</span>
+              <span className="text-purple-400 font-bold font-mono text-[11px] sm:text-xs truncate block">{assetProfile.volatility}</span>
             </div>
-            <div className="bg-black/40 border border-white/5 p-2.5 rounded-xl">
-              <span className="text-gray-400 text-[10px] block">SWARM CONSENSUS</span>
-              <span className="text-cyan-400 font-bold font-mono text-sm">{assetProfile.confidence}% {assetProfile.setupDirection}</span>
+            <div className="bg-black/40 border border-white/5 p-2 sm:p-2.5 rounded-xl min-w-0">
+              <span className="text-gray-400 text-[10px] block">CONSENSUS</span>
+              <span className="text-cyan-400 font-bold font-mono text-[11px] sm:text-xs truncate block">{assetProfile.confidence}% {assetProfile.setupDirection}</span>
             </div>
           </div>
         </div>
 
         {/* Multi-Timeframe Structural Analysis */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 font-mono">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 font-mono min-w-0">
           {/* Left 2 Cols: Multi-Timeframe Matrix & Key Levels */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="lg:col-span-2 space-y-4 min-w-0">
             {/* Multi-Timeframe Grid */}
-            <div className="bg-[#080d19]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] space-y-4">
-              <div className="flex items-center justify-between border-b border-white/5 pb-3">
+            <div className="bg-[#080d19]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-3.5 sm:p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] space-y-4 min-w-0 overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 border-b border-white/5 pb-3">
                 <div className="flex items-center space-x-2">
                   <span className="text-cyan-400">📊</span>
-                  <h2 className="text-sm font-black text-white uppercase tracking-wider">
+                  <h2 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider">
                     MULTI-TIMEFRAME CONFLUENCE MATRIX
                   </h2>
                 </div>
                 {/* Timeframe Selector */}
-                <div className="flex items-center space-x-1 bg-black/40 p-1 rounded-lg border border-white/5">
+                <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5 overflow-x-auto scrollbar-none max-w-full">
                   {timeframes.map((tf) => (
                     <button
                       key={tf}
                       onClick={() => setTimeframe(tf)}
-                      className={`text-[10px] px-2 py-0.5 rounded font-bold transition-all ${
+                      className={`text-[10px] px-2 py-0.5 rounded font-bold transition-all cursor-pointer whitespace-nowrap ${
                         timeframe === tf
                           ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50'
                           : 'text-gray-400 hover:text-white'
@@ -236,8 +263,58 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                 </div>
               </div>
 
-              {/* Table of Timeframe Confluence */}
-              <div className="overflow-x-auto">
+              {/* Mobile View: Compact Responsive Timeframe Cards (Zero Horizontal Overflow) */}
+              <div className="md:hidden space-y-2">
+                {multiTfMatrix.map((row) => (
+                  <div
+                    key={row.tf}
+                    onClick={() => setTimeframe(row.tf)}
+                    className={`bg-black/40 border rounded-xl p-2.5 sm:p-3 space-y-1.5 transition-all cursor-pointer ${
+                      timeframe === row.tf
+                        ? 'border-cyan-500/60 bg-cyan-950/20 shadow-[0_0_12px_rgba(34,211,238,0.15)]'
+                        : 'border-white/5 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        {timeframe === row.tf && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />}
+                        <span className="font-bold text-white text-xs">{row.tf}</span>
+                        <span className="text-[9px] text-gray-400 font-sans">STRUCTURE</span>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <span className={`text-[9.5px] px-2 py-0.5 rounded font-bold ${
+                          row.trend === 'BULLISH'
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                            : row.trend === 'BEARISH'
+                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                        }`}>
+                          {row.trend}
+                        </span>
+                        <span className="text-[8.5px] text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-1.5 py-0.5 rounded font-bold">
+                          SYNC
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-[11px] text-gray-300 font-mono flex items-center justify-between">
+                      <span className="text-gray-400 text-[10px]">SMC:</span>
+                      <span className="font-semibold text-[#67E8F9] truncate pl-2">{row.smc}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] pt-1 border-t border-white/5 text-gray-400">
+                      <div>RSI: <span className="text-cyan-300 font-bold">{row.rsi}</span></div>
+                      <div>VOL: <span className="text-purple-300 font-bold">{row.volume}</span></div>
+                      <div className="text-[8.5px] text-gray-400 font-mono">
+                        {timeframe === row.tf ? 'ACTIVE TF' : 'TAP TO SELECT'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop View: Full Institutional Confluence Table */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-xs text-left">
                   <thead className="text-[10px] text-gray-400 border-b border-white/5 bg-white/[0.02]">
                     <tr>
@@ -251,7 +328,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                   </thead>
                   <tbody className="divide-y divide-white/5 text-gray-300">
                     {multiTfMatrix.map((row) => (
-                      <tr key={row.tf} className={`hover:bg-white/[0.02] transition-colors ${timeframe === row.tf ? 'bg-cyan-500/5' : ''}`}>
+                      <tr key={row.tf} className={`hover:bg-white/[0.02] transition-colors cursor-pointer ${timeframe === row.tf ? 'bg-cyan-500/5' : ''}`} onClick={() => setTimeframe(row.tf)}>
                         <td className="py-2.5 px-3 font-bold text-white flex items-center space-x-1.5">
                           {timeframe === row.tf && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />}
                           <span>{row.tf}</span>
@@ -283,55 +360,55 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
             </div>
 
             {/* Smart Money Structure & Key Levels */}
-            <div className="bg-[#080d19]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] space-y-4">
+            <div className="bg-[#080d19]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-3.5 sm:p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] space-y-4 min-w-0 overflow-hidden">
               <div className="flex items-center space-x-2 border-b border-white/5 pb-3">
                 <span className="text-purple-400">🎯</span>
-                <h2 className="text-sm font-black text-white uppercase tracking-wider">
+                <h2 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider">
                   INSTITUTIONAL PRICE LEVELS & LIQUIDITY MAP
                 </h2>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-xs">
                 {/* Resistance Zones */}
-                <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3.5 space-y-2">
-                  <div className="text-[11px] font-bold text-rose-400 uppercase tracking-wider flex items-center justify-between">
+                <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 sm:p-3.5 space-y-2 min-w-0">
+                  <div className="text-[10.5px] sm:text-[11px] font-bold text-rose-400 uppercase tracking-wider flex flex-wrap items-center justify-between gap-1">
                     <span>OVERHEAD SUPPLY / RESISTANCE</span>
                     <span className="text-[9px] bg-rose-500/20 px-1.5 py-0.5 rounded">BEARISH LIQUIDITY</span>
                   </div>
                   <div className="space-y-1.5 text-[11px]">
-                    <div className="flex justify-between py-1 border-b border-rose-500/10">
-                      <span className="text-gray-400">R3 (Macro Liquidity Pool)</span>
-                      <span className="font-bold text-white font-mono">${(p * 1.018).toFixed(2)}</span>
+                    <div className="flex items-center justify-between py-1.5 gap-2 border-b border-rose-500/10">
+                      <span className="text-gray-400 text-[10.5px] truncate">R3 (Macro Liquidity Pool)</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 1.018).toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-rose-500/10">
-                      <span className="text-gray-400">R2 (H4 Bearish Order Block)</span>
-                      <span className="font-bold text-white font-mono">${(p * 1.010).toFixed(2)}</span>
+                    <div className="flex items-center justify-between py-1.5 gap-2 border-b border-rose-500/10">
+                      <span className="text-gray-400 text-[10.5px] truncate">R2 (H4 Bearish Order Block)</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 1.010).toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between py-1">
-                      <span className="text-gray-400">R1 (Previous Day High Sweep)</span>
-                      <span className="font-bold text-white font-mono">${(p * 1.004).toFixed(2)}</span>
+                    <div className="flex items-center justify-between py-1.5 gap-2">
+                      <span className="text-gray-400 text-[10.5px] truncate">R1 (Previous Day High Sweep)</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 1.004).toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Support Zones */}
-                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3.5 space-y-2">
-                  <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center justify-between">
+                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 sm:p-3.5 space-y-2 min-w-0">
+                  <div className="text-[10.5px] sm:text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex flex-wrap items-center justify-between gap-1">
                     <span>DEMAND ZONES / SUPPORT</span>
                     <span className="text-[9px] bg-emerald-500/20 px-1.5 py-0.5 rounded">BULLISH LIQUIDITY</span>
                   </div>
                   <div className="space-y-1.5 text-[11px]">
-                    <div className="flex justify-between py-1 border-b border-emerald-500/10">
-                      <span className="text-gray-400">S1 (M15 Mitigation Block)</span>
-                      <span className="font-bold text-white font-mono">${(p * 0.996).toFixed(2)}</span>
+                    <div className="flex items-center justify-between py-1.5 gap-2 border-b border-emerald-500/10">
+                      <span className="text-gray-400 text-[10.5px] truncate">S1 (M15 Mitigation Block)</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 0.996).toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-emerald-500/10">
-                      <span className="text-gray-400">S2 (H1 Fair Value Gap)</span>
-                      <span className="font-bold text-white font-mono">${(p * 0.991).toFixed(2)}</span>
+                    <div className="flex items-center justify-between py-1.5 gap-2 border-b border-emerald-500/10">
+                      <span className="text-gray-400 text-[10.5px] truncate">S2 (H1 Fair Value Gap)</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 0.991).toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between py-1">
-                      <span className="text-gray-400">S3 (Weekly Low Institutional Base)</span>
-                      <span className="font-bold text-white font-mono">${(p * 0.984).toFixed(2)}</span>
+                    <div className="flex items-center justify-between py-1.5 gap-2">
+                      <span className="text-gray-400 text-[10.5px] truncate">S3 (Weekly Low Institutional Base)</span>
+                      <span className="font-bold text-white font-mono shrink-0 text-xs">${(p * 0.984).toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -340,9 +417,9 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
           </div>
 
           {/* Right Col: Active Swarm Trade Setup */}
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             {/* Active Setup Card */}
-            <div className="bg-[#080d19]/85 backdrop-blur-xl border border-cyan-500/30 rounded-2xl p-5 shadow-[0_8px_32px_0_rgba(6,182,212,0.15)] space-y-4">
+            <div className="bg-[#080d19]/85 backdrop-blur-xl border border-cyan-500/30 rounded-2xl p-3.5 sm:p-5 shadow-[0_8px_32px_0_rgba(6,182,212,0.15)] space-y-4 min-w-0 overflow-hidden">
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center space-x-2">
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
@@ -357,7 +434,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
 
               {/* Targets and RR Grid */}
               {!isAuthenticated && !isMaster ? (
-                <div className="bg-black/60 p-5 rounded-xl border border-cyan-500/30 text-center space-y-3 font-mono">
+                <div className="bg-black/60 p-4 sm:p-5 rounded-xl border border-cyan-500/30 text-center space-y-3 font-mono">
                   <div className="w-10 h-10 rounded-full bg-cyan-950/80 border border-cyan-400/40 text-cyan-300 mx-auto flex items-center justify-center text-base font-bold">
                     🔒
                   </div>
@@ -433,15 +510,15 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
             </div>
 
             {/* Why This Trade & Opposing Risks */}
-            <div className="bg-[#080d19]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] space-y-3">
+            <div className="bg-[#080d19]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-3.5 sm:p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] space-y-3 min-w-0 overflow-hidden">
               <h3 className="text-xs font-black text-emerald-400 uppercase tracking-wider">
                 ✓ WHY THIS TRADE (CONFLUENCE)
               </h3>
               <ul className="space-y-1.5 text-[11px] text-gray-300">
                 {assetProfile.whyThisTrade.map((point, idx) => (
                   <li key={idx} className="flex items-start space-x-2">
-                    <span className="text-emerald-400 mt-0.5">&bull;</span>
-                    <span>{point}</span>
+                    <span className="text-emerald-400 mt-0.5 shrink-0">&bull;</span>
+                    <span className="break-words leading-relaxed">{point}</span>
                   </li>
                 ))}
               </ul>
@@ -452,8 +529,8 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
               <ul className="space-y-1.5 text-[11px] text-gray-300">
                 {assetProfile.opposingRisks.map((risk, idx) => (
                   <li key={idx} className="flex items-start space-x-2">
-                    <span className="text-rose-400 mt-0.5">&bull;</span>
-                    <span>{risk}</span>
+                    <span className="text-rose-400 mt-0.5 shrink-0">&bull;</span>
+                    <span className="break-words leading-relaxed">{risk}</span>
                   </li>
                 ))}
               </ul>
@@ -462,27 +539,27 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
         </div>
 
         {/* 15-Agent Consensus Breakdown Grid */}
-        <div className="bg-[#080d19]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] font-mono space-y-4">
-          <div className="flex items-center justify-between border-b border-white/5 pb-3">
+        <div className="bg-[#080d19]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-3.5 sm:p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] font-mono space-y-4 min-w-0 overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 border-b border-white/5 pb-3">
             <div>
-              <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center space-x-2">
+              <h2 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider flex items-center space-x-2">
                 <span>🤖</span>
                 <span>15-AGENT COUNCIL DELIBERATION MATRIX FOR {rawSymbol}</span>
               </h2>
-              <p className="text-xs text-gray-400 mt-0.5">
+              <p className="text-[11px] sm:text-xs text-gray-400 mt-0.5">
                 Independent agent telemetry, individual confidence ratings, evidence citations, and invalidations.
               </p>
             </div>
             <Link
               href="/agents"
-              className="text-xs text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 px-3 py-1.5 rounded-lg bg-cyan-950/30 transition-colors"
+              className="text-xs text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 px-3 py-1.5 rounded-lg bg-cyan-950/30 transition-colors shrink-0 w-fit"
             >
               VIEW FULL AGENTS REGISTRY &rarr;
             </Link>
           </div>
 
           {!isAuthenticated && !isMaster ? (
-            <div className="bg-black/60 p-6 rounded-xl border border-cyan-500/30 text-center space-y-3 font-mono">
+            <div className="bg-black/60 p-4 sm:p-6 rounded-xl border border-cyan-500/30 text-center space-y-3 font-mono">
               <div className="w-10 h-10 rounded-full bg-cyan-950/80 border border-cyan-400/40 text-cyan-300 mx-auto flex items-center justify-center text-base font-bold">
                 🔒
               </div>
@@ -493,7 +570,7 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                 <h3 className="text-xs font-black text-white uppercase tracking-wider mt-0.5">
                   PROPRIETARY AGENT EVIDENCE & DELIBERATION
                 </h3>
-                <p className="text-[11px] text-gray-400 font-sans mt-1 leading-relaxed max-w-lg mx-auto">
+                <p className="text-[10.5px] sm:text-[11px] text-gray-400 font-sans mt-1 leading-relaxed max-w-lg mx-auto">
                   Detailed CORTEX agent evidence citations, independent agent voting telemetry, confidence weighting, and evidence provenance are available to FEF CORTEX members.
                 </p>
               </div>
@@ -511,11 +588,11 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
               {assetProfile.agents.map((ag) => (
                 <div
                   key={ag.name}
-                  className="bg-black/40 border border-white/5 hover:border-cyan-500/30 rounded-xl p-3.5 space-y-2 transition-all"
+                  className="bg-black/40 border border-white/5 hover:border-cyan-500/30 rounded-xl p-3 sm:p-3.5 space-y-2 transition-all min-w-0"
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-xs text-white truncate">{ag.name}</span>
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0 ${
                       ag.bias === 'BULLISH'
                         ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                         : ag.bias === 'BEARISH'
@@ -526,11 +603,11 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
                     </span>
                   </div>
                   <div className="text-[10px] text-gray-400">{ag.role}</div>
-                  <div className="text-[11px] text-gray-200 border-l-2 border-cyan-500/40 pl-2 py-0.5">
+                  <div className="text-[11px] text-gray-200 border-l-2 border-cyan-500/40 pl-2 py-0.5 leading-relaxed break-words">
                     &ldquo;{ag.lastOpinion}&rdquo;
                   </div>
                   {ag.keyRisk && (
-                    <div className="text-[10px] text-rose-400/80">
+                    <div className="text-[10px] text-rose-400/80 leading-relaxed break-words">
                       <span className="font-semibold">Risk:</span> {ag.keyRisk}
                     </div>
                   )}
