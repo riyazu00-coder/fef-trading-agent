@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { BackgroundLiveChart } from '@/components/charts/BackgroundLiveChart';
 import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
@@ -14,15 +14,35 @@ import {
   MarketDefinition
 } from '@/lib/registry/market-registry';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
-import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 
-export default function MarketsPage() {
+function MarketsPageContent() {
   const router = useRouter();
-  const { setActiveSymbol, activeSymbol, allAssets } = useActiveAsset();
+  const searchParams = useSearchParams();
+  const { setActiveSymbol, activeSymbol, allAssets, setCategoryFilter } = useActiveAsset();
   const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
-  const categories = ['ALL', 'METALS', 'FOREX', 'INDICES', 'COMMODITIES', 'CRYPTO'];
+  const categories = ['ALL', 'METALS', 'FOREX', 'INDICES', 'COMMODITIES', 'CRYPTO'] as const;
+
+  // Resolve category from query param if provided, otherwise default to ALL
+  const queryCategory = searchParams.get('category')?.toUpperCase();
+  const validCategory = categories.includes(queryCategory as any) ? queryCategory! : 'ALL';
+  const [selectedCategory, setSelectedCategory] = useState<string>(validCategory);
+
+  // Synchronize state when URL searchParams change (e.g. back/forward navigation or link transitions)
+  React.useEffect(() => {
+    setSelectedCategory(validCategory);
+    setCategoryFilter(validCategory);
+  }, [validCategory, setCategoryFilter]);
+
+  const handleCategorySelect = (cat: string) => {
+    setSelectedCategory(cat);
+    setCategoryFilter(cat);
+    if (cat === 'ALL') {
+      router.push('/markets');
+    } else {
+      router.push(`/markets?category=${cat.toLowerCase()}`);
+    }
+  };
 
   // Dynamically resolve filtered markets using central canonical registry with alias support
   const filteredMarkets: MarketDefinition[] = useMemo(() => {
@@ -30,6 +50,11 @@ export default function MarketsPage() {
   }, [search, selectedCategory]);
 
   const handleRowClick = (symbol: string) => {
+    setActiveSymbol(symbol);
+    router.push(`/markets/${symbol}`);
+  };
+
+  const handleCockpitClick = (symbol: string) => {
     setActiveSymbol(symbol);
     router.push('/cockpit');
   };
@@ -47,10 +72,6 @@ export default function MarketsPage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
-        <MemberAccessGuard
-          title="INSTITUTIONAL MARKETS DIRECTORY"
-          description="Access to real-time market assets, broker feed mapping, and cross-asset directory requires member authentication."
-        >
         {/* Page Header */}
         <div className="ghost-glass-panel rounded-2xl p-4 sm:p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -88,7 +109,7 @@ export default function MarketsPage() {
             {categories.map((cat) => (
               <button
                 key={cat}
-                onClick={() => setSelectedCategory(cat)}
+                onClick={() => handleCategorySelect(cat)}
                 className={`px-3 py-1.5 rounded-xl font-bold transition-all whitespace-nowrap cursor-pointer ${
                   selectedCategory === cat
                     ? 'bg-[#22D3EE] text-black shadow-[0_0_12px_rgba(34,211,238,0.5)] font-black'
@@ -166,9 +187,13 @@ export default function MarketsPage() {
                               }`}
                             />
                             <div>
-                              <div className="font-bold text-[#F8FAFC] group-hover:text-[#67E8F9] transition-colors text-sm font-mono">
+                              <Link
+                                href={`/markets/${row.symbol}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="font-bold text-[#F8FAFC] group-hover:text-[#67E8F9] transition-colors text-sm font-mono block hover:underline"
+                              >
                                 {row.symbol}
-                              </div>
+                              </Link>
                               <div className="text-[10px] text-[#94A3B8] font-sans">{row.displayName}</div>
                             </div>
                           </div>
@@ -221,7 +246,7 @@ export default function MarketsPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleRowClick(row.symbol);
+                              handleCockpitClick(row.symbol);
                             }}
                             className="px-3 py-1 bg-cyan-950/80 hover:bg-cyan-900 text-[#67E8F9] hover:text-[#F8FAFC] border border-cyan-500/40 rounded-lg text-[10px] font-sans font-bold transition-all shadow-sm cursor-pointer"
                           >
@@ -236,10 +261,22 @@ export default function MarketsPage() {
             </table>
           </div>
         </div>
-        </MemberAccessGuard>
 
         <MasterFooter />
       </div>
     </div>
+  );
+}
+
+export default function MarketsPage() {
+  return (
+    <React.Suspense fallback={
+      <div className="min-h-screen bg-[#030711] text-[#F8FAFC] flex flex-col items-center justify-center font-mono">
+        <div className="w-8 h-8 border-2 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin mb-3" />
+        <div className="text-xs text-gray-400 tracking-wider">LOADING MARKETS DIRECTORY...</div>
+      </div>
+    }>
+      <MarketsPageContent />
+    </React.Suspense>
   );
 }

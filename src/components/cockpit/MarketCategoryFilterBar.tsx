@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { useMemberAuth } from '@/context/MemberAuthContext';
@@ -18,6 +18,7 @@ export const MARKET_CATEGORIES = [
 ] as const;
 
 export const MarketCategoryFilterBar: React.FC = () => {
+  const router = useRouter();
   const pathname = usePathname();
   const { categoryFilter, setCategoryFilter } = useActiveAsset();
   const { telemetry, isMt5Connected } = useMT5Telemetry();
@@ -86,6 +87,17 @@ export const MarketCategoryFilterBar: React.FC = () => {
     }
   };
 
+  const handleCategoryClick = (cat: string) => {
+    setCategoryFilter(cat);
+    if (pathname === '/markets') {
+      if (cat === 'ALL' || cat === 'BROKER FEED') {
+        router.push('/markets');
+      } else {
+        router.push(`/markets?category=${cat.toLowerCase()}`);
+      }
+    }
+  };
+
   return (
     <div className="hidden lg:block w-full overflow-x-auto scrollbar-none py-0.5 text-center relative z-20">
       <nav
@@ -101,7 +113,7 @@ export const MarketCategoryFilterBar: React.FC = () => {
               type="button"
               role="tab"
               aria-selected={isSelected}
-              onClick={() => setCategoryFilter(cat)}
+              onClick={() => handleCategoryClick(cat)}
               className={`px-1 xl:px-1.5 py-0.5 rounded-md transition-all font-semibold whitespace-nowrap cursor-pointer inline-flex items-center gap-0.5 text-[8px] xl:text-[8.5px] 2xl:text-[9.5px] uppercase ${
                 isSelected
                   ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/60 shadow-[0_0_8px_rgba(0,240,255,0.3)]'

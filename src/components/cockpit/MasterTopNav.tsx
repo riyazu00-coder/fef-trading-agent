@@ -647,11 +647,11 @@ export const MasterTopNav: React.FC = () => {
               </div>
               <div className="grid grid-cols-3 gap-1.5 text-center">
                 {[
-                  { name: 'Metals', path: '/markets/XAUUSD' },
-                  { name: 'Forex', path: '/markets/EURUSD' },
-                  { name: 'Indices', path: '/markets/US100' },
-                  { name: 'Commodities', path: '/markets/USOIL' },
-                  { name: 'Crypto', path: '/markets/BTCUSD' },
+                  { name: 'Metals', path: '/markets?category=metals' },
+                  { name: 'Forex', path: '/markets?category=forex' },
+                  { name: 'Indices', path: '/markets?category=indices' },
+                  { name: 'Commodities', path: '/markets?category=commodities' },
+                  { name: 'Crypto', path: '/markets?category=crypto' },
                   { name: 'Overview', path: '/markets' },
                 ].map((item) => (
                   <Link

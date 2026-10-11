@@ -96,20 +96,43 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
 
             {/* Quick Action Navigation */}
             <div className="flex items-center space-x-2">
-              <button
-                onClick={handleSendToExecution}
-                className="bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)]"
-              >
-                <span>⚡</span>
-                <span>SEND TO EXECUTION</span>
-              </button>
-              <button
-                onClick={handleAnalyzeInVision}
-                className="bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/50 text-cyan-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(6,182,212,0.2)]"
-              >
-                <span>👁️</span>
-                <span>VISION AI ANALYZER</span>
-              </button>
+              {!isAuthenticated && !isMaster ? (
+                <>
+                  <Link
+                    href="/member"
+                    className="bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all"
+                    title="Member login required for direct broker execution"
+                  >
+                    <span>🔒</span>
+                    <span>MEMBER EXECUTION</span>
+                  </Link>
+                  <Link
+                    href="/member"
+                    className="bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/40 text-cyan-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all"
+                    title="Member login required for Vision AI analyzer"
+                  >
+                    <span>🔒</span>
+                    <span>VISION AI ANALYZER</span>
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleSendToExecution}
+                    className="bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                  >
+                    <span>⚡</span>
+                    <span>SEND TO EXECUTION</span>
+                  </button>
+                  <button
+                    onClick={handleAnalyzeInVision}
+                    className="bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/50 text-cyan-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(6,182,212,0.2)]"
+                  >
+                    <span>👁️</span>
+                    <span>VISION AI ANALYZER</span>
+                  </button>
+                </>
+              )}
               <Link
                 href="/cockpit"
                 className="bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-300 text-xs px-3.5 py-1.5 rounded-lg font-bold tracking-wider flex items-center space-x-1.5 transition-all"
@@ -334,23 +357,26 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
 
               {/* Targets and RR Grid */}
               {!isAuthenticated && !isMaster ? (
-                <div className="bg-black/60 p-4 rounded-xl border border-cyan-500/30 text-center space-y-3 font-mono">
-                  <div className="w-8 h-8 rounded-full bg-cyan-950/80 border border-cyan-400/40 text-cyan-300 mx-auto flex items-center justify-center text-sm font-bold">
+                <div className="bg-black/60 p-5 rounded-xl border border-cyan-500/30 text-center space-y-3 font-mono">
+                  <div className="w-10 h-10 rounded-full bg-cyan-950/80 border border-cyan-400/40 text-cyan-300 mx-auto flex items-center justify-center text-base font-bold">
                     🔒
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                      MEMBER ACCESS REQUIRED
+                    <div className="text-[10px] text-cyan-400 font-bold tracking-widest uppercase">
+                      MEMBER INTELLIGENCE
+                    </div>
+                    <h4 className="text-xs font-black text-white uppercase tracking-wider mt-0.5">
+                      ACTIONABLE TRADE SETUP
                     </h4>
-                    <p className="text-[10px] text-gray-400 mt-1">
-                      Actionable execution levels (Entry, Stop Loss, Multi-Targets) and direct broker dispatch require member sign-in.
+                    <p className="text-[10.5px] text-gray-400 font-sans mt-1 leading-relaxed">
+                      Detailed CORTEX evidence, actionable setup (exact Entry, Stop Loss, Multi-Targets, R:R), and direct broker dispatch are available to FEF CORTEX members.
                     </p>
                   </div>
                   <Link
                     href="/member"
-                    className="inline-block w-full py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl transition-all shadow-[0_0_15px_rgba(34,211,238,0.3)]"
+                    className="inline-block w-full py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-sans font-bold text-xs rounded-xl transition-all shadow-[0_0_15px_rgba(34,211,238,0.3)] uppercase tracking-wider"
                   >
-                    SIGN IN TO ACCESS EXECUTION
+                    MEMBER LOGIN &rarr;
                   </Link>
                 </div>
               ) : (
@@ -455,36 +481,63 @@ export default function MarketSymbolDetailPage({ params }: SymbolPageProps) {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {assetProfile.agents.map((ag) => (
-              <div
-                key={ag.name}
-                className="bg-black/40 border border-white/5 hover:border-cyan-500/30 rounded-xl p-3.5 space-y-2 transition-all"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-white truncate">{ag.name}</span>
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                    ag.bias === 'BULLISH'
-                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                      : ag.bias === 'BEARISH'
-                      ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                  }`}>
-                    {ag.bias} ({ag.confidence}%)
-                  </span>
-                </div>
-                <div className="text-[10px] text-gray-400">{ag.role}</div>
-                <div className="text-[11px] text-gray-200 border-l-2 border-cyan-500/40 pl-2 py-0.5">
-                  &ldquo;{ag.lastOpinion}&rdquo;
-                </div>
-                {ag.keyRisk && (
-                  <div className="text-[10px] text-rose-400/80">
-                    <span className="font-semibold">Risk:</span> {ag.keyRisk}
-                  </div>
-                )}
+          {!isAuthenticated && !isMaster ? (
+            <div className="bg-black/60 p-6 rounded-xl border border-cyan-500/30 text-center space-y-3 font-mono">
+              <div className="w-10 h-10 rounded-full bg-cyan-950/80 border border-cyan-400/40 text-cyan-300 mx-auto flex items-center justify-center text-base font-bold">
+                🔒
               </div>
-            ))}
-          </div>
+              <div>
+                <div className="text-[10px] text-cyan-400 font-bold tracking-widest uppercase">
+                  MEMBER INTELLIGENCE
+                </div>
+                <h3 className="text-xs font-black text-white uppercase tracking-wider mt-0.5">
+                  PROPRIETARY AGENT EVIDENCE & DELIBERATION
+                </h3>
+                <p className="text-[11px] text-gray-400 font-sans mt-1 leading-relaxed max-w-lg mx-auto">
+                  Detailed CORTEX agent evidence citations, independent agent voting telemetry, confidence weighting, and evidence provenance are available to FEF CORTEX members.
+                </p>
+              </div>
+              <div className="pt-1">
+                <Link
+                  href="/member"
+                  className="inline-block px-6 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-sans font-bold text-xs rounded-xl transition-all shadow-[0_0_15px_rgba(34,211,238,0.3)] uppercase tracking-wider"
+                >
+                  MEMBER LOGIN &rarr;
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {assetProfile.agents.map((ag) => (
+                <div
+                  key={ag.name}
+                  className="bg-black/40 border border-white/5 hover:border-cyan-500/30 rounded-xl p-3.5 space-y-2 transition-all"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-white truncate">{ag.name}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                      ag.bias === 'BULLISH'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        : ag.bias === 'BEARISH'
+                        ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    }`}>
+                      {ag.bias} ({ag.confidence}%)
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-gray-400">{ag.role}</div>
+                  <div className="text-[11px] text-gray-200 border-l-2 border-cyan-500/40 pl-2 py-0.5">
+                    &ldquo;{ag.lastOpinion}&rdquo;
+                  </div>
+                  {ag.keyRisk && (
+                    <div className="text-[10px] text-rose-400/80">
+                      <span className="font-semibold">Risk:</span> {ag.keyRisk}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Master Footer */}
