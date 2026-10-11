@@ -8,11 +8,11 @@ import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilt
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { useMemberAuth } from '@/context/MemberAuthContext';
 import { AgentState } from '@/lib/agents/agent-types';
 import { MarketStatusBadge } from '@/components/common/MarketStatusBadge';
 import { ExecutabilityBadge } from '@/components/common/ExecutabilityBadge';
 import { CouncilDebateStream } from '@/components/cockpit/CouncilDebateStream';
-import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 
 export type AgentGroupCategory = 'MARKET' | 'MACRO' | 'EVENT' | 'QUANT' | 'CONTROL';
 
@@ -36,6 +36,8 @@ interface ExtendedAgent extends Omit<AgentState, 'provenanceBadge'> {
 export default function AgentsDirectoryPage() {
   const { activeSymbol, assetProfile, refreshData } = useActiveAsset();
   const { telemetry, isMt5Connected } = useMT5Telemetry();
+  const { isAuthenticated, isMaster } = useMemberAuth();
+  const isMemberAuthorized = Boolean(isAuthenticated || isMaster);
   const [selectedAgent, setSelectedAgent] = useState<ExtendedAgent | null>(null);
   const [filterBias, setFilterBias] = useState<string>('ALL');
   const [filterGroup, setFilterGroup] = useState<string>('ALL');
@@ -536,10 +538,6 @@ export default function AgentsDirectoryPage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
-        <MemberAccessGuard
-          title="AUTONOMOUS AGENTS COUNCIL"
-          description="Access to the 15-agent autonomous intelligence council, system telemetry, and debate consensus streams requires authenticated member access."
-        >
         {/* Page Header */}
         <div className="ghost-glass-panel rounded-2xl p-5 font-sans space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -642,7 +640,30 @@ export default function AgentsDirectoryPage() {
         </div>
 
         {/* Live Inter-Agent Council Debate Stream */}
-        <CouncilDebateStream />
+        {isMemberAuthorized ? (
+          <CouncilDebateStream />
+        ) : (
+          <div className="bg-[#080d19]/80 border border-cyan-500/20 rounded-2xl p-6 text-center backdrop-blur-xl space-y-3 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] font-sans">
+            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 text-xs font-mono">
+              <span>🔒</span>
+              <span>MEMBER-ONLY STREAM</span>
+            </div>
+            <h3 className="text-base font-bold text-white tracking-wide uppercase">
+              Autonomous Council Debate & Synthetic Telemetry
+            </h3>
+            <p className="text-xs text-gray-400 max-w-xl mx-auto leading-relaxed">
+              Live inter-agent deliberation, consensus voting telemetry, and real-time execution signal debates are restricted to authenticated institutional members.
+            </p>
+            <div className="pt-1">
+              <Link
+                href="/member"
+                className="inline-flex items-center justify-center space-x-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-bold text-xs uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] font-mono"
+              >
+                <span>MEMBER LOGIN →</span>
+              </Link>
+            </div>
+          </div>
+        )}
 
         {/* Agent Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 font-mono">
@@ -722,24 +743,52 @@ export default function AgentsDirectoryPage() {
                     )}
                   </div>
 
-                  {/* Opinion Box */}
-                  <div className="bg-black/40 border border-white/5 rounded-xl p-2.5 text-xs text-gray-300 line-clamp-3 leading-relaxed">
-                    &ldquo;{ag.lastOpinion}&rdquo;
-                  </div>
+                  {/* Member-Gated Deliberation vs Public Mandate */}
+                  {isMemberAuthorized ? (
+                    <>
+                      {/* Opinion Box */}
+                      <div className="bg-black/40 border border-white/5 rounded-xl p-2.5 text-xs text-gray-300 line-clamp-3 leading-relaxed">
+                        &ldquo;{ag.lastOpinion}&rdquo;
+                      </div>
 
-                  {/* Confidence Bar */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] text-gray-400">
-                      <span>CONFIDENCE</span>
-                      <span className="text-white font-bold">{ag.confidence}%</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-500"
-                        style={{ width: `${ag.confidence}%` }}
-                      />
-                    </div>
-                  </div>
+                      {/* Confidence Bar */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[10px] text-gray-400">
+                          <span>CONFIDENCE</span>
+                          <span className="text-white font-bold">{ag.confidence}%</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-500"
+                            style={{ width: `${ag.confidence}%` }}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Public System Mandate */}
+                      <div className="bg-black/40 border border-white/5 rounded-xl p-2.5 text-xs text-gray-300 line-clamp-3 leading-relaxed">
+                        <span className="text-[10px] text-cyan-400 font-mono block mb-1">MANDATE</span>
+                        {ag.systemMandate}
+                      </div>
+
+                      {/* Locked Member Opinion Pill */}
+                      <div className="bg-cyan-950/20 border border-cyan-500/20 rounded-xl p-2 flex items-center justify-between text-[10px]">
+                        <span className="text-gray-400 flex items-center space-x-1">
+                          <span>🔒</span>
+                          <span className="font-mono text-cyan-300">OPINION & CONFIDENCE</span>
+                        </span>
+                        <Link
+                          href="/member"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-cyan-400 hover:text-cyan-300 font-mono font-bold hover:underline"
+                        >
+                          MEMBER ONLY →
+                        </Link>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Card Footer: Click hint */}
@@ -821,154 +870,180 @@ export default function AgentsDirectoryPage() {
                 </div>
               </div>
 
-              {/* Real-Time Telemetry */}
-              <div className="space-y-1.5">
-                <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-                  ENGINE TELEMETRY & INFERENCE METRICS
-                </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-black/40 border border-white/5 p-3 rounded-xl">
-                  <div>
-                    <span className="text-gray-400 text-[10px] block">MEMORY FOOTPRINT</span>
-                    <span className="text-white font-bold">{selectedAgent.telemetry.memoryMb} MB</span>
+              {/* Proprietary Deliberation & Telemetry: Member Authorized vs Locked */}
+              {isMemberAuthorized ? (
+                <>
+                  {/* Real-Time Telemetry */}
+                  <div className="space-y-1.5">
+                    <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+                      ENGINE TELEMETRY & INFERENCE METRICS
+                    </h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-black/40 border border-white/5 p-3 rounded-xl">
+                      <div>
+                        <span className="text-gray-400 text-[10px] block">MEMORY FOOTPRINT</span>
+                        <span className="text-white font-bold">{selectedAgent.telemetry.memoryMb} MB</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-[10px] block">THROUGHPUT</span>
+                        <span className="text-cyan-400 font-bold">{selectedAgent.telemetry.tokensPerSec} tok/sec</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-[10px] block">SAMPLES AUDITED</span>
+                        <span className="text-purple-400 font-bold">{selectedAgent.telemetry.sampleCount.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-[10px] block">SERVICE UPTIME</span>
+                        <span className="text-emerald-400 font-bold">{selectedAgent.telemetry.uptime}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-gray-400 text-[10px] block">THROUGHPUT</span>
-                    <span className="text-cyan-400 font-bold">{selectedAgent.telemetry.tokensPerSec} tok/sec</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 text-[10px] block">SAMPLES AUDITED</span>
-                    <span className="text-purple-400 font-bold">{selectedAgent.telemetry.sampleCount.toLocaleString()}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 text-[10px] block">SERVICE UPTIME</span>
-                    <span className="text-emerald-400 font-bold">{selectedAgent.telemetry.uptime}</span>
-                  </div>
-                </div>
-              </div>
 
-              {/* V1.2 Agent Readiness & Input Observability */}
-              <div className="space-y-1.5">
-                <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center justify-between">
-                  <span>INPUT READINESS & OBSERVABILITY</span>
-                  <span className="text-[10px] text-gray-400 font-mono">
-                    Freshness: <strong className={selectedAgent.freshness === 'REALTIME' ? 'text-emerald-400' : selectedAgent.freshness === 'CURRENT' ? 'text-cyan-400' : 'text-amber-400'}>{selectedAgent.freshness || 'CURRENT'}</strong>
-                  </span>
-                </h4>
-                <div className="bg-black/40 border border-white/5 p-3 rounded-xl space-y-2 text-xs">
-                  <div>
-                    <span className="text-gray-400 text-[10px] block mb-1">AVAILABLE INPUTS</span>
-                    <div className="flex flex-wrap gap-1">
-                      {(selectedAgent.availableInputs && selectedAgent.availableInputs.length > 0) ? (
-                        selectedAgent.availableInputs.map((inp, idx) => (
-                          <span key={idx} className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-mono">
-                            ✓ {inp}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-gray-500 text-[10px] font-mono">None currently locked</span>
+                  {/* V1.2 Agent Readiness & Input Observability */}
+                  <div className="space-y-1.5">
+                    <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center justify-between">
+                      <span>INPUT READINESS & OBSERVABILITY</span>
+                      <span className="text-[10px] text-gray-400 font-mono">
+                        Freshness: <strong className={selectedAgent.freshness === 'REALTIME' ? 'text-emerald-400' : selectedAgent.freshness === 'CURRENT' ? 'text-cyan-400' : 'text-amber-400'}>{selectedAgent.freshness || 'CURRENT'}</strong>
+                      </span>
+                    </h4>
+                    <div className="bg-black/40 border border-white/5 p-3 rounded-xl space-y-2 text-xs">
+                      <div>
+                        <span className="text-gray-400 text-[10px] block mb-1">AVAILABLE INPUTS</span>
+                        <div className="flex flex-wrap gap-1">
+                          {(selectedAgent.availableInputs && selectedAgent.availableInputs.length > 0) ? (
+                            selectedAgent.availableInputs.map((inp, idx) => (
+                              <span key={idx} className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-mono">
+                                ✓ {inp}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-gray-500 text-[10px] font-mono">None currently locked</span>
+                          )}
+                        </div>
+                      </div>
+                      {selectedAgent.missingInputs && selectedAgent.missingInputs.length > 0 && (
+                        <div>
+                          <span className="text-rose-400 text-[10px] block mb-1">MISSING INPUTS (UNAVAILABLE)</span>
+                          <div className="flex flex-wrap gap-1">
+                            {selectedAgent.missingInputs.map((inp, idx) => (
+                              <span key={idx} className="bg-rose-950/60 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-mono">
+                                ✕ {inp}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
-                  {selectedAgent.missingInputs && selectedAgent.missingInputs.length > 0 && (
-                    <div>
-                      <span className="text-rose-400 text-[10px] block mb-1">MISSING INPUTS (UNAVAILABLE)</span>
-                      <div className="flex flex-wrap gap-1">
-                        {selectedAgent.missingInputs.map((inp, idx) => (
-                          <span key={idx} className="bg-rose-950/60 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-mono">
-                            ✕ {inp}
-                          </span>
-                        ))}
+
+                  {/* Latest Opinion & Evidence */}
+                  <div className="space-y-1.5">
+                    <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-wider">
+                      LATEST REAL-TIME DELIBERATION
+                    </h4>
+                    <div className="bg-cyan-950/20 border border-cyan-500/30 p-3 rounded-xl text-xs text-cyan-200 leading-relaxed">
+                      &ldquo;{selectedAgent.lastOpinion}&rdquo;
+                    </div>
+                  </div>
+
+                  {/* Evidence Items */}
+                  {selectedAgent.evidence && selectedAgent.evidence.length > 0 && (
+                    <div className="space-y-1.5">
+                      <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center justify-between">
+                        <span>VERIFIED EVIDENCE CITATIONS</span>
+                        <span className="text-[10px] text-gray-400 font-mono font-normal">
+                          Count: {selectedAgent.evidence.length}
+                        </span>
+                      </h4>
+                      <ul className="space-y-1.5 bg-black/40 border border-white/5 p-3 rounded-xl text-xs text-gray-300">
+                        {selectedAgent.evidence.map((item, idx) => {
+                          const isBullish = item.startsWith('[BULLISH]');
+                          const isBearish = item.startsWith('[BEARISH]');
+                          const isConflict = item.startsWith('[CONFLICT]');
+                          const isMissing = item.startsWith('[MISSING]');
+                          const isNeutral = item.startsWith('[NEUTRAL]');
+
+                          let badge = null;
+                          let text = item;
+
+                          if (isBullish) {
+                            badge = <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">BULLISH</span>;
+                            text = item.replace('[BULLISH]', '').trim();
+                          } else if (isBearish) {
+                            badge = <span className="bg-rose-950/80 text-rose-300 border border-rose-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">BEARISH</span>;
+                            text = item.replace('[BEARISH]', '').trim();
+                          } else if (isConflict) {
+                            badge = <span className="bg-amber-950/80 text-amber-300 border border-amber-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">CONFLICT</span>;
+                            text = item.replace('[CONFLICT]', '').trim();
+                          } else if (isMissing) {
+                            badge = <span className="bg-gray-800 text-gray-300 border border-gray-600 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">MISSING</span>;
+                            text = item.replace('[MISSING]', '').trim();
+                          } else if (isNeutral) {
+                            badge = <span className="bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">NEUTRAL</span>;
+                            text = item.replace('[NEUTRAL]', '').trim();
+                          }
+
+                          return (
+                            <li key={idx} className="flex items-start space-x-2">
+                              {badge ? badge : <span className="text-emerald-400">&bull;</span>}
+                              <span className="leading-snug">{text}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Key Risk & Invalidation */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div className="bg-rose-950/20 border border-rose-500/30 p-3 rounded-xl text-rose-300">
+                      <span className="text-[10px] text-rose-400 font-bold block uppercase">KEY OBSERVED RISK</span>
+                      <span>{selectedAgent.keyRisk || 'None flagged for current tick sequence'}</span>
+                    </div>
+                    <div className="bg-amber-950/20 border border-amber-500/30 p-3 rounded-xl text-amber-300">
+                      <span className="text-[10px] text-amber-400 font-bold block uppercase">INVALIDATION TRIGGER</span>
+                      <span>{selectedAgent.invalidation || 'Standard stop-loss trigger'}</span>
+                    </div>
+                  </div>
+
+                  {/* Conflict / Disagreement Matrix */}
+                  {selectedAgent.conflictsWith && selectedAgent.conflictsWith.length > 0 && (
+                    <div className="space-y-1.5">
+                      <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+                        CURRENT COUNCIL DISAGREEMENTS
+                      </h4>
+                      <div className="bg-black/40 border border-white/5 p-3 rounded-xl text-xs text-gray-300 space-y-1">
+                        <p className="text-[11px] text-gray-400">This agent holds opposing probabilistic assessments against:</p>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {selectedAgent.conflictsWith.map((conflict, idx) => (
+                            <span key={idx} className="bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] px-2 py-0.5 rounded">
+                              vs. {conflict}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   )}
-                </div>
-              </div>
-
-              {/* Latest Opinion & Evidence */}
-              <div className="space-y-1.5">
-                <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-wider">
-                  LATEST REAL-TIME DELIBERATION
-                </h4>
-                <div className="bg-cyan-950/20 border border-cyan-500/30 p-3 rounded-xl text-xs text-cyan-200 leading-relaxed">
-                  &ldquo;{selectedAgent.lastOpinion}&rdquo;
-                </div>
-              </div>
-
-              {/* Evidence Items */}
-              {selectedAgent.evidence && selectedAgent.evidence.length > 0 && (
-                <div className="space-y-1.5">
-                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center justify-between">
-                    <span>VERIFIED EVIDENCE CITATIONS</span>
-                    <span className="text-[10px] text-gray-400 font-mono font-normal">
-                      Count: {selectedAgent.evidence.length}
-                    </span>
+                </>
+              ) : (
+                <div className="bg-gradient-to-b from-cyan-950/20 to-black/60 border border-cyan-500/30 rounded-2xl p-6 text-center space-y-4 my-2 font-sans">
+                  <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-xs font-mono">
+                    <span>🔒</span>
+                    <span>PROPRIETARY INTELLIGENCE LOCKED</span>
+                  </div>
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                    REAL-TIME DELIBERATION & TELEMETRY RESTRICTED
                   </h4>
-                  <ul className="space-y-1.5 bg-black/40 border border-white/5 p-3 rounded-xl text-xs text-gray-300">
-                    {selectedAgent.evidence.map((item, idx) => {
-                      const isBullish = item.startsWith('[BULLISH]');
-                      const isBearish = item.startsWith('[BEARISH]');
-                      const isConflict = item.startsWith('[CONFLICT]');
-                      const isMissing = item.startsWith('[MISSING]');
-                      const isNeutral = item.startsWith('[NEUTRAL]');
-
-                      let badge = null;
-                      let text = item;
-
-                      if (isBullish) {
-                        badge = <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">BULLISH</span>;
-                        text = item.replace('[BULLISH]', '').trim();
-                      } else if (isBearish) {
-                        badge = <span className="bg-rose-950/80 text-rose-300 border border-rose-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">BEARISH</span>;
-                        text = item.replace('[BEARISH]', '').trim();
-                      } else if (isConflict) {
-                        badge = <span className="bg-amber-950/80 text-amber-300 border border-amber-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">CONFLICT</span>;
-                        text = item.replace('[CONFLICT]', '').trim();
-                      } else if (isMissing) {
-                        badge = <span className="bg-gray-800 text-gray-300 border border-gray-600 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">MISSING</span>;
-                        text = item.replace('[MISSING]', '').trim();
-                      } else if (isNeutral) {
-                        badge = <span className="bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">NEUTRAL</span>;
-                        text = item.replace('[NEUTRAL]', '').trim();
-                      }
-
-                      return (
-                        <li key={idx} className="flex items-start space-x-2">
-                          {badge ? badge : <span className="text-emerald-400">&bull;</span>}
-                          <span className="leading-snug">{text}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              )}
-
-              {/* Key Risk & Invalidation */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div className="bg-rose-950/20 border border-rose-500/30 p-3 rounded-xl text-rose-300">
-                  <span className="text-[10px] text-rose-400 font-bold block uppercase">KEY OBSERVED RISK</span>
-                  <span>{selectedAgent.keyRisk || 'None flagged for current tick sequence'}</span>
-                </div>
-                <div className="bg-amber-950/20 border border-amber-500/30 p-3 rounded-xl text-amber-300">
-                  <span className="text-[10px] text-amber-400 font-bold block uppercase">INVALIDATION TRIGGER</span>
-                  <span>{selectedAgent.invalidation || 'Standard stop-loss trigger'}</span>
-                </div>
-              </div>
-
-              {/* Conflict / Disagreement Matrix */}
-              {selectedAgent.conflictsWith && selectedAgent.conflictsWith.length > 0 && (
-                <div className="space-y-1.5">
-                  <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider">
-                    CURRENT COUNCIL DISAGREEMENTS
-                  </h4>
-                  <div className="bg-black/40 border border-white/5 p-3 rounded-xl text-xs text-gray-300 space-y-1">
-                    <p className="text-[11px] text-gray-400">This agent holds opposing probabilistic assessments against:</p>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {selectedAgent.conflictsWith.map((conflict, idx) => (
-                        <span key={idx} className="bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] px-2 py-0.5 rounded">
-                          vs. {conflict}
-                        </span>
-                      ))}
-                    </div>
+                  <p className="text-xs text-gray-400 max-w-md mx-auto leading-relaxed">
+                    Live inference metrics, input observability, real-time opinions, verified evidence citations, and council conflict matrices for {selectedAgent.name} require an active member license.
+                  </p>
+                  <div className="pt-2">
+                    <Link
+                      href="/member"
+                      className="inline-flex items-center justify-center space-x-2 px-6 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xs uppercase tracking-wider transition-all shadow-[0_0_15px_rgba(6,182,212,0.4)] font-mono"
+                    >
+                      <span>MEMBER LOGIN →</span>
+                    </Link>
                   </div>
                 </div>
               )}
@@ -986,7 +1061,6 @@ export default function AgentsDirectoryPage() {
             </div>
           </div>
         )}
-        </MemberAccessGuard>
 
         {/* Master Footer */}
         <MasterFooter />

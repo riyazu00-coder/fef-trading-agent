@@ -7,7 +7,6 @@ import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilt
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { MARKET_REGISTRY, MarketCategory } from '@/lib/registry/market-registry';
 import { CORTEX_WHATSAPP_CONFIG, BRAND_CONFIG } from '@/lib/config/support-config';
-import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 
 export default function HowToUsePage() {
   const [selectedCategory, setSelectedCategory] = useState<MarketCategory | 'ALL'>('ALL');
@@ -19,18 +18,20 @@ export default function HowToUsePage() {
     : registryAssets.filter((a) => a.category === selectedCategory);
 
   const quickNavItems = [
-    { label: '01. Prerequisites', href: '#what-you-need' },
-    { label: '02. Get Official EA', href: '#get-ea' },
-    { label: '03. Install in MT5', href: '#install-ea' },
-    { label: '04. Connect MT5', href: '#connect-mt5' },
-    { label: '05. Cloud Architecture', href: '#cloud-architecture' },
-    { label: '06. Account Modes', href: '#account-modes' },
-    { label: '07. Cockpit Walkthrough', href: '#cockpit-walkthrough' },
-    { label: '08. TradingView Workspace', href: '#tradingview-workspace' },
-    { label: '09. How CORTEX Thinks', href: '#how-cortex-thinks' },
-    { label: '10. Supported Markets', href: '#supported-markets' },
-    { label: '11. Daily Workflow', href: '#daily-workflow' },
-    { label: '12. Safety Invariants', href: '#best-practices' },
+    { label: '01. Start Here', href: '#what-you-need', tag: 'PUBLIC' },
+    { label: '02. Markets', href: '#supported-markets', tag: 'PUBLIC' },
+    { label: '03. Asset Deep-Dive', href: '#asset-deep-dive', tag: 'PUBLIC + MEMBER' },
+    { label: '04. Cortex Cockpit', href: '#cockpit-walkthrough', tag: 'PUBLIC + MEMBER' },
+    { label: '05. Agent Intelligence', href: '#how-cortex-thinks', tag: 'PUBLIC + MEMBER' },
+    { label: '06. TradingView', href: '#tradingview-workspace', tag: 'PUBLIC' },
+    { label: '07. Chart Analyzer', href: '#chart-analyzer', tag: 'PUBLIC + MEMBER' },
+    { label: '08. Member Intelligence', href: '#member-intelligence', tag: 'MEMBER' },
+    { label: '09. Journal', href: '#journal', tag: 'MEMBER' },
+    { label: '10. Execution', href: '#execution', tag: 'MEMBER' },
+    { label: '11. Settings', href: '#settings', tag: 'MEMBER' },
+    { label: '12. MT5 Connector', href: '#connect-mt5', tag: 'PUBLIC + MEMBER' },
+    { label: '13. Account & Device', href: '#account-modes', tag: 'MEMBER' },
+    { label: '14. Trading Safety', href: '#best-practices', tag: 'PUBLIC' },
   ];
 
   return (
@@ -46,10 +47,6 @@ export default function HowToUsePage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
-        <MemberAccessGuard
-          title="OPERATING GUIDE & ONBOARDING"
-          description="Access to official operating documentation, architecture blueprints, and trading invariants requires member authentication."
-        >
         {/* Hero Section */}
         <header className="ghost-glass-panel rounded-2xl p-6 sm:p-8 border border-white/10 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-400/5 rounded-full blur-3xl pointer-events-none" />
@@ -73,9 +70,18 @@ export default function HowToUsePage() {
               <a
                 key={item.href}
                 href={item.href}
-                className="px-3 py-1.5 rounded-lg bg-black/40 hover:bg-cyan-950/50 border border-white/10 hover:border-cyan-400/50 text-xs font-mono text-gray-300 hover:text-cyan-200 whitespace-nowrap transition-all"
+                className="px-2.5 py-1.5 rounded-lg bg-black/40 hover:bg-cyan-950/50 border border-white/10 hover:border-cyan-400/50 text-xs font-mono text-gray-300 hover:text-cyan-200 whitespace-nowrap transition-all flex items-center space-x-1.5"
               >
-                {item.label}
+                <span>{item.label}</span>
+                <span className={`text-[8.5px] px-1 py-0.2 rounded font-bold ${
+                  item.tag === 'PUBLIC'
+                    ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-500/30'
+                    : item.tag === 'MEMBER'
+                    ? 'bg-purple-950/60 text-purple-300 border border-purple-500/30'
+                    : 'bg-cyan-950/60 text-cyan-300 border border-cyan-500/30'
+                }`}>
+                  {item.tag}
+                </span>
               </a>
             ))}
           </nav>
@@ -557,11 +563,42 @@ export default function HowToUsePage() {
             {/* Journal */}
             <div id="journal" className="p-4 rounded-xl bg-black/40 border border-white/10 space-y-2 scroll-mt-24 md:col-span-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-cyan-300 uppercase font-mono">Institutional Trade Journal</h3>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-sm font-bold text-cyan-300 uppercase font-mono">Institutional Trade Journal (/journal)</h3>
+                  <span className="text-[9px] bg-purple-950/60 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono font-bold">MEMBER ONLY</span>
+                </div>
                 <span className="text-[10px] font-mono text-gray-500">#journal</span>
               </div>
               <p className="text-xs text-gray-300 leading-relaxed">
                 Post-trade review and accountability ledger recording setup thesis, agent consensus at entry, R:R outcomes, execution slippage, and performance analytics across symbols and sessions.
+              </p>
+            </div>
+
+            {/* Settings */}
+            <div id="settings" className="p-4 rounded-xl bg-black/40 border border-white/10 space-y-2 scroll-mt-24">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-sm font-bold text-cyan-300 uppercase font-mono">System &amp; Risk Settings (/settings)</h3>
+                  <span className="text-[9px] bg-purple-950/60 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono font-bold">MEMBER ONLY</span>
+                </div>
+                <span className="text-[10px] font-mono text-gray-500">#settings</span>
+              </div>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Configure deterministic risk thresholds, maximum portfolio equity cap (0.50%), MT5 connector local port, and member notification preferences.
+              </p>
+            </div>
+
+            {/* Member Intelligence Gating */}
+            <div id="member-intelligence" className="p-4 rounded-xl bg-black/40 border border-purple-500/30 space-y-2 scroll-mt-24">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-sm font-bold text-purple-300 uppercase font-mono">Member Intelligence Gating</h3>
+                  <span className="text-[9px] bg-purple-950/60 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono font-bold">MEMBER ONLY</span>
+                </div>
+                <span className="text-[10px] font-mono text-gray-500">#member-intelligence</span>
+              </div>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Proprietary trade setup parameters (Entry Zone, Stop Loss, Take Profits), raw 15-Agent council deliberation streams, and order execution require authenticated membership via <Link href="/member" className="text-cyan-400 underline font-mono">/member</Link>.
               </p>
             </div>
           </div>
@@ -809,6 +846,29 @@ export default function HowToUsePage() {
               </table>
             </div>
           </div>
+
+          {/* Sub-Section 03: Asset Deep-Dive */}
+          <div id="asset-deep-dive" className="p-4 rounded-xl bg-black/40 border border-white/10 space-y-2.5 scroll-mt-24 mt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-2">
+              <div className="flex items-center space-x-2">
+                <span className="text-cyan-400 font-mono font-bold text-sm">03.</span>
+                <h3 className="text-sm font-bold text-white uppercase font-mono">
+                  Asset Deep-Dive Architecture (/markets/[symbol])
+                </h3>
+              </div>
+              <span className="text-[9px] bg-cyan-950/60 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded font-mono font-bold">
+                PUBLIC + MEMBER INTELLIGENCE
+              </span>
+            </div>
+            <p className="text-xs text-gray-300 leading-relaxed">
+              Every canonical instrument features a dedicated institutional deep-dive page accessible at <code className="text-cyan-300 font-mono">/markets/[symbol]</code>. Public visitors can view live BID/ASK prices, broker verification telemetry, multi-timeframe structural matrices, and macro liquidity maps. Authenticated members unlock actionable trade blueprints (exact Entry Zone, Stop Loss, Multi-Targets, and R:R ratios) plus individual agent evidence citations.
+            </p>
+            <div className="flex flex-wrap gap-3 pt-1 text-xs font-mono">
+              <Link href="/markets/XAUUSD" className="text-cyan-400 hover:text-cyan-300 underline">Gold (XAUUSD) Deep-Dive →</Link>
+              <Link href="/markets/BTCUSD" className="text-cyan-400 hover:text-cyan-300 underline">Bitcoin (BTCUSD) Deep-Dive →</Link>
+              <Link href="/markets/EURUSD" className="text-cyan-400 hover:text-cyan-300 underline">Euro (EURUSD) Deep-Dive →</Link>
+            </div>
+          </div>
         </section>
 
         {/* SECTION 11 — DAILY WORKFLOW */}
@@ -925,7 +985,6 @@ export default function HowToUsePage() {
             </div>
           </div>
         </section>
-        </MemberAccessGuard>
 
         {/* Global Footer */}
         <MasterFooter />

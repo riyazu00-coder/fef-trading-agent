@@ -26,6 +26,7 @@ export default function MemberPortalPage() {
         <MemberAccessGuard
           title="MEMBER PORTAL"
           description="Access your FEF CORTEX membership status, device entitlement, and MT5 connector setup."
+          allowLoginForm={true}
         >
           {/* Header Card */}
           <div className="ghost-glass-panel rounded-2xl p-6 space-y-2 font-sans">

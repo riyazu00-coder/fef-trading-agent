@@ -16,6 +16,19 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 
+// Isolated Test Data Sandbox: Prevent test accounts from polluting development/production registries
+const testDataDir = path.resolve(__dirname, '../data/.test-tmp');
+if (!fs.existsSync(testDataDir)) {
+  fs.mkdirSync(testDataDir, { recursive: true });
+}
+const testStoreFile = path.resolve(testDataDir, `licenses-${Date.now()}.json`);
+const testMembersFile = path.resolve(testDataDir, `members-${Date.now()}.json`);
+const testLockFile = path.resolve(testDataDir, `store-${Date.now()}.lock`);
+
+process.env.FEF_LICENSES_STORE_FILE = testStoreFile;
+process.env.FEF_MEMBERS_STORE_FILE = testMembersFile;
+process.env.FEF_STORE_LOCK_FILE = testLockFile;
+
 // We will use tsx / ts-node runner or inline import of ts modules
 const { licenseService } = require('../src/lib/licensing/license-service');
 const { licenseStore } = require('../src/lib/licensing/license-store');
@@ -30,6 +43,7 @@ async function runTests() {
   let passed = 0;
   let failed = 0;
 
+  try {
   function test(name, fn) {
     try {
       fn();
@@ -370,6 +384,20 @@ async function runTests() {
   const testMasters = licenseService.getAllMasterAccounts();
   for (const tm of testMasters) {
     licenseService.deleteMember(tm.memberId);
+  }
+  } finally {
+    // Deterministic Isolation Cleanup: Remove temporary test store files so registries remain pristine
+    try {
+      if (fs.existsSync(testStoreFile)) fs.unlinkSync(testStoreFile);
+      if (fs.existsSync(testMembersFile)) fs.unlinkSync(testMembersFile);
+      if (fs.existsSync(testLockFile)) fs.unlinkSync(testLockFile);
+      if (fs.existsSync(testDataDir)) {
+        const remaining = fs.readdirSync(testDataDir);
+        if (remaining.length === 0) fs.rmdirSync(testDataDir);
+      }
+    } catch (e) {
+      // Ignore cleanup error
+    }
   }
 
   if (failed > 0) {

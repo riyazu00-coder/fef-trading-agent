@@ -4,12 +4,14 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useMemberAuth } from '@/context/MemberAuthContext';
 import { SUPPORT_CONFIG, CORTEX_WHATSAPP_CONFIG } from '@/lib/config/support-config';
+import { MemberLockedState } from '@/components/common/MemberLockedState';
 
 interface MemberAccessGuardProps {
   children: React.ReactNode;
   title?: string;
   description?: string;
   requireMaster?: boolean; // For MASTER-only pages (/admin/members)
+  allowLoginForm?: boolean; // ONLY true on canonical /member page
 }
 
 export const MemberAccessGuard: React.FC<MemberAccessGuardProps> = ({
@@ -17,6 +19,7 @@ export const MemberAccessGuard: React.FC<MemberAccessGuardProps> = ({
   title = 'MEMBER ACCESS REQUIRED',
   description = 'This intelligence section requires an authenticated FEF CORTEX community member or master owner account.',
   requireMaster = false,
+  allowLoginForm = false,
 }) => {
   const {
     isAuthenticated,
@@ -107,6 +110,15 @@ export const MemberAccessGuard: React.FC<MemberAccessGuardProps> = ({
   // STATE 1: NOT AUTHENTICATED
   // -------------------------------------------------------------
   if (!isAuthenticated || !member) {
+    if (!allowLoginForm) {
+      return (
+        <MemberLockedState
+          title={title}
+          description={description}
+        />
+      );
+    }
+
     return (
       <div className="min-h-[75vh] flex items-center justify-center p-4">
         <div className="bg-[#080E1A]/95 border border-cyan-500/30 rounded-2xl max-w-md w-full p-6 sm:p-8 shadow-[0_0_50px_rgba(6,182,212,0.15)] font-mono space-y-6 animate-in fade-in zoom-in-95 duration-150 relative">

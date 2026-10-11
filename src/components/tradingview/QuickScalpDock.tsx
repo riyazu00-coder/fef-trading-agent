@@ -21,7 +21,6 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
     isMaster,
     license,
     isDeviceAuthorized,
-    login,
   } = useMemberAuth();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -34,10 +33,6 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
 
   // Protected trade access modal state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authEmailInput, setAuthEmailInput] = useState('');
-  const [authPasswordInput, setAuthPasswordInput] = useState('');
-  const [authSubmitting, setAuthSubmitting] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
 
   // Can the current user execute trades?
   // MASTER: Always authorized
@@ -127,21 +122,6 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
     return { valid: true, error: null };
   }, []);
 
-  // Handle direct login from TradingView trade access gate
-  const handleAuthLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!authEmailInput.trim() || !authPasswordInput) return;
-    setAuthSubmitting(true);
-    setAuthError(null);
-    const res = await login(authEmailInput.trim(), authPasswordInput);
-    if (!res.success) {
-      setAuthError(res.message || 'Invalid member credentials.');
-    } else {
-      setIsAuthModalOpen(false);
-      setAuthPasswordInput('');
-    }
-    setAuthSubmitting(false);
-  };
 
   // Open modal trigger — protected by member authorization gate
   const handleInitiateOrder = (dir: 'BUY' | 'SELL') => {
@@ -587,65 +567,30 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
               </p>
             </div>
 
-            {/* Quick Login Form */}
-            <form onSubmit={handleAuthLogin} className="space-y-3.5">
-              <div className="space-y-1">
-                <label className="text-[10px] text-gray-400 uppercase tracking-wider block">
-                  Username or Email:
-                </label>
-                <input
-                  type="text"
-                  value={authEmailInput}
-                  onChange={(e) => setAuthEmailInput(e.target.value)}
-                  placeholder="master_username / member@domain.com"
-                  required
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  disabled={authSubmitting}
-                  className="w-full bg-black/60 border border-white/15 focus:border-cyan-400 text-cyan-200 text-xs py-2 px-3 rounded-xl outline-none placeholder:text-gray-600 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] transition-all"
-                />
-              </div>
+            {/* Member Portal Redirection Action Card */}
+            <div className="space-y-4 py-2 font-sans">
+              <p className="text-xs text-gray-300 text-center leading-relaxed">
+                Direct trade execution, one-click scalp orders, and MT5 broker dispatch require active institutional membership.
+              </p>
 
-              <div className="space-y-1">
-                <label className="text-[10px] text-gray-400 uppercase tracking-wider block">
-                  Password:
-                </label>
-                <input
-                  type="password"
-                  value={authPasswordInput}
-                  onChange={(e) => setAuthPasswordInput(e.target.value)}
-                  placeholder="••••••••••••"
-                  required
-                  disabled={authSubmitting}
-                  className="w-full bg-black/60 border border-white/15 focus:border-cyan-400 text-cyan-200 text-xs py-2 px-3 rounded-xl outline-none placeholder:text-gray-600 focus:shadow-[0_0_12px_rgba(34,211,238,0.2)] transition-all"
-                />
-              </div>
-
-              {authError && (
-                <div className="p-2.5 rounded-xl bg-rose-950/70 border border-rose-500/50 text-rose-200 text-[11px] flex items-center space-x-1.5">
-                  <span>⚠️</span>
-                  <span>{authError}</span>
-                </div>
-              )}
-
-              <div className="flex items-center space-x-2 pt-1">
-                <button
-                  type="button"
+              <div className="pt-1">
+                <Link
+                  href="/member"
                   onClick={() => setIsAuthModalOpen(false)}
-                  disabled={authSubmitting}
-                  className="flex-1 py-2.5 rounded-xl bg-black/60 border border-white/10 hover:bg-white/5 text-gray-300 text-xs font-bold cursor-pointer transition-colors"
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-black font-sans font-black text-xs uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center justify-center space-x-2 cursor-pointer font-mono"
                 >
-                  CANCEL
-                </button>
-                <button
-                  type="submit"
-                  disabled={authSubmitting || !authEmailInput.trim() || !authPasswordInput}
-                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-black font-sans font-black text-xs uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  {authSubmitting ? 'SIGNING IN...' : 'LOGIN'}
-                </button>
+                  <span>MEMBER LOGIN →</span>
+                </Link>
               </div>
-            </form>
+
+              <button
+                type="button"
+                onClick={() => setIsAuthModalOpen(false)}
+                className="w-full py-2.5 rounded-xl bg-black/60 border border-white/10 hover:bg-white/5 text-gray-400 hover:text-white text-xs font-bold cursor-pointer transition-colors"
+              >
+                RETURN TO CHART
+              </button>
+            </div>
 
             {/* Support / Contact Desk Link */}
             <div className="pt-3 border-t border-white/10 space-y-2">

@@ -14,10 +14,12 @@ import {
   ChartAnalysisHistoryItem
 } from '@/lib/services/chart-analysis-service';
 import { validateTradeBlueprint } from '@/lib/chart-analysis/blueprint-validator';
-import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
+import { useMemberAuth } from '@/context/MemberAuthContext';
 
 export default function ChartAnalyzerPage() {
   const router = useRouter();
+  const { isAuthenticated, isMaster } = useMemberAuth();
+  const isMemberAuthorized = Boolean(isAuthenticated || isMaster);
   const { activeSymbol, setActiveSymbol, activeAsset, timeframe, setTimeframe, assetProfile } = useActiveAsset();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -229,10 +231,6 @@ export default function ChartAnalyzerPage() {
         <MasterTopNav />
         <MarketCategoryFilterBar />
 
-        <MemberAccessGuard
-          title="AUTONOMOUS CHART ANALYZER"
-          description="Vision blueprint recognition, deep geometric analysis, and chart-to-execution pipeline require authenticated member access."
-        >
         {/* Control Header & Mode Bar */}
         <div className="ghost-glass-panel rounded-2xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -673,61 +671,79 @@ export default function ChartAnalyzerPage() {
                 </div>
               )}
 
-              {/* Action buttons: Calculate Position Size & Transfer to execution */}
-              <div className="space-y-2">
-                <button
-                  onClick={handleCalculatePositionSize}
-                  disabled={!canCalculatePosition}
-                  className={`w-full border text-white font-black py-2.5 rounded-xl text-xs tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
-                    canCalculatePosition
-                      ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-500 border-cyan-400/50 shadow-[0_0_15px_rgba(0,240,255,0.3)] cursor-pointer'
-                      : 'bg-gray-800/60 border-gray-700/50 text-gray-400 cursor-not-allowed opacity-50'
-                  }`}
-                  title={!canCalculatePosition ? (validation.reason || 'Blueprint inconsistent') : undefined}
-                >
-                  <span>🧮</span>
-                  <span>CALCULATE POSITION SIZE &rarr;</span>
-                </button>
+              {/* Action buttons: Member Authorized vs Member-Locked Pipeline */}
+              {isMemberAuthorized ? (
+                <div className="space-y-2">
+                  <button
+                    onClick={handleCalculatePositionSize}
+                    disabled={!canCalculatePosition}
+                    className={`w-full border text-white font-black py-2.5 rounded-xl text-xs tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
+                      canCalculatePosition
+                        ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-500 border-cyan-400/50 shadow-[0_0_15px_rgba(0,240,255,0.3)] cursor-pointer'
+                        : 'bg-gray-800/60 border-gray-700/50 text-gray-400 cursor-not-allowed opacity-50'
+                    }`}
+                    title={!canCalculatePosition ? (validation.reason || 'Blueprint inconsistent') : undefined}
+                  >
+                    <span>🧮</span>
+                    <span>CALCULATE POSITION SIZE &rarr;</span>
+                  </button>
 
-                <button
-                  onClick={handleTransferToExecution}
-                  disabled={!canSendToExecution}
-                  className={`w-full border text-white font-bold py-2.5 rounded-xl text-xs tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
-                    canSendToExecution
-                      ? 'bg-gradient-to-r from-emerald-500/30 via-cyan-500/30 to-purple-500/30 hover:from-emerald-500/40 hover:via-cyan-500/40 hover:to-purple-500/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.25)] cursor-pointer'
-                      : 'bg-gray-800/60 border-gray-700/50 text-gray-400 cursor-not-allowed opacity-50'
-                  }`}
-                  title={
-                    !canSendToExecution
-                      ? !validation.isValid
-                        ? 'Disabled: Blueprint geometry is inconsistent'
+                  <button
+                    onClick={handleTransferToExecution}
+                    disabled={!canSendToExecution}
+                    className={`w-full border text-white font-bold py-2.5 rounded-xl text-xs tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
+                      canSendToExecution
+                        ? 'bg-gradient-to-r from-emerald-500/30 via-cyan-500/30 to-purple-500/30 hover:from-emerald-500/40 hover:via-cyan-500/40 hover:to-purple-500/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.25)] cursor-pointer'
+                        : 'bg-gray-800/60 border-gray-700/50 text-gray-400 cursor-not-allowed opacity-50'
+                    }`}
+                    title={
+                      !canSendToExecution
+                        ? !validation.isValid
+                          ? 'Disabled: Blueprint geometry is inconsistent'
+                          : !isMarketOpen
+                          ? 'Disabled: Market is currently closed'
+                          : !isTrustApproved
+                          ? `Disabled: Evidence Trust (${assetProfile?.evidenceTrust ?? 0}%) below 60%`
+                          : 'Setup unavailable'
+                        : undefined
+                    }
+                  >
+                    <span>⚡</span>
+                    <span>SEND TO EXECUTION &rarr;</span>
+                  </button>
+
+                  {/* Subtext explanation when buttons are disabled */}
+                  {analysisResult && (!canCalculatePosition || !canSendToExecution) && (
+                    <p className="text-[10px] text-center text-gray-400">
+                      {!validation.isValid
+                        ? '⚠️ Execution locked: Blueprint geometry is inconsistent.'
+                        : !hasActionableDirection
+                        ? '🔒 Execution locked: Setup is in ANALYSIS ONLY or WAIT state.'
                         : !isMarketOpen
-                        ? 'Disabled: Market is currently closed'
+                        ? '🔒 Execution locked: Market session is currently closed.'
                         : !isTrustApproved
-                        ? `Disabled: Evidence Trust (${assetProfile?.evidenceTrust ?? 0}%) below 60%`
-                        : 'Setup unavailable'
-                      : undefined
-                  }
-                >
-                  <span>⚡</span>
-                  <span>SEND TO EXECUTION &rarr;</span>
-                </button>
-
-                {/* Subtext explanation when buttons are disabled */}
-                {analysisResult && (!canCalculatePosition || !canSendToExecution) && (
-                  <p className="text-[10px] text-center text-gray-400">
-                    {!validation.isValid
-                      ? '⚠️ Execution locked: Blueprint geometry is inconsistent.'
-                      : !hasActionableDirection
-                      ? '🔒 Execution locked: Setup is in ANALYSIS ONLY or WAIT state.'
-                      : !isMarketOpen
-                      ? '🔒 Execution locked: Market session is currently closed.'
-                      : !isTrustApproved
-                      ? `🔒 Execution locked: Evidence Trust (${assetProfile?.evidenceTrust ?? 0}%) is below 60% requirement.`
-                      : ''}
+                        ? `🔒 Execution locked: Evidence Trust (${assetProfile?.evidenceTrust ?? 0}%) is below 60% requirement.`
+                        : ''}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-cyan-950/20 border border-cyan-500/30 rounded-xl p-3.5 text-center space-y-2.5 font-sans">
+                  <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-[10px] font-mono">
+                    <span>🔒</span>
+                    <span>MEMBER-ONLY PIPELINE</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    Automated position sizing calculation and live execution dispatch require an active member license.
                   </p>
-                )}
-              </div>
+                  <Link
+                    href="/member"
+                    className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(6,182,212,0.3)] font-mono"
+                  >
+                    <span>MEMBER LOGIN →</span>
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -844,8 +860,6 @@ export default function ChartAnalyzerPage() {
             </div>
           </div>
         )}
-        </MemberAccessGuard>
-
         {/* Master Footer */}
         <MasterFooter />
       </div>

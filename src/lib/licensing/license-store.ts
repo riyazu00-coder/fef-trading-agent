@@ -3,9 +3,15 @@ import path from 'path';
 import crypto from 'crypto';
 import { LicenseRecord, LicenseStatus, MemberRecord } from './license-types';
 
-const STORE_FILE = path.resolve(process.cwd(), 'data/fef-licenses-registry.json');
-const MEMBERS_FILE = path.resolve(process.cwd(), 'data/fef-members-registry.json');
-const LOCK_FILE = path.resolve(process.cwd(), 'data/fef-licenses-registry.lock');
+const STORE_FILE = process.env.FEF_LICENSES_STORE_FILE
+  ? path.resolve(process.env.FEF_LICENSES_STORE_FILE)
+  : path.resolve(process.cwd(), 'data/fef-licenses-registry.json');
+const MEMBERS_FILE = process.env.FEF_MEMBERS_STORE_FILE
+  ? path.resolve(process.env.FEF_MEMBERS_STORE_FILE)
+  : path.resolve(process.cwd(), 'data/fef-members-registry.json');
+const LOCK_FILE = process.env.FEF_STORE_LOCK_FILE
+  ? path.resolve(process.env.FEF_STORE_LOCK_FILE)
+  : path.resolve(process.cwd(), 'data/fef-licenses-registry.lock');
 
 function cleanEnvVar(val: string | undefined): string {
   if (!val) return '';
