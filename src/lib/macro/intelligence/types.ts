@@ -50,7 +50,11 @@ export interface MacroSeriesAnalysis {
   momentum: SeriesMomentum;
   
   freshness: MacroFreshness;
+  freshnessState?: MacroFreshness;
   freshnessReason: string;
+  isLatestOfficialObservation?: boolean;
+  isVerified?: boolean;
+  isActionable?: boolean;
   
   sampleCount: number;
   provider: string;
@@ -160,5 +164,39 @@ export interface XauusdMacroEvidence {
   
   reasoningSummary: string;
   assembledAt: number;
+}
+
+export type InflationRegime = 'INFLATIONARY_EXPANSION' | 'DISINFLATION' | 'STABLE_TARGET' | 'INSUFFICIENT_DATA';
+
+export interface InflationRegimeIntelligence {
+  name: string;
+  headlineCpiYoY?: number;
+  coreCpiYoY?: number;
+  pceYoY?: number;
+  corePceYoY?: number;
+  regime: InflationRegime;
+  observationDate: string;
+  freshness: MacroFreshness;
+  confidence: number;
+  provider: string;
+  classification: EvidenceClassification;
+  status: AnalysisStatus;
+}
+
+export type LaborMarketState = 'TIGHT' | 'SOFTENING' | 'LOOSE' | 'INSUFFICIENT_DATA';
+
+export interface LaborMarketIntelligence {
+  name: string;
+  unemploymentRate?: number;
+  unemploymentChange?: number;
+  nonfarmPayrollsLatest?: number;
+  nonfarmPayrollsDelta?: number;
+  state: LaborMarketState;
+  observationDate: string;
+  freshness: MacroFreshness;
+  confidence: number;
+  provider: string;
+  classification: EvidenceClassification;
+  status: AnalysisStatus;
 }
 

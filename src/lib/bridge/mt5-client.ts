@@ -38,7 +38,7 @@ export interface MT5ClientConfig {
 export const DEFAULT_BRIDGE_CONFIG: MT5ClientConfig = {
   host: '127.0.0.1',
   port: 5555,
-  token: process.env.FEF_BRIDGE_TOKEN || 'fef_local_bridge_token_v1',
+  token: (process.env.FEF_BRIDGE_TOKEN || '').trim(),
   timeoutMs: 1500,
   magicNumber: 8882026,
   executionEnabled: false // STRICT READ-ONLY DEFAULT

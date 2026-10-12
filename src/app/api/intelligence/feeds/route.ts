@@ -16,23 +16,43 @@ import { geopoliticalEngine } from '@/lib/geopolitical/geopolitical-engine';
 import { marketSentimentEngine } from '@/lib/sentiment/market-sentiment-engine';
 import { MacroIntelligenceEngine } from '@/lib/macro/intelligence/macro-intelligence-engine';
 import { classifyMarketRegime, MarketRegimeAssessment } from '@/lib/regime/market-regime-engine';
-import { buildCrossAssetMatrix, CrossAssetMatrix, TimeSeriesPoint } from '@/lib/cross-asset/cross-asset-engine';
+import { buildCrossAssetMatrix, buildCrossAssetMatrixFromCandles, CrossAssetMatrix, TimeSeriesPoint } from '@/lib/cross-asset/cross-asset-engine';
 import { calculateQuantMetrics, matchHistoricalAnalogues, QuantMetricsResult, HistoricalAnalogueResult } from '@/lib/quant/quant-engine';
 import { evaluateDataSentinelAgent } from '@/lib/agents/specialists/specialist-agents';
 import { LiveIntelligenceFeeds } from '@/lib/intelligence/feed-types';
+import { CftcCotProvider } from '@/lib/cot/cftc-cot-provider';
+import { CentralBankProvider } from '@/lib/central-banks/central-bank-provider';
+import { calculateCurrencyStrengthMatrix, calculateCurrencyStrengthFromCandles } from '@/lib/cross-asset/currency-strength-calculator';
+import { fetchBatchBrokerCandles } from '@/lib/candles/broker-candle-service';
+import { buildVerifiedLeadLagEnvelope, CANONICAL_LEAD_LAG_PAIRS } from '@/lib/cross-asset/lead-lag-engine';
 
 export const dynamic = 'force-dynamic';
 
 const macroIntelligenceEngine = new MacroIntelligenceEngine();
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     ensureProvidersRegistered();
 
     let detailedMacro: any = null;
+    let cotReports: any = null;
+    let centralBanks: any = null;
 
-    // Concurrently refresh specialist intelligence engines including official MacroIntelligenceEngine
-    const [newsRes, macroRes, eventsRes, sentimentRes, geoRes, detailedMacroRes] = await Promise.allSettled([
+    let targetSymbol = 'XAUUSD';
+    try {
+      if (req && req.url) {
+        const u = new URL(req.url);
+        const s = u.searchParams.get('symbol');
+        if (s) targetSymbol = s.toUpperCase();
+      }
+    } catch {}
+
+    const batchSymbols = Array.from(new Set([
+      'XAUUSD', 'XAGUSD', 'USOIL', 'US100', 'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'NZDUSD', 'USDCAD', 'USDCHF', targetSymbol
+    ]));
+
+    // Concurrently refresh specialist intelligence engines including official MacroIntelligenceEngine, COT, and Central Banks
+    const [newsRes, macroRes, eventsRes, sentimentRes, geoRes, detailedMacroRes, cotRes, cbRes, brokerCandlesRes] = await Promise.allSettled([
       globalNewsEngine.getLatestNews(),
       globalMacroEngine.getMacroIndicators(),
       economicCalendarEngine.getUpcomingEvents(48),
@@ -43,7 +63,21 @@ export async function GET() {
       }).catch(() => {
         detailedMacro = null;
       }),
+      CftcCotProvider.getInstance().getAllCotReports().then((res) => {
+        cotReports = res;
+      }).catch(() => {
+        cotReports = null;
+      }),
+      CentralBankProvider.getInstance().getCentralBankPolicyIntelligence().then((res) => {
+        centralBanks = res;
+      }).catch(() => {
+        centralBanks = null;
+      }),
+      fetchBatchBrokerCandles(batchSymbols, 'H1').catch(() => ({})),
     ]);
+
+    const brokerCandlesSnapshot: Record<string, any> =
+      brokerCandlesRes.status === 'fulfilled' ? brokerCandlesRes.value : {};
 
     const news = globalNewsEngine.getCachedNews();
     const macro = globalMacroEngine.getCachedIndicators();
@@ -102,43 +136,84 @@ export async function GET() {
       regimeResult = null;
     }
 
-    // 3. Deterministic Cross-Asset Matrix for XAUUSD
+    // 3. Deterministic Cross-Asset Matrix for XAUUSD from Verified Candles
     let crossAssetResult: CrossAssetMatrix | null = null;
     try {
-      // Map time series points from verified real yield observations if available
-      const realYieldObs = await macroIntelligenceEngine.getSeriesHistory('DFII10', 15).catch(() => []);
-      const nominal10YObs = await macroIntelligenceEngine.getSeriesHistory('DGS10', 15).catch(() => []);
+      const goldCandles = brokerCandlesSnapshot['XAUUSD']?.payload?.candles || [];
+      const silverCandles = brokerCandlesSnapshot['XAGUSD']?.payload?.candles || [];
+      const oilCandles = brokerCandlesSnapshot['USOIL']?.payload?.candles || [];
+      const equityCandles = brokerCandlesSnapshot['US100']?.payload?.candles || [];
 
-      const realYieldSeries: TimeSeriesPoint[] = realYieldObs
-        .filter((o) => typeof o.value === 'number' && !isNaN(o.value))
-        .map((o) => ({
-          date: o.observationDate,
-          timestamp: o.observationTimestamp,
-          value: o.value,
-        }));
-
-      const tenYearSeries: TimeSeriesPoint[] = nominal10YObs
-        .filter((o) => typeof o.value === 'number' && !isNaN(o.value))
-        .map((o) => ({
-          date: o.observationDate,
-          timestamp: o.observationTimestamp,
-          value: o.value,
-        }));
-
-      // Zero synthetic market-price series: aligned live series absent without verified gold candle stream
-      crossAssetResult = buildCrossAssetMatrix({
-        goldSeries: [],
-        realYieldSeries: realYieldSeries.length >= 5 ? realYieldSeries : undefined,
-        tenYearYieldSeries: tenYearSeries.length >= 5 ? tenYearSeries : undefined,
-        hasVerifiedDxy: false, // DXY strictly absent in FRED connector, truthfully UNAVAILABLE
-      });
+      if (goldCandles.length >= 15) {
+        const matrixEnv = buildCrossAssetMatrixFromCandles(
+          goldCandles,
+          {
+            silverCandles: silverCandles.length >= 15 ? silverCandles : undefined,
+            oilCandles: oilCandles.length >= 15 ? oilCandles : undefined,
+            equityCandles: equityCandles.length >= 15 ? equityCandles : undefined,
+          },
+          true
+        );
+        crossAssetResult = matrixEnv.payload;
+      }
     } catch {
       crossAssetResult = null;
     }
 
     // 4. Quant Foundation & Historical Analogue Evaluation
-    // Verified candles absent in macro feeds route: fail closed without synthetic mock bars
-    const quantResult: { metrics: QuantMetricsResult; analogue: HistoricalAnalogueResult } | null = null;
+    let quantResult: { metrics: QuantMetricsResult; analogue: HistoricalAnalogueResult } | null = null;
+    try {
+      const targetCandles = brokerCandlesSnapshot[targetSymbol]?.payload?.candles || [];
+      if (targetCandles.length >= 15) {
+        const metrics = calculateQuantMetrics(targetCandles);
+        const analogue = matchHistoricalAnalogues(targetCandles);
+        quantResult = { metrics, analogue };
+      }
+    } catch {
+      quantResult = null;
+    }
+
+    // 5. Currency Strength Matrix from Synchronized Forex Candles
+    let currencyStrength: any = null;
+    try {
+      const fxPairs = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'NZDUSD', 'USDCAD', 'USDCHF'];
+      const fxCandles: Record<string, any[]> = {};
+      for (const p of fxPairs) {
+        const c = brokerCandlesSnapshot[p]?.payload?.candles;
+        if (Array.isArray(c) && c.length >= 2) {
+          fxCandles[p] = c;
+        }
+      }
+      if (Object.keys(fxCandles).length >= 4) {
+        currencyStrength = calculateCurrencyStrengthFromCandles(fxCandles, 'H1');
+      } else {
+        const forexQuotes: Record<string, any> = {};
+        for (const [sym, s] of Object.entries(sentiment)) {
+          if (s && typeof (s as any).change24h === 'number') {
+            forexQuotes[sym] = { symbol: sym, change24h: (s as any).change24h };
+          }
+        }
+        currencyStrength =
+          Object.keys(forexQuotes).length >= 4 ? calculateCurrencyStrengthMatrix(forexQuotes) : null;
+      }
+    } catch {
+      currencyStrength = null;
+    }
+
+    // 6. Lead/Lag Analytics from Synchronized Series
+    let leadLagResult: any = null;
+    try {
+      const pair = CANONICAL_LEAD_LAG_PAIRS[targetSymbol];
+      if (pair) {
+        const leadCandles = brokerCandlesSnapshot[pair.leader]?.payload?.candles || [];
+        const follCandles = brokerCandlesSnapshot[pair.follower]?.payload?.candles || [];
+        if (leadCandles.length >= 20 && follCandles.length >= 20) {
+          leadLagResult = buildVerifiedLeadLagEnvelope(leadCandles, follCandles, pair.leader, pair.follower, 'H1');
+        }
+      }
+    } catch {
+      leadLagResult = null;
+    }
 
     const payload: LiveIntelligenceFeeds = {
       timestamp: new Date().toISOString(),
@@ -159,7 +234,14 @@ export async function GET() {
         twoYearYield: detailedMacro.twoYearYield,
         realYield: detailedMacro.realYield,
         breakeven: detailedMacro.breakeven,
+        inflationRegime: detailedMacro.inflationRegime,
+        laborMarket: detailedMacro.laborMarket,
       } : null,
+      cotReports,
+      centralBanks,
+      currencyStrength,
+      leadLag: leadLagResult,
+      brokerCandles: brokerCandlesSnapshot,
       providerHealth: providerHealthList,
     };
 

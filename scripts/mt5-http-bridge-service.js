@@ -24,7 +24,10 @@ if (fs.existsSync(envLocalPath)) {
 
 const PORT = 5556;
 const HOST = '127.0.0.1';
-const VALID_TOKEN = process.env.FEF_BRIDGE_TOKEN || envToken || 'fef_local_bridge_token_v1';
+const VALID_TOKEN = (process.env.FEF_BRIDGE_TOKEN || envToken || '').trim();
+if (!VALID_TOKEN || VALID_TOKEN === 'fef_local_bridge_token_v1') {
+  console.warn('[BRIDGE CONFIG] FEF_BRIDGE_TOKEN is unconfigured or uses retired public fallback. Fail-closed.');
+}
 const HEARTBEAT_TIMEOUT_MS = 10000; // 10 seconds aligns with HEARTBEAT_FRESH_THRESHOLD_MS
 const CANONICAL_EXECUTION_MODE = 'READ_ONLY';
 const MT5_ORDER_TRANSPORT_ENABLED = false;
@@ -94,6 +97,11 @@ function maskAccount(login) {
 
 // Check if request is authenticated
 function isAuthorized(req, bodyObj) {
+  // Fail-closed: Missing token or retired public fallback can never authorize
+  if (!VALID_TOKEN || VALID_TOKEN === 'fef_local_bridge_token_v1') {
+    return false;
+  }
+
   const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const bearer = authHeader.slice(7).trim();

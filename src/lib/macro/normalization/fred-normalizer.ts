@@ -97,16 +97,21 @@ export function normalizeFredObservation(
 
   if (ageHours <= seriesDef.maxAgeHoursCurrent) {
     freshness = 'CURRENT';
-    freshnessReason = `Observation within active cycle (${Math.round(ageHours)}h <= ${seriesDef.maxAgeHoursCurrent}h)`;
+    freshnessReason = `Observation within active cycle (${Math.round(ageHours)}h <= ${seriesDef.maxAgeHoursCurrent}h, cadence: ${seriesDef.expectedReleaseCadence || seriesDef.frequency})`;
   } else if (ageHours <= seriesDef.maxAgeHoursAging) {
     freshness = 'AGING';
-    freshnessReason = `Observation in aging cycle (${Math.round(ageHours)}h <= ${seriesDef.maxAgeHoursAging}h, expected frequency: ${seriesDef.frequency})`;
+    freshnessReason = `Observation in aging cycle (${Math.round(ageHours)}h <= ${seriesDef.maxAgeHoursAging}h, cadence: ${seriesDef.expectedReleaseCadence || seriesDef.frequency})`;
   } else {
     freshness = 'STALE';
-    freshnessReason = `Observation exceeds expected release schedule (${Math.round(ageHours)}h > ${seriesDef.maxAgeHoursAging}h)`;
+    freshnessReason = `Observation exceeds expected release schedule (${Math.round(ageHours)}h > ${seriesDef.maxAgeHoursAging}h, cadence: ${seriesDef.expectedReleaseCadence || seriesDef.frequency})`;
   }
 
   // 4. Assemble Normalized Observation
+  const isLatestOfficialObservation = freshness !== 'STALE';
+  const isActionable = freshness !== 'STALE';
+  const trustWeight = freshness === 'CURRENT' ? 1.0 : freshness === 'AGING' ? 0.65 : 0.0;
+  const temporalUsability = freshness;
+
   const observation: NormalizedMacroObservation = {
     seriesId: seriesDef.seriesId,
     name: seriesDef.name,
@@ -116,11 +121,20 @@ export function normalizeFredObservation(
     observationDate: dateStr,
     observationTimestamp: obsTimestamp,
     receivedAt,
+    retrievedAt: receivedAt,
     provider: 'FRED',
     source: seriesDef.source,
-    provenance: 'INDEPENDENT_VERIFIED', // Official government/central bank statistical release
+    provenance: 'INDEPENDENT_VERIFIED', // Official government/central bank statistical release (authenticity)
     freshness,
+    freshnessState: freshness,
     freshnessReason,
+    temporalUsability, // Temporal usability separated from authenticity provenance
+    trustWeight,       // Explicit trust penalty: 1.0 for CURRENT, 0.65 for AGING, 0.0 for STALE
+    seriesFrequency: seriesDef.frequency,
+    expectedReleaseCadence: seriesDef.expectedReleaseCadence || seriesDef.frequency,
+    isLatestOfficialObservation,
+    isVerified: true,
+    isActionable,
     affectedAssets: [...seriesDef.affectedAssets],
     metadata: {
       frequency: seriesDef.frequency,

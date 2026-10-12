@@ -18,6 +18,7 @@
  */
 
 import { LiveMarketAsset } from '../providers/real-market-api';
+import { isEnvelopeActionable } from '../providers/canonical-envelope';
 import { AgentNodeStatus, AgentState, AgentType, BiasType } from './agent-types';
 import { getMarketDefinition, MarketCategory, getCrossAssetBenchmark, getExpectedBenchmarkCorrelation } from '../registry/market-registry';
 import { evaluateMarketSession, MarketSessionState } from '../session/market-session-engine';
@@ -163,6 +164,8 @@ export interface DataReadinessSummary {
   dataReadiness: 'HIGH' | 'MODERATE' | 'LIMITED' | 'INSUFFICIENT';
   unverifiedDependencies: string[];
   waitReason: 'DATA_INSUFFICIENT' | 'MARKET_CONFLICT' | 'MARKET_CLOSED' | 'SETUP_PENDING' | 'NONE';
+  coveredEvidenceFamilies?: string[];
+  totalEvidenceFamilies?: number;
 }
 
 /**
@@ -1653,6 +1656,7 @@ export function generateAssetIntelligence(
   const inflationSpecialist = evaluateInflationAgent({
     breakevenAnalysis: feeds?.macroDetails?.breakeven,
     realYieldAnalysis: feeds?.macroDetails?.realYield,
+    inflationRegime: feeds?.macroDetails?.inflationRegime,
     instrument: normSymbol,
   });
 
@@ -1718,6 +1722,7 @@ export function generateAssetIntelligence(
     instrument: normSymbol,
     liveAssets: undefined,
     crossAssetMatrix: feeds?.crossAsset || undefined,
+    leadLagObservation: feeds?.leadLag?.payload || undefined,
   });
 
   const volatilitySqueezeSpecialist = evaluateVolatilitySqueezeAgent({
@@ -1728,7 +1733,9 @@ export function generateAssetIntelligence(
 
   const currencyStrengthSpecialist = evaluateCurrencyStrengthAgent({
     instrument: normSymbol,
-    currencyMatrix: (feeds?.crossAsset as any)?.currencyMatrix,
+    currencyMatrix:
+      (feeds?.crossAsset as any)?.currencyMatrix ||
+      (feeds?.currencyStrength?.payload ? feeds.currencyStrength.payload : undefined),
     forexQuotes: undefined,
   });
 
@@ -1753,11 +1760,13 @@ export function generateAssetIntelligence(
   const cotPositioningSpecialist = evaluateCotPositioningAgent({
     instrument: normSymbol,
     liveCot: (feeds as any)?.cot,
+    cotEnvelope: feeds?.cotReports?.[normSymbol] || undefined,
   });
 
   const centralBankPolicySpecialist = evaluateCentralBankPolicyAgent({
     instrument: normSymbol,
-    liveCentralBanks: (feeds as any)?.centralBanks,
+    liveCentralBanks: (feeds as any)?.centralBanks && !(feeds as any)?.centralBanks?.payload ? (feeds as any)?.centralBanks : undefined,
+    centralBankEnvelope: feeds?.centralBanks || undefined,
   });
 
   const quantMonteCarloSpecialist = evaluateQuantMonteCarloAgent({
@@ -1911,11 +1920,75 @@ export function generateAssetIntelligence(
     return a.evidenceRecords?.some((e) => e.decisionEligible && e.verified);
   }).length;
 
+  // 7b. Truthful Data Readiness Summary & Evidence Family Independence
+  // Evaluates independent coverage across the 7 canonical evidence families:
+  // 1. FRED_RATES, 2. FRED_INFLATION, 3. FRED_LABOR, 4. CFTC_POSITIONING,
+  // 5. MT5_PRICE, 6. MT5_CROSS_ASSET, 7. CENTRAL_BANK_POLICY
+  const coveredFamilies: string[] = [];
+  if (feeds?.macroDetails?.yieldCurve?.status === 'VALID' || (feeds?.macroDetails?.tenYearYield && feeds.macroDetails.tenYearYield.analysisStatus === 'VALID')) {
+    coveredFamilies.push('FRED_RATES');
+  }
+  if (feeds?.macroDetails?.inflationRegime?.status === 'VALID' || (feeds?.macroDetails?.realYield && feeds.macroDetails.realYield.analysisStatus === 'VALID')) {
+    coveredFamilies.push('FRED_INFLATION');
+  }
+  if (feeds?.macroDetails?.laborMarket?.status === 'VALID') {
+    coveredFamilies.push('FRED_LABOR');
+  }
+  if (feeds?.cotReports?.[normSymbol] && isEnvelopeActionable(feeds.cotReports[normSymbol])) {
+    coveredFamilies.push('CFTC_POSITIONING');
+  }
+  if (hasCandles && analysisCandles.length >= 15) {
+    coveredFamilies.push('MT5_PRICE');
+  }
+  if (feeds?.crossAsset || (feeds?.currencyStrength?.payload && Object.keys(feeds.currencyStrength.payload).length >= 4)) {
+    coveredFamilies.push('MT5_CROSS_ASSET');
+  }
+  if (feeds?.centralBanks && feeds.centralBanks.isVerified && feeds.centralBanks.payload) {
+    const pld = feeds.centralBanks.payload;
+    const baseCurr = normSymbol.substring(0, 3);
+    const quoteCurr = normSymbol.substring(3, 6);
+    if ((pld[baseCurr]?.isVerified && pld[quoteCurr]?.isVerified) || (normSymbol === 'XAUUSD' && pld['USD']?.isVerified)) {
+      coveredFamilies.push('CENTRAL_BANK_POLICY');
+    }
+  }
+
+  const trustedCouncilAgents = assembledAgents.filter((a) => {
+    if (a.status === 'DATA LIMITED' || a.status === 'OFFLINE' || a.status === 'ERROR') return false;
+    if (a.confidence === 0) return false;
+    const records = a.evidenceRecords || [];
+    return records.some((e) => e.decisionEligible && e.verified && e.classification !== 'STATIC_REFERENCE' && e.classification !== 'FALLBACK' && e.classification !== 'MOCK');
+  });
+
+  const availableTrustedAgents = trustedCouncilAgents.length;
+  const totalRelevantAgents = assembledAgents.length;
+  const trustedEvidenceRatio = totalRelevantAgents > 0 ? Number((availableTrustedAgents / totalRelevantAgents).toFixed(2)) : 0;
+
+  // Family-governed readiness prevents correlated agent multi-counting:
+  // 5-7 families = HIGH; 3-4 families = MODERATE; 2 families = LIMITED; 0-1 = INSUFFICIENT
+  let computedReadiness: 'HIGH' | 'MODERATE' | 'LIMITED' | 'INSUFFICIENT' = 'INSUFFICIENT';
+  if (coveredFamilies.length >= 5 && trustedEvidenceRatio >= 0.50) {
+    computedReadiness = 'HIGH';
+  } else if (coveredFamilies.length >= 3 && trustedEvidenceRatio >= 0.30) {
+    computedReadiness = 'MODERATE';
+  } else if (coveredFamilies.length >= 2) {
+    computedReadiness = 'LIMITED';
+  } else {
+    computedReadiness = 'INSUFFICIENT';
+  }
+
   let effectiveSetupDirection: AssetIntelligenceProfile['setupDirection'] = 'WAIT';
 
   // Single Authoritative Final Decision: CortexConfluenceEngine is the canonical presentation authority.
   // If Confluence presentationPosture === 'WAIT', effectiveSetupDirection MUST be 'WAIT'!
-  if (confluenceResult.presentationPosture === 'WAIT') {
+  // Sprint 2D.2 WATCH Posture Governance:
+  // WATCH requires verified conditions developing:
+  // - computedReadiness must be HIGH (MODERATE readiness alone is insufficient)
+  // - coveredFamilies.length >= 4 independent canonical families
+  // - trustedEvidenceRatio >= 0.40
+  // - confluenceResult.presentationPosture matches directional intent
+  // - armed and valid trade blueprint
+  // - eligible directional consensus without high-trust conflict (conflictScore < 20)
+  if (confluenceResult.presentationPosture === 'WAIT' || computedReadiness !== 'HIGH' || coveredFamilies.length < 4) {
     effectiveSetupDirection = 'WAIT';
   } else if (
     confluenceResult.presentationPosture === 'WATCH FOR BUY' &&
@@ -1923,8 +1996,8 @@ export function generateAssetIntelligence(
     blueprint.state !== 'INVALIDATED' &&
     blueprint.state !== 'EXPIRED' &&
     blueprint.direction === 'BUY' &&
-    eligibleBullishCount > 0 &&
-    consensusTrust.evidenceTrust >= 40 &&
+    eligibleBullishCount >= 2 &&
+    confluenceResult.conflictScore < 20 &&
     setupLifecycleRecord?.state !== 'INVALIDATED'
   ) {
     effectiveSetupDirection = 'WATCH FOR BUY';
@@ -1934,13 +2007,12 @@ export function generateAssetIntelligence(
     blueprint.state !== 'INVALIDATED' &&
     blueprint.state !== 'EXPIRED' &&
     blueprint.direction === 'SELL' &&
-    eligibleBearishCount > 0 &&
-    consensusTrust.evidenceTrust >= 40 &&
+    eligibleBearishCount >= 2 &&
+    confluenceResult.conflictScore < 20 &&
     setupLifecycleRecord?.state !== 'INVALIDATED'
   ) {
     effectiveSetupDirection = 'WATCH FOR SELL';
   } else {
-    // Insufficient evidence, waiting posture, or no directional setup -> WAIT
     effectiveSetupDirection = 'WAIT';
   }
 
@@ -1955,29 +2027,6 @@ export function generateAssetIntelligence(
     }
   }
 
-  // 7b. Truthful Data Readiness Summary & Wait Reason Classification
-  const trustedCouncilAgents = assembledAgents.filter((a) => {
-    if (a.status === 'DATA LIMITED' || a.status === 'OFFLINE' || a.status === 'ERROR') return false;
-    if (a.confidence === 0) return false;
-    const records = a.evidenceRecords || [];
-    return records.some((e) => e.decisionEligible && e.verified && e.classification !== 'STATIC_REFERENCE' && e.classification !== 'FALLBACK' && e.classification !== 'MOCK');
-  });
-
-  const availableTrustedAgents = trustedCouncilAgents.length;
-  const totalRelevantAgents = assembledAgents.length;
-  const trustedEvidenceRatio = totalRelevantAgents > 0 ? Number((availableTrustedAgents / totalRelevantAgents).toFixed(2)) : 0;
-
-  let computedReadiness: 'HIGH' | 'MODERATE' | 'LIMITED' | 'INSUFFICIENT' = 'INSUFFICIENT';
-  if (trustedEvidenceRatio >= 0.60) {
-    computedReadiness = 'HIGH';
-  } else if (trustedEvidenceRatio >= 0.40) {
-    computedReadiness = 'MODERATE';
-  } else if (trustedEvidenceRatio >= 0.20) {
-    computedReadiness = 'LIMITED';
-  } else {
-    computedReadiness = 'INSUFFICIENT';
-  }
-
   const unverifiedDeps: string[] = [];
   if (!hasCandles) unverifiedDeps.push('Verified OHLC Candles');
   if (!feeds?.sentinel) unverifiedDeps.push('Broker Socket Live Feed');
@@ -1985,11 +2034,11 @@ export function generateAssetIntelligence(
   if (!cachedSentiment || cachedSentiment.status !== 'AVAILABLE') unverifiedDeps.push('Live Sentiment LSR Feed');
 
   let waitReason: 'DATA_INSUFFICIENT' | 'MARKET_CONFLICT' | 'MARKET_CLOSED' | 'SETUP_PENDING' | 'NONE' = 'NONE';
-  if (!hasCandles || computedReadiness === 'INSUFFICIENT' || availableTrustedAgents < 2 || consensusTrust.evidenceTrust < 30) {
+  if (!hasCandles || computedReadiness === 'INSUFFICIENT' || coveredFamilies.length < 2 || availableTrustedAgents < 2 || consensusTrust.evidenceTrust < 30) {
     waitReason = 'DATA_INSUFFICIENT';
   } else if (!tradeExecutable || sessionState.marketState === 'DAILY_BREAK' || sessionState.marketState === 'WEEKEND_CLOSED' || sessionState.marketState === 'CLOSED') {
     waitReason = 'MARKET_CLOSED';
-  } else if (confluenceResult.conflictScore >= 25 || (eligibleBullishCount > 0 && eligibleBearishCount > 0)) {
+  } else if (confluenceResult.conflictScore > 15 || (eligibleBullishCount > 0 && eligibleBearishCount > 0) || confluenceResult.opposingDomains.length > 0) {
     waitReason = 'MARKET_CONFLICT';
   } else if (effectiveSetupDirection === 'WAIT') {
     waitReason = 'SETUP_PENDING';
@@ -2002,11 +2051,15 @@ export function generateAssetIntelligence(
     dataReadiness: computedReadiness,
     unverifiedDependencies: unverifiedDeps,
     waitReason,
+    coveredEvidenceFamilies: coveredFamilies,
+    totalEvidenceFamilies: 7,
   };
 
   // If data is insufficient, guarantee wait state and non-executable
-  if (waitReason === 'DATA_INSUFFICIENT') {
+  let effectiveTradeExecutable = tradeExecutable;
+  if (waitReason === 'DATA_INSUFFICIENT' || effectiveSetupDirection === 'WAIT') {
     effectiveSetupDirection = 'WAIT';
+    effectiveTradeExecutable = false;
   }
 
   // 8. Update Final Decision Agent from Confluence consensus
@@ -2019,11 +2072,11 @@ export function generateAssetIntelligence(
       : 'NEUTRAL';
     const isFinalOnline = consensusTrust.verifiedAgentCount >= 3 && waitReason !== 'DATA_INSUFFICIENT';
     finalAgent.status = isFinalOnline ? 'ONLINE' : 'DATA LIMITED';
-    if (!isFinalOnline) {
+    if (!isFinalOnline || effectiveSetupDirection === 'WAIT') {
       finalAgent.confidence = 0;
       finalAgent.evidenceTrustScore = 0;
     } else {
-      finalAgent.confidence = confluenceResult.evidenceTrust;
+      finalAgent.confidence = confluenceResult.confidence;
       finalAgent.evidenceTrustScore = confluenceResult.evidenceTrust;
     }
 
@@ -2047,7 +2100,7 @@ export function generateAssetIntelligence(
     : effectiveSetupDirection.includes('SELL')
       ? 'BEARISH'
       : 'NEUTRAL';
-  const riskPosture: RiskPosture = !tradeExecutable
+  const riskPosture: RiskPosture = !effectiveTradeExecutable
     ? 'RESTRICTED'
     : rgAgent?.bias === 'RESTRICTED'
     ? 'RESTRICTED'
@@ -2063,12 +2116,13 @@ export function generateAssetIntelligence(
   // - there is no eligible bullish or bearish directional evidence
   // - evidence trust is below the minimum truthfulness threshold (< 30%)
   const isConfidenceTruthful =
-    consensusTrust.evidenceTrust >= 30 &&
     effectiveSetupDirection !== 'WAIT' &&
+    computedReadiness === 'HIGH' &&
+    coveredFamilies.length >= 4 &&
     (eligibleBullishCount > 0 || eligibleBearishCount > 0);
 
   const profileConfidence = isConfidenceTruthful
-    ? Math.round(consensusTrust.evidenceTrust)
+    ? Math.round(confluenceResult.confidence)
     : 0;
 
   const macroDebateAgent = assembledAgents.find((a) => a.type === 'MACRO');
@@ -2308,7 +2362,7 @@ export function generateAssetIntelligence(
     ],
     agents: assembledAgents,
     sessionState,
-    tradeExecutable,
+    tradeExecutable: effectiveTradeExecutable,
     setupQuality,
     debateMessages: debateMessages as any,
     evidenceTrust: consensusTrust.evidenceTrust,

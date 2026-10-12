@@ -13,12 +13,22 @@
 
 import { UnifiedAgentResponse, AgentReadinessState } from '../contracts/unified-agent-contract';
 import { EvidenceClassification, ProvenanceBadgeType } from '../../evidence/agent-evidence';
-import { FedPolicyIntelligence, MacroSeriesAnalysis, YieldCurveIntelligence } from '../../macro/intelligence/types';
+import {
+  FedPolicyIntelligence,
+  InflationRegimeIntelligence,
+  LaborMarketIntelligence,
+  MacroSeriesAnalysis,
+  YieldCurveIntelligence,
+} from '../../macro/intelligence/types';
 import { MarketRegimeAssessment, VolatilityRegime } from '../../regime/market-regime-engine';
 import { CrossAssetMatrix } from '../../cross-asset/cross-asset-engine';
 import { QuantMetricsResult, HistoricalAnalogueResult, calculateQuantMetrics, PriceBar } from '../../quant/quant-engine';
 import { OHLCCandle } from '../../market/canonical-market-snapshot';
 import { LiveMarketAsset } from '../../providers/real-market-api';
+import { isEnvelopeActionable, VerifiedEvidenceEnvelope } from '../../providers/canonical-envelope';
+import { CotReportRecord } from '../../cot/cftc-cot-provider';
+import { CentralBankPolicyData } from '../../central-banks/central-bank-provider';
+import { LeadLagObservation } from '../../cross-asset/lead-lag-engine';
 
 /**
  * 1. RatesAgent (Domain: RATES)
@@ -38,16 +48,18 @@ export function evaluateRatesAgent(inputs: {
   const missing: string[] = [];
 
   if (yc && yc.status === 'VALID') {
+    // Curve state alone without dynamic steepening is neutral baseline
+    const curvePolarity = yc.curveDirection === 'STEEPENING' && yc.spreadBp > 25 ? 'BULLISH' : 'NEUTRAL';
     evidence.push({
       id: 'rates-yc',
       agentId: 'RATES_AGENT',
       domainFamily: 'RATES',
       nature: 'ANALYSIS',
       classification: yc.classification,
-      polarity: yc.curveState === 'INVERTED' ? 'BULLISH' : 'NEUTRAL',
-      strength: 0.7,
+      polarity: curvePolarity,
+      strength: 0.6,
       confidence: yc.confidence,
-      claim: `Yield curve spread is ${yc.spreadBp} bp (${yc.curveState}, ${yc.curveDirection}).`,
+      claim: `Yield curve spread is ${yc.spreadBp} bp (${yc.curveState || 'NORMAL'}, ${yc.curveDirection || 'STABLE'}). Baseline curve structure is ${(yc.curveState || 'NORMAL').toLowerCase()}.`,
       source: yc.provider,
       provider: 'FRED',
       observedAt: yc.observationDate,
@@ -61,18 +73,45 @@ export function evaluateRatesAgent(inputs: {
   }
 
   if (ty && ty.analysisStatus === 'VALID') {
-    const isFalling = ty.direction === 'FALLING';
-    const isRising = ty.direction === 'RISING';
+    // Require verified yield momentum (change >= 2 bp or definitive trend)
+    const changeBp = typeof ty.change1Bp === 'number' ? Math.abs(ty.change1Bp) : 0;
+    const hasMomentum = changeBp >= 2 || ty.direction !== 'FLAT';
+    const isFalling = ty.direction === 'FALLING' && hasMomentum;
+    const isRising = ty.direction === 'RISING' && hasMomentum;
+
+    // Instrument-specific rates transmission
+    let polarity: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+    if (isFalling) {
+      if (instrument === 'USDJPY') {
+        polarity = 'BEARISH'; // Falling US yields narrow carry advantage, weakening USD/JPY
+      } else if (instrument === 'USOIL') {
+        polarity = 'NEUTRAL'; // Oil sensitivity to nominal yields is ambiguous without growth context
+      } else {
+        polarity = 'BULLISH'; // Gold, Silver, EUR, GBP, Tech, Crypto benefit from falling discount rates / weaker USD
+      }
+    } else if (isRising) {
+      if (instrument === 'USDJPY') {
+        polarity = 'BULLISH'; // Rising US yields widen carry advantage, strengthening USD/JPY
+      } else if (instrument === 'USOIL') {
+        polarity = 'NEUTRAL';
+      } else {
+        polarity = 'BEARISH'; // Non-yielding / dollar assets face headwinds
+      }
+    } else {
+      polarity = 'NEUTRAL'; // Flat yield level is a static background baseline, NOT a directional impulse
+    }
+
+    const tyConfidence = hasMomentum ? 65 : 40;
     evidence.push({
       id: 'rates-10y',
       agentId: 'RATES_AGENT',
       domainFamily: 'RATES',
       nature: 'DATA',
       classification: ty.classification,
-      polarity: isFalling ? 'BULLISH' : isRising ? 'BEARISH' : 'NEUTRAL',
-      strength: 0.8,
-      confidence: 85,
-      claim: `10Y Treasury yield is ${ty.latestValue}% (${ty.direction}, change: ${ty.change1Bp} bp).`,
+      polarity,
+      strength: hasMomentum ? 0.75 : 0.4,
+      confidence: tyConfidence,
+      claim: `10Y Treasury yield is ${ty.latestValue}% (${ty.direction}, change: ${ty.change1Bp} bp). ${hasMomentum ? 'Yield momentum active.' : 'Yield momentum flat (static baseline level).' }`,
       source: ty.provider,
       provider: 'FRED',
       observedAt: ty.latestObservationDate,
@@ -89,6 +128,13 @@ export function evaluateRatesAgent(inputs: {
   const isBearish = evidence.some((e) => e.polarity === 'BEARISH') && !evidence.some((e) => e.polarity === 'BULLISH');
   const direction = isBullish ? 'BULLISH' : isBearish ? 'BEARISH' : 'NEUTRAL';
 
+  // Calibrated rates confidence: direction with momentum gets 60%, neutral/static gets 40%, no data gets 0%
+  const hasData = evidence.length > 0;
+  const baseConfidence = hasData ? (direction !== 'NEUTRAL' ? 60 : 40) : 0;
+  const isAging = ty?.freshness === 'AGING' || yc?.freshness === 'AGING';
+  const confidence = isAging ? Math.round(baseConfidence * 0.65) : baseConfidence;
+  const evidenceTrust = hasData ? (isAging ? 60 : 85) : 0;
+
   return {
     agentId: 'RATES_AGENT',
     agentName: 'Fed & Sovereign Rates Specialist',
@@ -96,18 +142,18 @@ export function evaluateRatesAgent(inputs: {
     domainFamily: 'RATES',
     instrument,
     direction,
-    confidence: evidence.length > 0 ? 80 : 0,
-    evidenceTrust: evidence.length > 0 ? 85 : 0,
+    confidence,
+    evidenceTrust,
     readiness: evidence.length >= 2 ? 'READY' : evidence.length > 0 ? 'PARTIAL' : 'DATA_LIMITED',
-    primaryThesis: evidence.length > 0
-      ? `Rates environment reflects ${direction.toLowerCase()} conditions for ${instrument === 'XAUUSD' ? 'gold' : instrument}.`
+    primaryThesis: hasData
+      ? `Rates environment reflects ${direction.toLowerCase()} conditions for ${instrument === 'XAUUSD' ? 'gold' : instrument} (10Y yield: ${ty?.latestValue ?? 'N/A'}%, ${ty?.direction ?? 'FLAT'}).`
       : 'Rates telemetry awaiting synchronized feeds.',
     evidence,
     conflicts: [],
     missingEvidence: missing,
     invalidation: 'Yield spike > 15 bp intraday',
     keyRisk: 'Unscheduled Federal Reserve rate shock',
-    provenanceBadge: evidence.length > 0 ? 'INDEPENDENT' : 'DATA LIMITED',
+    provenanceBadge: hasData ? 'INDEPENDENT' : 'DATA LIMITED',
     generatedAt: Date.now(),
   };
 }
@@ -118,27 +164,94 @@ export function evaluateRatesAgent(inputs: {
 export function evaluateInflationAgent(inputs: {
   breakevenAnalysis?: MacroSeriesAnalysis;
   realYieldAnalysis?: MacroSeriesAnalysis;
+  cpiAnalysis?: MacroSeriesAnalysis;
+  inflationRegime?: InflationRegimeIntelligence;
   instrument?: string;
 }): UnifiedAgentResponse {
   const instrument = (inputs.instrument || 'XAUUSD').toUpperCase();
   const bei = inputs.breakevenAnalysis;
   const ry = inputs.realYieldAnalysis;
+  const inf = inputs.inflationRegime;
   const evidence: any[] = [];
   const missing: string[] = [];
+
+  if (inf && inf.status === 'VALID') {
+    const isHigh = inf.regime === 'INFLATIONARY_EXPANSION';
+    const isLow = inf.regime === 'DISINFLATION';
+
+    // Transmission: US inflation expansion implies hawkish Fed (dollar strength), but gold/commodities act as hedge
+    let polarity: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+    if (isHigh) {
+      if (instrument === 'XAUUSD' || instrument === 'XAGUSD' || instrument === 'USOIL') {
+        polarity = 'BULLISH'; // Inflation hedge / commodity demand
+      } else if (instrument === 'USDJPY') {
+        polarity = 'BULLISH'; // Higher US inflation -> higher Fed terminal expectation -> USD/JPY carry support
+      } else if (instrument === 'EURUSD' || instrument === 'GBPUSD' || instrument === 'US100') {
+        polarity = 'BEARISH'; // Hawkish Fed pressure on foreign currencies and growth equities
+      } else {
+        polarity = 'NEUTRAL';
+      }
+    } else if (isLow) {
+      if (instrument === 'XAUUSD' || instrument === 'XAGUSD' || instrument === 'USOIL') {
+        polarity = 'BEARISH';
+      } else if (instrument === 'USDJPY') {
+        polarity = 'BEARISH';
+      } else if (instrument === 'EURUSD' || instrument === 'GBPUSD' || instrument === 'US100') {
+        polarity = 'BULLISH';
+      } else {
+        polarity = 'NEUTRAL';
+      }
+    }
+
+    evidence.push({
+      id: 'inf-regime',
+      agentId: 'INFLATION_AGENT',
+      domainFamily: 'INFLATION',
+      nature: 'ANALYSIS',
+      classification: inf.classification,
+      polarity,
+      strength: 0.8,
+      confidence: 70,
+      claim: `${inf.name}: Regime=${inf.regime} (Headline CPI YoY: ${inf.headlineCpiYoY ?? 'N/A'}%, Core CPI YoY: ${inf.coreCpiYoY ?? 'N/A'}%, Core PCE YoY: ${inf.corePceYoY ?? 'N/A'}%). Transmission aligns ${polarity.toLowerCase()} for ${instrument}.`,
+      source: inf.provider,
+      provider: 'FRED',
+      observedAt: inf.observationDate,
+      receivedAt: Date.now(),
+      freshnessMs: 0,
+      isStale: inf.freshness === 'STALE',
+      instrument,
+    });
+  }
 
   if (ry && ry.analysisStatus === 'VALID') {
     const isFalling = ry.direction === 'FALLING';
     const isRising = ry.direction === 'RISING';
+
+    let ryPolarity: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+    if (isFalling) {
+      if (instrument === 'USDJPY') {
+        ryPolarity = 'BEARISH';
+      } else {
+        ryPolarity = 'BULLISH'; // Gold, EUR, GBP, Tech benefit from falling real sovereign hurdle rates
+      }
+    } else if (isRising) {
+      if (instrument === 'USDJPY') {
+        ryPolarity = 'BULLISH';
+      } else {
+        ryPolarity = 'BEARISH'; // Rising real rates increase sovereign opportunity cost
+      }
+    }
+
     evidence.push({
       id: 'inf-ry',
       agentId: 'INFLATION_AGENT',
       domainFamily: 'INFLATION',
       nature: 'DATA',
       classification: ry.classification,
-      polarity: isFalling ? 'BULLISH' : isRising ? 'BEARISH' : 'NEUTRAL',
-      strength: 0.9,
-      confidence: 90,
-      claim: `10Y Real Yield is ${ry.latestValue}% (${ry.direction}, change: ${ry.change1Bp} bp).`,
+      polarity: ryPolarity,
+      strength: 0.85,
+      confidence: 75,
+      claim: `10Y Real Yield is ${ry.latestValue}% (${ry.direction}, change: ${ry.change1Bp} bp). Sovereign real discount transmission aligns ${ryPolarity.toLowerCase()} for ${instrument}.`,
       source: 'FRED',
       provider: 'FRED',
       observedAt: ry.latestObservationDate,
@@ -154,15 +267,23 @@ export function evaluateInflationAgent(inputs: {
   if (bei && bei.analysisStatus === 'VALID') {
     const isRising = bei.direction === 'RISING';
     const isFalling = bei.direction === 'FALLING';
+
+    let beiPolarity: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+    if (isRising) {
+      beiPolarity = (instrument === 'XAUUSD' || instrument === 'XAGUSD' || instrument === 'USOIL') ? 'BULLISH' : 'NEUTRAL';
+    } else if (isFalling) {
+      beiPolarity = (instrument === 'XAUUSD' || instrument === 'XAGUSD' || instrument === 'USOIL') ? 'BEARISH' : 'NEUTRAL';
+    }
+
     evidence.push({
       id: 'inf-bei',
       agentId: 'INFLATION_AGENT',
       domainFamily: 'INFLATION',
       nature: 'ANALYSIS',
       classification: bei.classification,
-      polarity: isRising ? 'BULLISH' : isFalling ? 'BEARISH' : 'NEUTRAL',
+      polarity: beiPolarity,
       strength: 0.7,
-      confidence: 85,
+      confidence: 65,
       claim: `Market-implied 10Y Breakeven Inflation is ${bei.latestValue}% (${bei.direction}).`,
       source: 'FRED',
       provider: 'FRED',
@@ -180,6 +301,23 @@ export function evaluateInflationAgent(inputs: {
   const isBearish = evidence.some((e) => e.polarity === 'BEARISH');
   const direction = isBullish && !isBearish ? 'BULLISH' : isBearish && !isBullish ? 'BEARISH' : 'NEUTRAL';
 
+  // Calibrated inflation confidence: balanced/conflicting gets 45%, directional alignment gets 65-70%
+  const hasData = evidence.length > 0;
+  let baseConfidence = 0;
+  if (hasData) {
+    if (isBullish && isBearish) {
+      baseConfidence = 45; // Mixed signals (e.g. inflation expansion vs restrictive real yields)
+    } else if (direction !== 'NEUTRAL') {
+      baseConfidence = 65;
+    } else {
+      baseConfidence = 45;
+    }
+  }
+
+  const isAging = inf?.freshness === 'AGING' || ry?.freshness === 'AGING';
+  const confidence = isAging ? Math.round(baseConfidence * 0.65) : baseConfidence;
+  const evidenceTrust = hasData ? (isAging ? 60 : 85) : 0;
+
   return {
     agentId: 'INFLATION_AGENT',
     agentName: 'Inflation & Real Yield Specialist',
@@ -187,18 +325,18 @@ export function evaluateInflationAgent(inputs: {
     domainFamily: 'INFLATION',
     instrument,
     direction,
-    confidence: evidence.length > 0 ? 85 : 0,
-    evidenceTrust: evidence.length > 0 ? 90 : 0,
+    confidence,
+    evidenceTrust,
     readiness: evidence.length >= 2 ? 'READY' : evidence.length > 0 ? 'PARTIAL' : 'DATA_LIMITED',
-    primaryThesis: evidence.length > 0
-      ? `Inflation dynamics reflect ${direction.toLowerCase()} fundamental backdrop for ${instrument === 'XAUUSD' ? 'precious metals' : instrument}.`
+    primaryThesis: hasData
+      ? `Inflation dynamics reflect ${direction.toLowerCase()} fundamental backdrop for ${instrument === 'XAUUSD' ? 'precious metals' : instrument} (regime: ${inf?.regime ?? 'N/A'}, 10Y real yield: ${ry?.latestValue ?? 'N/A'}%).`
       : 'Inflation telemetry awaiting release.',
     evidence,
-    conflicts: [],
+    conflicts: (isBullish && isBearish) ? ['Divergence between market inflation expectations and restrictive sovereign real yields'] : [],
     missingEvidence: missing,
     invalidation: 'Real yield upward breakout above key cycle resistance',
     keyRisk: 'TIPS liquidity distortion',
-    provenanceBadge: evidence.length > 0 ? 'INDEPENDENT' : 'DATA LIMITED',
+    provenanceBadge: hasData ? 'INDEPENDENT' : 'DATA LIMITED',
     generatedAt: Date.now(),
   };
 }
@@ -215,25 +353,38 @@ export function evaluateVolatilityAgent(inputs: {
   const candles = inputs.candles;
   let reg = inputs.regime;
 
-  // Derive ATR and regime from verified candles if candle history is available
-  if ((!reg || reg.volatilityRegime === 'UNKNOWN') && Array.isArray(candles) && candles.length >= 15) {
+  const validClosedCandles = (Array.isArray(candles) ? candles : []).filter(
+    (c) =>
+      c &&
+      typeof c.open === 'number' &&
+      typeof c.close === 'number' &&
+      typeof c.high === 'number' &&
+      typeof c.low === 'number' &&
+      c.open > 0 &&
+      c.close > 0 &&
+      c.high >= c.low &&
+      Number.isFinite(c.timestamp)
+  );
+
+  // Derive ATR and regime from verified closed candles if candle history is available
+  if ((!reg || reg.volatilityRegime === 'UNKNOWN') && validClosedCandles.length >= 15) {
     let trSum14 = 0;
     let trTotalSum = 0;
-    for (let i = 1; i < candles.length; i++) {
-      const cur = candles[i];
-      const prev = candles[i - 1];
+    for (let i = 1; i < validClosedCandles.length; i++) {
+      const cur = validClosedCandles[i];
+      const prev = validClosedCandles[i - 1];
       const tr = Math.max(
         cur.high - cur.low,
         Math.abs(cur.high - prev.close),
         Math.abs(cur.low - prev.close)
       );
       trTotalSum += tr;
-      if (i >= candles.length - 14) {
+      if (i >= validClosedCandles.length - 14) {
         trSum14 += tr;
       }
     }
     const currentAtr = trSum14 / 14;
-    const historicalAtrAverage = trTotalSum / (candles.length - 1);
+    const historicalAtrAverage = trTotalSum / (validClosedCandles.length - 1);
     const ratio = historicalAtrAverage > 0 ? currentAtr / historicalAtrAverage : 1.0;
     const volRegime: VolatilityRegime = ratio > 1.3 ? 'HIGH_VOLATILITY' : ratio < 0.75 ? 'LOW_VOLATILITY' : 'NORMAL_VOLATILITY';
 
@@ -434,9 +585,22 @@ export function evaluateQuantAgent(inputs: {
   let qm = inputs.metrics;
   const ha = inputs.analogue;
 
-  // Derive quant metrics from verified candles if metrics are absent
-  if ((!qm || qm.status !== 'VALID') && Array.isArray(inputs.candles) && inputs.candles.length >= 10) {
-    const bars: PriceBar[] = inputs.candles.map((c) => ({
+  const validClosedCandles = (Array.isArray(inputs.candles) ? inputs.candles : []).filter(
+    (c) =>
+      c &&
+      typeof c.open === 'number' &&
+      typeof c.close === 'number' &&
+      typeof c.high === 'number' &&
+      typeof c.low === 'number' &&
+      c.open > 0 &&
+      c.close > 0 &&
+      c.high >= c.low &&
+      Number.isFinite(c.timestamp)
+  );
+
+  // Derive quant metrics from verified closed candles if metrics are absent
+  if ((!qm || qm.status !== 'VALID') && validClosedCandles.length >= 10) {
+    const bars: PriceBar[] = validClosedCandles.map((c) => ({
       date: new Date(c.timestamp).toISOString().split('T')[0],
       timestamp: c.timestamp,
       open: c.open,
@@ -528,20 +692,37 @@ export function evaluateMacroCorrelatorAgent(inputs: {
   if (isTyValid) {
     const isFallingYield = ty.direction === 'FALLING';
     const isRisingYield = ty.direction === 'RISING';
-    // For non-yielding assets (Gold, Crypto, EUR), falling yields are a bullish tailwind
-    const isBullishTailwind = instrument === 'XAUUSD' || instrument === 'XAGUSD' || instrument === 'EURUSD' || instrument.includes('USD');
-    const polarity = isFallingYield ? (isBullishTailwind ? 'BULLISH' : 'BEARISH') : isRisingYield ? (isBullishTailwind ? 'BEARISH' : 'BULLISH') : 'NEUTRAL';
+
+    // Transmission: falling US yields weaken USD (bullish for non-USD assets/gold, bearish for USDJPY)
+    let isYieldBullishForAsset = false;
+    let isYieldAmbiguous = false;
+    if (instrument === 'USDJPY') {
+      isYieldBullishForAsset = false; // Falling US yields weaken USD/JPY -> BEARISH
+    } else if (instrument === 'USOIL') {
+      isYieldAmbiguous = true; // Oil yield correlation is ambiguous without global growth demand context
+    } else {
+      isYieldBullishForAsset = true; // Gold, Silver, EUR, GBP, US100, BTCUSD
+    }
+
+    let polarity: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+    if (!isYieldAmbiguous) {
+      if (isFallingYield) {
+        polarity = isYieldBullishForAsset ? 'BULLISH' : 'BEARISH';
+      } else if (isRisingYield) {
+        polarity = isYieldBullishForAsset ? 'BEARISH' : 'BULLISH';
+      }
+    }
 
     evidence.push({
       id: 'macro-corr-10y',
       agentId: 'MACRO_CORRELATOR_AGENT',
-      domainFamily: 'CROSS_ASSET',
+      domainFamily: isDxyValid ? 'CROSS_ASSET' : 'RATES',
       nature: 'ANALYSIS',
       classification: ty.classification,
       polarity,
-      strength: 0.8,
-      confidence: 85,
-      claim: `10Y Yield is ${ty.latestValue}% (${ty.direction}). Correlation implies ${polarity.toLowerCase()} macro tailwind for ${instrument}.`,
+      strength: 0.6,
+      confidence: 50,
+      claim: `10Y Yield is ${ty.latestValue}% (${ty.direction}). Intermarket correlation implies ${polarity.toLowerCase()} macro backdrop for ${instrument}.`,
       source: ty.provider,
       provider: 'FRED',
       observedAt: ty.latestObservationDate,
@@ -566,7 +747,7 @@ export function evaluateMacroCorrelatorAgent(inputs: {
       classification: 'INDEPENDENT_VERIFIED',
       polarity,
       strength: 0.85,
-      confidence: 80,
+      confidence: 75,
       claim: `Dollar Index (DXY) at ${dxy.value} (${dxy.direction}). Intermarket correlation implies ${polarity.toLowerCase()} pressure.`,
       source: 'Macro Engine',
       provider: 'FRED',
@@ -577,33 +758,47 @@ export function evaluateMacroCorrelatorAgent(inputs: {
       instrument,
     });
   } else {
-    missing.push('Direct DXY index feed');
+    missing.push('Direct DXY index feed (isolated yield without dollar benchmark)');
   }
 
   const isBullish = evidence.some((e) => e.polarity === 'BULLISH') && !evidence.some((e) => e.polarity === 'BEARISH');
   const isBearish = evidence.some((e) => e.polarity === 'BEARISH') && !evidence.some((e) => e.polarity === 'BULLISH');
   const direction = isBullish ? 'BULLISH' : isBearish ? 'BEARISH' : 'NEUTRAL';
-  const hasData = evidence.length > 0;
+  const hasFullDivergencePair = isTyValid && isDxyValid;
+  const hasPartialYield = isTyValid && !isDxyValid;
+
+  // Calibrated confidence: isolated yield alone without DXY or cross-matrix gets 40% max; full pair gets 75%
+  let confidence = 0;
+  let readiness: AgentReadinessState = 'DATA_LIMITED';
+  if (hasFullDivergencePair) {
+    confidence = direction !== 'NEUTRAL' ? 75 : 50;
+    readiness = 'READY';
+  } else if (hasPartialYield) {
+    confidence = direction !== 'NEUTRAL' ? 40 : 30; // Calibrated down from false 80%
+    readiness = 'PARTIAL';
+  }
 
   return {
     agentId: 'MACRO_CORRELATOR_AGENT',
     agentName: 'Macro Correlator Specialist',
     role: 'Intermarket Macro Divergence, DXY & Yield Cross-Asset Correlation',
-    domainFamily: 'CROSS_ASSET',
+    domainFamily: hasFullDivergencePair ? 'CROSS_ASSET' : 'RATES',
     instrument,
     direction,
-    confidence: hasData ? 80 : 0,
-    evidenceTrust: hasData ? 80 : 0,
-    readiness: hasData ? (evidence.length >= 2 ? 'READY' : 'PARTIAL') : 'DATA_LIMITED',
-    primaryThesis: hasData
-      ? `Macro intermarket correlation shows ${direction.toLowerCase()} alignment for ${instrument}.`
+    confidence,
+    evidenceTrust: confidence > 0 ? 75 : 0,
+    readiness,
+    primaryThesis: hasFullDivergencePair
+      ? `Full macro intermarket correlation (Yield + DXY) confirms ${direction.toLowerCase()} alignment for ${instrument}.`
+      : hasPartialYield
+      ? `Macro correlation partially informed by isolated 10Y yield (${direction.toLowerCase()}, calibrated confidence: ${confidence}%); awaiting direct DXY or synchronized cross-matrix.`
       : `Macro correlation feeds currently data-limited for ${instrument} (fail-closed).`,
     evidence,
     conflicts: [],
     missingEvidence: missing,
     invalidation: 'Yield/DXY intermarket regime reversal',
     keyRisk: 'Uncorrelated structural decoupling during geopolitical shocks',
-    provenanceBadge: hasData ? 'INDEPENDENT' : 'UNAVAILABLE',
+    provenanceBadge: confidence > 0 ? 'INDEPENDENT' : 'UNAVAILABLE',
     generatedAt: Date.now(),
   };
 }
@@ -616,11 +811,79 @@ export function evaluateCrossAssetLeadLagAgent(inputs: {
   instrument?: string;
   liveAssets?: Record<string, LiveMarketAsset>;
   crossAssetMatrix?: CrossAssetMatrix;
+  leadLagObservation?: LeadLagObservation;
 }): UnifiedAgentResponse {
   const instrument = (inputs.instrument || 'XAUUSD').toUpperCase();
   const liveAssets = inputs.liveAssets;
   const evidence: any[] = [];
   const missing: string[] = [];
+
+  // 1. Primary: Use mathematically verified LeadLagObservation if available
+  if (inputs.leadLagObservation) {
+    const obs = inputs.leadLagObservation;
+    if (obs.isVerified && obs.relationshipStrength >= 0.3) {
+      const polarity = obs.correlation > 0 ? 'BULLISH' : 'BEARISH';
+      evidence.push({
+        id: `lead-lag-${obs.leader.toLowerCase()}`,
+        agentId: 'CROSS_ASSET_LEAD_LAG_AGENT',
+        domainFamily: 'CROSS_ASSET',
+        nature: 'ANALYSIS',
+        classification: 'DERIVED_FROM_VERIFIED',
+        polarity,
+        strength: obs.relationshipStrength,
+        confidence: Math.round(obs.relationshipStrength * 100),
+        claim: `${obs.leader} leads ${obs.follower} by ${obs.lagBars} bar(s) with correlation ${obs.correlation} over ${obs.sampleSize} verified closed bars.`,
+        source: 'MT5 Broker Telemetry',
+        provider: 'FEF_LEAD_LAG_ENGINE',
+        observedAt: new Date().toISOString(),
+        receivedAt: Date.now(),
+        freshnessMs: 0,
+        isStale: false,
+        instrument,
+      });
+
+      return {
+        agentId: 'CROSS_ASSET_LEAD_LAG_AGENT',
+        agentName: 'Cross-Asset Lead-Lag Specialist',
+        role: 'Cross-Market Momentum Leads & Intermarket Beta Synchronization',
+        domainFamily: 'CROSS_ASSET',
+        instrument,
+        direction: polarity,
+        confidence: Math.round(obs.relationshipStrength * 100),
+        evidenceTrust: Math.round(obs.relationshipStrength * 100),
+        readiness: 'READY',
+        primaryThesis: obs.notes,
+        evidence,
+        conflicts: [],
+        missingEvidence: [],
+        invalidation: 'Lead-lag breakdown or divergence in lagged returns',
+        keyRisk: 'Asynchronous regime drift',
+        provenanceBadge: 'DERIVED',
+        generatedAt: Date.now(),
+      };
+    } else {
+      missing.push(obs.notes || 'Lead-lag relationship below significance threshold');
+      return {
+        agentId: 'CROSS_ASSET_LEAD_LAG_AGENT',
+        agentName: 'Cross-Asset Lead-Lag Specialist',
+        role: 'Cross-Market Momentum Leads & Intermarket Beta Synchronization',
+        domainFamily: 'CROSS_ASSET',
+        instrument,
+        direction: 'NEUTRAL',
+        confidence: 0,
+        evidenceTrust: 0,
+        readiness: 'DATA_LIMITED',
+        primaryThesis: obs.notes || `Lead-lag relationship data-limited for ${instrument}.`,
+        evidence: [],
+        conflicts: [],
+        missingEvidence: missing,
+        invalidation: 'Data threshold requirement unmet',
+        keyRisk: 'Insufficient samples or weak correlation',
+        provenanceBadge: 'DATA LIMITED',
+        generatedAt: Date.now(),
+      };
+    }
+  }
 
   // Determine key lead asset based on instrument sector
   let leadSymbol = 'BTCUSD';
@@ -1051,7 +1314,20 @@ export function evaluateMarketRegimeClassifierAgent(inputs: {
   const instrument = (inputs.instrument || 'EURUSD').toUpperCase();
   const candles = inputs.candles;
 
-  if (!candles || !Array.isArray(candles) || candles.length < 15) {
+  const validClosedCandles = (Array.isArray(candles) ? candles : []).filter(
+    (c) =>
+      c &&
+      typeof c.open === 'number' &&
+      typeof c.close === 'number' &&
+      typeof c.high === 'number' &&
+      typeof c.low === 'number' &&
+      c.open > 0 &&
+      c.close > 0 &&
+      c.high >= c.low &&
+      Number.isFinite(c.timestamp)
+  );
+
+  if (validClosedCandles.length < 15) {
     return {
       agentId: 'MARKET_REGIME_CLASSIFIER_AGENT',
       agentName: 'Market Regime Classifier Specialist',
@@ -1062,7 +1338,7 @@ export function evaluateMarketRegimeClassifierAgent(inputs: {
       confidence: 0,
       evidenceTrust: 0,
       readiness: 'DATA_LIMITED',
-      primaryThesis: `Insufficient candles (< 15) to classify volatility regime for ${instrument}.`,
+      primaryThesis: `Insufficient verified closed candles (< 15) to classify volatility regime for ${instrument}.`,
       evidence: [],
       conflicts: [],
       missingEvidence: ['Minimum 15 closed candles required for regime efficiency analysis'],
@@ -1073,7 +1349,7 @@ export function evaluateMarketRegimeClassifierAgent(inputs: {
     };
   }
 
-  const window = candles.slice(-15);
+  const window = validClosedCandles.slice(-15);
   const netMove = Math.abs(window[window.length - 1].close - window[0].close);
   let pathSum = 0;
   for (let i = 1; i < window.length; i++) {
@@ -1109,7 +1385,7 @@ export function evaluateMarketRegimeClassifierAgent(inputs: {
     claim: `Price action efficiency ratio ER=${er.toFixed(2)} defines active regime as ${regimeType}.`,
     source: 'Regime Classifier',
     provider: 'FEF_SYSTEM',
-    observedAt: new Date(candles[candles.length - 1].timestamp).toISOString(),
+    observedAt: new Date(validClosedCandles[validClosedCandles.length - 1].timestamp).toISOString(),
     receivedAt: Date.now(),
     freshnessMs: 0,
     isStale: false,
@@ -1250,10 +1526,30 @@ export function evaluateOrderFlowDeltaAgent(inputs: {
 export function evaluateCotPositioningAgent(inputs: {
   instrument?: string;
   liveCot?: { commercialNet?: number; nonCommercialNet?: number; percentile?: number; status?: string };
+  cotEnvelope?: VerifiedEvidenceEnvelope<CotReportRecord>;
 }): UnifiedAgentResponse {
   const instrument = (inputs.instrument || 'XAUUSD').toUpperCase();
   const live = inputs.liveCot;
-  const hasLive = live?.percentile !== undefined;
+  const envelope = inputs.cotEnvelope;
+
+  let hasLive = false;
+  let percentileVal = 50;
+  let noteText = '';
+  let providerName = 'CFTC_BENCHMARK';
+  let observedDate = new Date().toISOString();
+
+  if (isEnvelopeActionable(envelope)) {
+    hasLive = true;
+    percentileVal = envelope.payload.percentile;
+    noteText = `Verified CFTC COT report (${envelope.payload.contractName}): Non-Comm Net ${envelope.payload.nonCommercialNet >= 0 ? '+' : ''}${envelope.payload.nonCommercialNet} (${envelope.payload.percentile}% percentile)`;
+    providerName = envelope.provider;
+    observedDate = envelope.observedAt;
+  } else if (live?.percentile !== undefined) {
+    hasLive = true;
+    percentileVal = live.percentile;
+    noteText = `Live CFTC COT report net percentile ${live.percentile}%`;
+    providerName = 'CFTC_COT';
+  }
 
   // Authoritative Baseline Matrix (Contextual Reference Only)
   const baselineMatrix: Record<string, { percentile: number; bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; note: string }> = {
@@ -1270,9 +1566,9 @@ export function evaluateCotPositioningAgent(inputs: {
 
   const matched = hasLive
     ? {
-        percentile: live.percentile!,
-        bias: (live.percentile! > 60 ? 'BULLISH' : live.percentile! < 40 ? 'BEARISH' : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
-        note: `Live CFTC COT report net percentile ${live.percentile}%`,
+        percentile: percentileVal,
+        bias: (percentileVal > 60 ? 'BULLISH' : percentileVal < 40 ? 'BEARISH' : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
+        note: noteText,
       }
     : baselineMatrix[instrument] || { percentile: 50, bias: 'NEUTRAL', note: 'Benchmark COT positioning at neutral baseline' };
 
@@ -1300,8 +1596,8 @@ export function evaluateCotPositioningAgent(inputs: {
       ? `CFTC Commitments of Traders (COT) percentile: ${matched.percentile}%. ${matched.note}.${isCrowded ? ' Warning: Institutional crowding indicates structural exhaustion risk.' : ''}`
       : `LIVE CFTC DATA NOT CONNECTED (STATIC CONTEXTUAL BASELINE ONLY). Historical benchmark reference: ${matched.note} (${matched.percentile}% percentile). Zero actionable directional bias.`,
     source: hasLive ? 'CFTC Institutional Positioning Feed' : 'CFTC Benchmark Matrix (Static Baseline)',
-    provider: 'CFTC_BENCHMARK',
-    observedAt: new Date().toISOString(),
+    provider: providerName,
+    observedAt: observedDate,
     receivedAt: Date.now(),
     freshnessMs: 0,
     isStale: false,
@@ -1337,64 +1633,184 @@ export function evaluateCotPositioningAgent(inputs: {
  */
 export function evaluateCentralBankPolicyAgent(inputs: {
   instrument?: string;
-  liveCentralBanks?: Record<string, { rate: number; stance: string }>;
+  liveCentralBanks?: Record<string, { rate: number; stance: string; isVerified?: boolean }>;
+  centralBankEnvelope?: VerifiedEvidenceEnvelope<Record<string, CentralBankPolicyData>>;
 }): UnifiedAgentResponse {
   const instrument = (inputs.instrument || 'EURUSD').toUpperCase();
   const live = inputs.liveCentralBanks;
-
-  // Authoritative Baseline Matrix (Contextual Reference Only)
-  const baselineRates: Record<string, { rate: number; stance: string; name: string }> = {
-    USD: { rate: 5.375, stance: 'RESTRICTIVE_HOLD', name: 'Federal Reserve' },
-    EUR: { rate: 3.65, stance: 'EASING_CYCLE', name: 'European Central Bank' },
-    GBP: { rate: 5.00, stance: 'DATA_DEPENDENT', name: 'Bank of England' },
-    JPY: { rate: 0.25, stance: 'NORMALIZING_HIKE', name: 'Bank of Japan' },
-    AUD: { rate: 4.35, stance: 'RESTRICTIVE_HOLD', name: 'Reserve Bank of Australia' },
-    CAD: { rate: 4.25, stance: 'EASING_CYCLE', name: 'Bank of Canada' },
-    CHF: { rate: 1.25, stance: 'EASING_CYCLE', name: 'Swiss National Bank' },
-    NZD: { rate: 5.25, stance: 'EASING_CYCLE', name: 'Reserve Bank of New Zealand' },
-  };
+  const envelope = inputs.centralBankEnvelope;
 
   const baseCurr = instrument.substring(0, 3);
   const quoteCurr = instrument.substring(3, 6);
 
-  const hasLiveBase = live?.[baseCurr] !== undefined;
-  const hasLiveQuote = live?.[quoteCurr] !== undefined;
-  const hasLive = Boolean(hasLiveBase && hasLiveQuote);
+  let hasLive = false;
+  let baseRate: number | null = null;
+  let quoteRate: number | null = null;
+  let providerName = 'CENTRAL_BANKS';
+  let observedDate = new Date().toISOString();
+  let baseVerified = false;
+  let quoteVerified = false;
+  let unverifiedReason = '';
 
-  const baseData = live?.[baseCurr] || baselineRates[baseCurr] || baselineRates['USD'];
-  const quoteData = live?.[quoteCurr] || baselineRates[quoteCurr] || baselineRates['USD'];
+  if (isEnvelopeActionable(envelope) && envelope.payload) {
+    const baseEntry = envelope.payload[baseCurr];
+    const quoteEntry = envelope.payload[quoteCurr];
 
-  const spreadBps = Math.round((baseData.rate - quoteData.rate) * 100);
-  const direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = hasLive
-    ? (spreadBps > 100 ? 'BULLISH' : spreadBps < -100 ? 'BEARISH' : 'NEUTRAL')
-    : 'NEUTRAL';
+    baseVerified = Boolean(
+      baseEntry &&
+        baseEntry.isVerified !== false &&
+        (typeof baseEntry.currentRate === 'number' ||
+          (typeof baseEntry.policyRate === 'number' && baseEntry.policyRate > 0))
+    );
+    quoteVerified = Boolean(
+      quoteEntry &&
+        quoteEntry.isVerified !== false &&
+        (typeof quoteEntry.currentRate === 'number' ||
+          (typeof quoteEntry.policyRate === 'number' && quoteEntry.policyRate > 0))
+    );
+
+    if (baseVerified && quoteVerified) {
+      hasLive = true;
+      baseRate = baseEntry!.currentRate ?? baseEntry!.policyRate;
+      quoteRate = quoteEntry!.currentRate ?? quoteEntry!.policyRate;
+      providerName = envelope.provider;
+      observedDate = envelope.observedAt;
+    } else {
+      const missing: string[] = [];
+      if (!baseVerified) missing.push(`${baseCurr} (${baseEntry?.bankCode || 'Unconfigured'})`);
+      if (!quoteVerified) missing.push(`${quoteCurr} (${quoteEntry?.bankCode || 'Unconfigured'})`);
+      unverifiedReason = `Unverified authoritative policy rate for: ${missing.join(', ')}`;
+    }
+  } else if (live && live[baseCurr] && live[quoteCurr]) {
+    baseVerified = live[baseCurr].isVerified ?? (typeof live[baseCurr].rate === 'number');
+    quoteVerified = live[quoteCurr].isVerified ?? (typeof live[quoteCurr].rate === 'number');
+    if (baseVerified && quoteVerified) {
+      hasLive = true;
+      baseRate = live[baseCurr].rate;
+      quoteRate = live[quoteCurr].rate;
+      providerName = 'CENTRAL_BANKS';
+    } else {
+      unverifiedReason = `Unverified live policy rate for ${baseCurr} or ${quoteCurr}`;
+    }
+  } else {
+    unverifiedReason = `Central bank policy feeds offline or unconfigured for ${baseCurr}/${quoteCurr}`;
+  }
+
+  // Check if instrument is a currency pair or single-jurisdiction asset
+  const isForexPair = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'NZDUSD', 'USDCAD', 'USDCHF'].includes(instrument);
+
+  if (!isForexPair && instrument !== 'XAUUSD' && instrument !== 'XAGUSD') {
+    // Non-forex instruments (US100, USOIL, BTCUSD) are single-currency or macro assets, not sovereign carry pairs
+    const usdEntry = envelope?.payload?.['USD'];
+    const isUsdVerified = usdEntry && usdEntry.isVerified && typeof usdEntry.currentRate === 'number';
+    return {
+      agentId: 'CENTRAL_BANK_POLICY_AGENT',
+      agentName: 'Central Bank Policy Specialist',
+      role: 'Monetary Policy Differential & Sovereign Carry Spread Specialist',
+      domainFamily: 'MACRO_REGIME',
+      instrument,
+      direction: 'NEUTRAL',
+      confidence: isUsdVerified ? 35 : 0,
+      evidenceTrust: isUsdVerified ? 85 : 0,
+      readiness: isUsdVerified ? 'PARTIAL' : 'DATA_LIMITED',
+      primaryThesis: isUsdVerified
+        ? `Sovereign carry differential not applicable to non-forex asset ${instrument}. Federal Reserve policy benchmark (${usdEntry.semanticKey}: ${usdEntry.currentRate}%) monitored for macro discount rate context.`
+        : `Central bank carry differential not applicable to ${instrument}. Unconfigured sovereign feeds.`,
+      evidence: isUsdVerified ? [{
+        id: `cb-policy-${instrument}`,
+        agentId: 'CENTRAL_BANK_POLICY_AGENT',
+        domainFamily: 'MACRO_REGIME' as const,
+        nature: 'DATA' as const,
+        classification: 'INDEPENDENT_VERIFIED' as const,
+        polarity: 'NEUTRAL' as const,
+        strength: 0.4,
+        confidence: 35,
+        claim: `Federal Reserve ${usdEntry.rateName} is ${usdEntry.currentRate}%. Asset ${instrument} is not a multi-currency sovereign carry pair; directional weight held at NEUTRAL.`,
+        source: usdEntry.source,
+        provider: 'FRED',
+        observedAt: usdEntry.effectiveDate,
+        receivedAt: Date.now(),
+        freshnessMs: 0,
+        isStale: false,
+        instrument,
+      }] : [],
+      conflicts: [],
+      missingEvidence: isUsdVerified ? [] : ['Authoritative Federal Reserve policy rate feed'],
+      invalidation: 'Emergency FOMC inter-meeting rate decision',
+      keyRisk: 'Discount rate repricing across non-forex asset classes',
+      provenanceBadge: isUsdVerified ? 'INDEPENDENT' : 'DATA LIMITED',
+      generatedAt: Date.now(),
+    };
+  }
+
+  let spreadBps: number | null = null;
+  let direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+  let confidence = 0;
+  let strength = 0;
+
+  if (hasLive && baseRate !== null && quoteRate !== null) {
+    spreadBps = Math.round((baseRate - quoteRate) * 100);
+    const absSpread = Math.abs(spreadBps);
+
+    if (spreadBps > 25) {
+      direction = 'BULLISH';
+    } else if (spreadBps < -25) {
+      direction = 'BEARISH';
+    } else {
+      direction = 'NEUTRAL';
+    }
+
+    // Calibrated carry confidence model: point-in-time carry spread without verified trajectory is capped at 45%
+    if (absSpread >= 100) {
+      confidence = 45; // Capped at 45% (removes false 85% confidence from carry alone)
+      strength = Math.min(1.0, absSpread / 400);
+    } else if (absSpread >= 25) {
+      confidence = 35;
+      strength = Math.min(1.0, absSpread / 400);
+    } else {
+      confidence = 20;
+      strength = 0.2;
+    }
+
+    // Apply trust penalty if either leg is aging
+    const baseEntry = envelope?.payload?.[baseCurr];
+    const quoteEntry = envelope?.payload?.[quoteCurr];
+    const isAging = baseEntry?.freshness === 'AGING' || quoteEntry?.freshness === 'AGING';
+    if (isAging) {
+      confidence = Math.round(confidence * 0.65);
+    }
+  }
 
   const classification: EvidenceClassification = hasLive ? 'DERIVED_FROM_VERIFIED' : 'STATIC_REFERENCE';
-  const confidence = hasLive ? 85 : 0;
-  const evidenceTrust = hasLive ? 85 : 0;
+  const evidenceTrust = hasLive ? (confidence > 0 ? 85 : 0) : 0;
   const readiness: AgentReadinessState = hasLive ? 'READY' : 'DATA_LIMITED';
   const provenanceBadge: ProvenanceBadgeType = hasLive ? 'INDEPENDENT' : 'DATA LIMITED';
 
-  const evidence = [{
-    id: `cb-policy-${instrument}`,
-    agentId: 'CENTRAL_BANK_POLICY_AGENT',
-    domainFamily: 'MACRO_REGIME' as const,
-    nature: 'DATA' as const,
-    classification,
-    polarity: direction,
-    strength: hasLive ? Math.min(1.0, Math.abs(spreadBps) / 400) : 0.0,
-    confidence,
-    claim: hasLive
-      ? `Central bank policy spread is ${spreadBps > 0 ? '+' : ''}${spreadBps} bps (${baseCurr}: ${baseData.rate}% vs ${quoteCurr}: ${quoteData.rate}%). Carry momentum aligns ${direction.toLowerCase()}.`
-      : `LIVE POLICY FEED NOT CONNECTED (STATIC CONTEXTUAL BASELINE ONLY). Historical policy baseline differential: ${spreadBps > 0 ? '+' : ''}${spreadBps} bps (${baseCurr}: ${baseData.rate}% vs ${quoteCurr}: ${quoteData.rate}%). Zero actionable directional bias.`,
-    source: hasLive ? 'Central Bank Policy Matrix' : 'Central Bank Policy Matrix (Static Baseline)',
-    provider: 'BIS_CENTRAL_BANKS',
-    observedAt: new Date().toISOString(),
-    receivedAt: Date.now(),
-    freshnessMs: 0,
-    isStale: false,
-    instrument,
-  }];
+  const claim =
+    hasLive && spreadBps !== null
+      ? `Authoritative central bank policy spread is ${spreadBps > 0 ? '+' : ''}${spreadBps} bps (${baseCurr}: ${baseRate}% vs ${quoteCurr}: ${quoteRate}%). Point-in-time sovereign carry aligns ${direction.toLowerCase()} (calibrated confidence: ${confidence}%).`
+      : `AUTHORITATIVE POLICY DIFFERENTIAL UNVERIFIED. ${unverifiedReason}. Zero synthetic or assumed rates. Directional weight held at NEUTRAL with 0 confidence.`;
+
+  const evidence = [
+    {
+      id: `cb-policy-${instrument}`,
+      agentId: 'CENTRAL_BANK_POLICY_AGENT',
+      domainFamily: 'MACRO_REGIME' as const,
+      nature: 'DATA' as const,
+      classification,
+      polarity: direction,
+      strength,
+      confidence,
+      claim,
+      source: hasLive ? 'Official Central Bank Policy Rate Feed' : 'Unconfigured/Offline Central Bank Feeds',
+      provider: providerName,
+      observedAt: observedDate,
+      receivedAt: Date.now(),
+      freshnessMs: 0,
+      isStale: false,
+      instrument,
+    },
+  ];
 
   return {
     agentId: 'CENTRAL_BANK_POLICY_AGENT',
@@ -1406,14 +1822,15 @@ export function evaluateCentralBankPolicyAgent(inputs: {
     confidence,
     evidenceTrust,
     readiness,
-    primaryThesis: hasLive
-      ? `Monetary policy spread of ${spreadBps > 0 ? '+' : ''}${spreadBps} bps provides ${direction.toLowerCase()} carry tailwind for ${instrument}.`
-      : `LIVE POLICY FEED NOT CONNECTED (STATIC CONTEXTUAL BASELINE ONLY). Baseline policy spread is ${spreadBps > 0 ? '+' : ''}${spreadBps} bps. Zero directional weight contributed to consensus.`,
+    primaryThesis:
+      hasLive && spreadBps !== null
+        ? `Authoritative policy spread of ${spreadBps > 0 ? '+' : ''}${spreadBps} bps provides ${direction.toLowerCase()} carry background for ${instrument} (calibrated carry confidence: ${confidence}%).`
+        : `AUTHORITATIVE POLICY DIFFERENTIAL UNVERIFIED (${unverifiedReason}). Zero directional bias contributed to consensus.`,
     evidence,
     conflicts: [],
-    missingEvidence: hasLive ? [] : ['Live central bank policy feed not connected'],
+    missingEvidence: hasLive ? [] : [unverifiedReason],
     invalidation: 'Inter-meeting emergency rate change or unexpected forward guidance pivot',
-    keyRisk: 'Market pricing in earlier cuts than central bank dot plot guidance',
+    keyRisk: 'Market pricing in earlier rate moves than official guidance',
     provenanceBadge,
     generatedAt: Date.now(),
   };

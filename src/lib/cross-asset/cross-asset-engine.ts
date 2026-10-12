@@ -14,6 +14,12 @@
  *    - Silver / XAGUSD (Precious metals beta)
  */
 
+import {
+  createFailedClosedEnvelope,
+  createVerifiedEnvelope,
+  VerifiedEvidenceEnvelope,
+} from '../providers/canonical-envelope';
+
 export interface TimeSeriesPoint {
   date: string;
   timestamp: number;
@@ -105,6 +111,7 @@ export interface CrossAssetUniverseInputs {
   realYieldSeries?: TimeSeriesPoint[];
   equitySeries?: TimeSeriesPoint[];
   oilSeries?: TimeSeriesPoint[];
+  silverSeries?: TimeSeriesPoint[];
   hasVerifiedDxy?: boolean;
 }
 
@@ -202,14 +209,14 @@ export function buildCrossAssetMatrix(inputs: CrossAssetUniverseInputs): CrossAs
     };
   }
 
-  // 4. Gold vs Equities (US500)
+  // 4. Gold vs Equities (US500 / US100)
   if (inputs.equitySeries && inputs.equitySeries.length > 0) {
     const corrRes = calculatePearsonCorrelation(inputs.goldSeries, inputs.equitySeries);
     if (corrRes) {
       activeCount++;
       relationships['US500'] = {
         baseSymbol: 'XAUUSD',
-        targetSymbol: 'US500 (S&P 500)',
+        targetSymbol: 'US500 (Equities Benchmark)',
         relationType: 'NEUTRAL_OR_DYNAMIC',
         rollingCorrelation: corrRes.correlation,
         sampleCount: corrRes.sampleCount,
@@ -228,6 +235,58 @@ export function buildCrossAssetMatrix(inputs: CrossAssetUniverseInputs): CrossAs
     }
   }
 
+  // 5. Gold vs Silver (XAGUSD)
+  if (inputs.silverSeries && inputs.silverSeries.length > 0) {
+    const corrRes = calculatePearsonCorrelation(inputs.goldSeries, inputs.silverSeries);
+    if (corrRes) {
+      activeCount++;
+      relationships['XAGUSD'] = {
+        baseSymbol: 'XAUUSD',
+        targetSymbol: 'XAGUSD (Silver)',
+        relationType: 'POSITIVE_BETA',
+        rollingCorrelation: corrRes.correlation,
+        sampleCount: corrRes.sampleCount,
+        status: 'VERIFIED',
+        notes: 'Precious metals beta benchmark; high historical co-movement.',
+      };
+    } else {
+      relationships['XAGUSD'] = {
+        baseSymbol: 'XAUUSD',
+        targetSymbol: 'XAGUSD',
+        relationType: 'POSITIVE_BETA',
+        sampleCount: 0,
+        status: 'DATA_LIMITED',
+        notes: 'Insufficient samples for XAGUSD correlation.',
+      };
+    }
+  }
+
+  // 6. Gold vs Oil (USOIL)
+  if (inputs.oilSeries && inputs.oilSeries.length > 0) {
+    const corrRes = calculatePearsonCorrelation(inputs.goldSeries, inputs.oilSeries);
+    if (corrRes) {
+      activeCount++;
+      relationships['USOIL'] = {
+        baseSymbol: 'XAUUSD',
+        targetSymbol: 'USOIL (WTI Crude)',
+        relationType: 'NEUTRAL_OR_DYNAMIC',
+        rollingCorrelation: corrRes.correlation,
+        sampleCount: corrRes.sampleCount,
+        status: 'VERIFIED',
+        notes: 'Commodity inflation basket proxy; energy cost passthrough.',
+      };
+    } else {
+      relationships['USOIL'] = {
+        baseSymbol: 'XAUUSD',
+        targetSymbol: 'USOIL',
+        relationType: 'NEUTRAL_OR_DYNAMIC',
+        sampleCount: 0,
+        status: 'DATA_LIMITED',
+        notes: 'Insufficient samples for USOIL correlation.',
+      };
+    }
+  }
+
   const summary = activeCount > 0
     ? `Cross-asset matrix computed for ${activeCount} active factor(s) with zero fabricated correlations.`
     : 'Cross-asset matrix currently data-limited; awaiting synchronized multi-asset time series.';
@@ -239,5 +298,143 @@ export function buildCrossAssetMatrix(inputs: CrossAssetUniverseInputs): CrossAs
     summary,
     computedAt: Date.now(),
   };
+}
+
+/**
+ * Convert price series to return series
+ */
+export function convertToReturnSeries(series: TimeSeriesPoint[]): TimeSeriesPoint[] {
+  if (!Array.isArray(series) || series.length < 2) return [];
+  const returns: TimeSeriesPoint[] = [];
+  for (let i = 1; i < series.length; i++) {
+    const prev = series[i - 1].value;
+    const curr = series[i].value;
+    if (prev > 0) {
+      returns.push({
+        date: series[i].date,
+        timestamp: series[i].timestamp,
+        value: (curr - prev) / prev,
+      });
+    }
+  }
+  return returns;
+}
+
+/**
+ * Builds verified cross-asset matrix envelope directly from verified candle series
+ */
+export function buildCrossAssetMatrixFromCandles(
+  goldCandles: Array<{ timestamp: number; close: number }>,
+  relatedCandles: {
+    silverCandles?: Array<{ timestamp: number; close: number }>;
+    oilCandles?: Array<{ timestamp: number; close: number }>;
+    equityCandles?: Array<{ timestamp: number; close: number }>;
+  },
+  useReturns: boolean = true
+): VerifiedEvidenceEnvelope<CrossAssetMatrix> {
+  let silverSeries: TimeSeriesPoint[] | undefined;
+  let oilSeries: TimeSeriesPoint[] | undefined;
+  let equitySeries: TimeSeriesPoint[] | undefined;
+  let goldSeries: TimeSeriesPoint[] = [];
+
+  if (relatedCandles.silverCandles && relatedCandles.silverCandles.length > 0) {
+    const aligned = alignCandleSeries(goldCandles, relatedCandles.silverCandles);
+    goldSeries = useReturns ? convertToReturnSeries(aligned.seriesA) : aligned.seriesA;
+    silverSeries = useReturns ? convertToReturnSeries(aligned.seriesB) : aligned.seriesB;
+  }
+
+  if (relatedCandles.oilCandles && relatedCandles.oilCandles.length > 0) {
+    const aligned = alignCandleSeries(goldCandles, relatedCandles.oilCandles);
+    if (goldSeries.length === 0) {
+      goldSeries = useReturns ? convertToReturnSeries(aligned.seriesA) : aligned.seriesA;
+    }
+    oilSeries = useReturns ? convertToReturnSeries(aligned.seriesB) : aligned.seriesB;
+  }
+
+  if (relatedCandles.equityCandles && relatedCandles.equityCandles.length > 0) {
+    const aligned = alignCandleSeries(goldCandles, relatedCandles.equityCandles);
+    if (goldSeries.length === 0) {
+      goldSeries = useReturns ? convertToReturnSeries(aligned.seriesA) : aligned.seriesA;
+    }
+    equitySeries = useReturns ? convertToReturnSeries(aligned.seriesB) : aligned.seriesB;
+  }
+
+  return buildVerifiedCrossAssetMatrixEnvelope({
+    goldSeries,
+    silverSeries,
+    oilSeries,
+    equitySeries,
+  });
+}
+
+/**
+ * Aligns two candle series by timestamp within a maximum tolerance window (default 5 minutes).
+ * Strict rule: Zero synthetic price backfilling or interpolation.
+ */
+export function alignCandleSeries(
+  candlesA: { timestamp: number; close: number }[],
+  candlesB: { timestamp: number; close: number }[],
+  maxToleranceMs: number = 300000 // 5 minutes
+): { seriesA: TimeSeriesPoint[]; seriesB: TimeSeriesPoint[] } {
+  const seriesA: TimeSeriesPoint[] = [];
+  const seriesB: TimeSeriesPoint[] = [];
+
+  if (!Array.isArray(candlesA) || !Array.isArray(candlesB)) {
+    return { seriesA, seriesB };
+  }
+
+  // Sort both series ascending
+  const sortedA = [...candlesA].sort((a, b) => a.timestamp - b.timestamp);
+  const sortedB = [...candlesB].sort((a, b) => a.timestamp - b.timestamp);
+
+  let bIdx = 0;
+  for (const cA of sortedA) {
+    if (!cA || !Number.isFinite(cA.close) || cA.close <= 0) continue;
+
+    // Advance B while B is older than A minus tolerance
+    while (bIdx < sortedB.length && sortedB[bIdx].timestamp < cA.timestamp - maxToleranceMs) {
+      bIdx++;
+    }
+
+    if (bIdx < sortedB.length) {
+      const cB = sortedB[bIdx];
+      const diff = Math.abs(cA.timestamp - cB.timestamp);
+      if (diff <= maxToleranceMs && Number.isFinite(cB.close) && cB.close > 0) {
+        const dateStr = new Date(cA.timestamp).toISOString();
+        seriesA.push({ date: dateStr, timestamp: cA.timestamp, value: cA.close });
+        seriesB.push({ date: dateStr, timestamp: cB.timestamp, value: cB.close });
+        bIdx++;
+      }
+    }
+  }
+
+  return { seriesA, seriesB };
+}
+
+/**
+ * Wraps CrossAssetMatrix in a canonical VerifiedEvidenceEnvelope.
+ * Requires at least 2 active verified relationships to be considered actionable.
+ */
+export function buildVerifiedCrossAssetMatrixEnvelope(
+  inputs: CrossAssetUniverseInputs
+): VerifiedEvidenceEnvelope<CrossAssetMatrix> {
+  const matrix = buildCrossAssetMatrix(inputs);
+
+  if (matrix.activePairCount >= 2) {
+    return createVerifiedEnvelope<CrossAssetMatrix>({
+      provider: 'FEF_CROSS_ASSET_ENGINE',
+      sourceType: 'DERIVED_ANALYTICS',
+      observedAt: new Date(matrix.computedAt).toISOString(),
+      maxStalenessSec: 3600, // 1 hour
+      payload: matrix,
+    });
+  }
+
+  return createFailedClosedEnvelope<CrossAssetMatrix>(
+    'FEF_CROSS_ASSET_ENGINE',
+    'DERIVED_ANALYTICS',
+    'Cross-asset matrix has insufficient active pairs (< 2 verified pairs). Zero synthetic correlation.',
+    3600
+  );
 }
 

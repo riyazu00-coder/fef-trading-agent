@@ -35,8 +35,10 @@ if (fs.existsSync(envLocalPath)) {
 
 // Canonical execution bridge is HTTP Bridge V1 on port 5556
 const LOCAL_BRIDGE_URL = process.env.FEF_LOCAL_BRIDGE_URL || 'http://127.0.0.1:5556';
-const LEGACY_BRIDGE_URL = process.env.FEF_LEGACY_BRIDGE_URL || 'http://127.0.0.1:5556';
-const LOCAL_BRIDGE_TOKEN = process.env.FEF_BRIDGE_TOKEN || 'fef_local_bridge_token_v1';
+const LOCAL_BRIDGE_TOKEN = (process.env.FEF_BRIDGE_TOKEN || '').trim();
+if (!LOCAL_BRIDGE_TOKEN || LOCAL_BRIDGE_TOKEN === 'fef_local_bridge_token_v1') {
+  console.warn('[CONNECTOR CONFIG] FEF_BRIDGE_TOKEN is unconfigured or uses retired public fallback. Local bridge calls will fail closed.');
+}
 const RELAY_URL = process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557';
 const DEVICE_ID = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
 const KEY_ID = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';

@@ -59,6 +59,7 @@ export interface ConfluenceOutput {
   invalidationFactors: string[];
   
   summaryReasoning: string;
+  dataReadinessV2?: DataReadinessSummaryV2;
   generatedAt: number;
 }
 
@@ -279,11 +280,21 @@ export class CortexConfluenceEngine {
 
     // 7. Presentation Posture (WAIT, WATCH FOR BUY, WATCH FOR SELL — strictly non-executable)
     let presentationPosture: PresentationPosture = 'WAIT';
-    if (hasStrongVisionConflict || normInputs.hasBlueprint === false || dataReadiness === 'INSUFFICIENT' || dataReadiness === 'LIMITED' || uniqueActiveFamilies === 0) {
+    if (
+      hasStrongVisionConflict ||
+      normInputs.hasBlueprint === false ||
+      dataReadiness === 'INSUFFICIENT' ||
+      dataReadiness === 'LIMITED' ||
+      dataReadiness === 'MODERATE' ||
+      uniqueActiveFamilies < 4 ||
+      conflictScore > 15 ||
+      opposingDomains.length > 0 ||
+      coverageScore < 60
+    ) {
       presentationPosture = 'WAIT';
-    } else if (directionalThesis === 'BULLISH' && conflictScore < 25) {
+    } else if (directionalThesis === 'BULLISH' && conflictScore <= 15 && agreementScore >= 65) {
       presentationPosture = 'WATCH FOR BUY';
-    } else if (directionalThesis === 'BEARISH' && conflictScore < 25) {
+    } else if (directionalThesis === 'BEARISH' && conflictScore <= 15 && agreementScore >= 65) {
       presentationPosture = 'WATCH FOR SELL';
     } else {
       presentationPosture = 'WAIT';
@@ -292,7 +303,10 @@ export class CortexConfluenceEngine {
     // 8. Deterministic Confidence & Evidence Trust
     let confidence = 0;
     let evidenceTrust = 0;
-    if (uniqueActiveFamilies > 0 && dataReadiness !== 'INSUFFICIENT') {
+    if (presentationPosture === 'WAIT') {
+      // Truthfulness invariant: WAIT posture strictly yields 0% confidence
+      confidence = 0;
+    } else if (uniqueActiveFamilies >= 4 && dataReadiness === 'HIGH') {
       // Base confidence scales with agreement and coverage
       confidence = Math.round((agreementScore * 0.6) + (coverageScore * 0.4));
       // Conflict penalty
@@ -303,6 +317,7 @@ export class CortexConfluenceEngine {
         confidence = Math.max(10, confidence - 25);
       }
       confidence = Math.min(95, Math.max(0, confidence));
+    }
 
       // Aggregate evidence trust is the average trust of active eligible agents
       const activeAgents = agents.filter(
@@ -313,7 +328,6 @@ export class CortexConfluenceEngine {
           activeAgents.reduce((acc, a) => acc + (a.evidenceTrust ?? 0), 0) / activeAgents.length
         );
       }
-    }
 
     // 9. Risk State
     let riskState: ConfluenceRiskState = 'NORMAL';
@@ -338,6 +352,8 @@ export class CortexConfluenceEngine {
       summaryReasoning = 'Confluence council evaluates conditions as balanced / neutral.';
     }
 
+    const dataReadinessV2 = computeDataReadinessSummaryV2(agents);
+
     return {
       instrument: normInputs.instrument,
       directionalThesis,
@@ -359,7 +375,144 @@ export class CortexConfluenceEngine {
       missingEvidence: Array.from(new Set(missingEvidence)),
       invalidationFactors: Array.from(new Set(invalidationFactors)).slice(0, 5),
       summaryReasoning,
+      dataReadinessV2,
       generatedAt: Date.now(),
     };
   }
+}
+
+export interface DataReadinessSummaryV2 {
+  overallState: 'READY' | 'PARTIAL' | 'DATA_LIMITED' | 'UNAVAILABLE';
+  totalAgents: number; // 32
+  readyAgents: number;
+  partialAgents: number;
+  dataLimitedAgents: number;
+  unavailableAgents: number;
+  verifiedEvidenceCount: number;
+  staleEvidenceCount: number;
+  unverifiedEvidenceCount: number;
+  actionableAgentCount: number; // agents with confidence > 0 derived from verified evidence
+  readinessRatio: number; // readyAgents / totalAgents
+  verifiedRatio: number; // verifiedEvidenceCount / (verifiedEvidenceCount + unverifiedEvidenceCount + staleEvidenceCount)
+  providerStatuses: Record<
+    string,
+    {
+      provider: string;
+      status: 'ONLINE_VERIFIED' | 'STALE' | 'OFFLINE' | 'UNCONFIGURED';
+      lastObserved?: string;
+      evidenceCount: number;
+      stalenessSec?: number;
+    }
+  >;
+}
+
+export function computeDataReadinessSummaryV2(
+  agents: UnifiedAgentResponse[],
+  options?: { isPriceAuthorityOnline?: boolean }
+): DataReadinessSummaryV2 {
+  const totalAgents = agents.length || 32;
+  let readyAgents = 0;
+  let partialAgents = 0;
+  let dataLimitedAgents = 0;
+  let unavailableAgents = 0;
+  let actionableAgentCount = 0;
+
+  let verifiedEvidenceCount = 0;
+  let staleEvidenceCount = 0;
+  let unverifiedEvidenceCount = 0;
+
+  const providerMap: Record<
+    string,
+    {
+      provider: string;
+      status: 'ONLINE_VERIFIED' | 'STALE' | 'OFFLINE' | 'UNCONFIGURED';
+      lastObserved?: string;
+      evidenceCount: number;
+      stalenessSec?: number;
+    }
+  > = {};
+
+  for (const agent of agents) {
+    if (agent.readiness === 'READY') {
+      readyAgents++;
+      if (agent.confidence > 0 && agent.evidenceTrust > 0) {
+        actionableAgentCount++;
+      }
+    } else if (agent.readiness === 'PARTIAL') {
+      partialAgents++;
+      if (agent.confidence > 0 && agent.evidenceTrust > 0) {
+        actionableAgentCount++;
+      }
+    } else if (agent.readiness === 'DATA_LIMITED') {
+      dataLimitedAgents++;
+    } else {
+      unavailableAgents++;
+    }
+
+    for (const ev of agent.evidence || []) {
+      const p = ev.provider || ev.source || 'UNKNOWN';
+      if (!providerMap[p]) {
+        providerMap[p] = {
+          provider: p,
+          status: 'UNCONFIGURED',
+          evidenceCount: 0,
+        };
+      }
+      providerMap[p].evidenceCount++;
+      if (ev.observedAt) {
+        providerMap[p].lastObserved = ev.observedAt;
+      }
+
+      if (ev.isStale) {
+        staleEvidenceCount++;
+        providerMap[p].status = 'STALE';
+      } else if (
+        ev.classification === 'LIVE' ||
+        ev.classification === 'LIVE_MT5' ||
+        ev.classification === 'INDEPENDENT_VERIFIED' ||
+        ev.classification === 'DERIVED_FROM_VERIFIED' ||
+        ev.classification === 'BROKER_TICK_VOLUME_PROXY'
+      ) {
+        verifiedEvidenceCount++;
+        providerMap[p].status = 'ONLINE_VERIFIED';
+      } else {
+        unverifiedEvidenceCount++;
+        if (providerMap[p].status !== 'ONLINE_VERIFIED') {
+          providerMap[p].status = 'OFFLINE';
+        }
+      }
+    }
+  }
+
+  const readinessRatio = totalAgents > 0 ? readyAgents / totalAgents : 0;
+  const totalEvidence = verifiedEvidenceCount + unverifiedEvidenceCount + staleEvidenceCount;
+  const verifiedRatio = totalEvidence > 0 ? verifiedEvidenceCount / totalEvidence : 0;
+
+  let overallState: 'READY' | 'PARTIAL' | 'DATA_LIMITED' | 'UNAVAILABLE' = 'DATA_LIMITED';
+
+  if (options?.isPriceAuthorityOnline === false || (verifiedEvidenceCount === 0 && actionableAgentCount === 0)) {
+    overallState = 'UNAVAILABLE';
+  } else if (readyAgents >= 20 && readinessRatio >= 0.6 && verifiedRatio >= 0.7) {
+    overallState = 'READY';
+  } else if (readyAgents >= 10 && readinessRatio >= 0.3) {
+    overallState = 'PARTIAL';
+  } else {
+    overallState = 'DATA_LIMITED';
+  }
+
+  return {
+    overallState,
+    totalAgents,
+    readyAgents,
+    partialAgents,
+    dataLimitedAgents,
+    unavailableAgents,
+    verifiedEvidenceCount,
+    staleEvidenceCount,
+    unverifiedEvidenceCount,
+    actionableAgentCount,
+    readinessRatio: Math.round(readinessRatio * 100) / 100,
+    verifiedRatio: Math.round(verifiedRatio * 100) / 100,
+    providerStatuses: providerMap,
+  };
 }

@@ -14,7 +14,9 @@ export type MacroCategory =
   | 'TREASURY_YIELD'
   | 'REAL_YIELD'
   | 'POLICY_RATE'
-  | 'INFLATION_EXPECTATION';
+  | 'INFLATION_EXPECTATION'
+  | 'INFLATION'
+  | 'LABOR_MARKET';
 
 export type MacroFrequency =
   | 'DAILY'
@@ -34,6 +36,7 @@ export interface MacroSeriesDefinition {
   category: MacroCategory;
   unit: string;
   frequency: MacroFrequency;
+  expectedReleaseCadence?: string;
   source: string;
   marketRelevance: string;
   affectedAssets: string[];
@@ -53,13 +56,22 @@ export interface NormalizedMacroObservation {
   observationDate: string; // ISO format: YYYY-MM-DD
   observationTimestamp: number; // Epoch ms of start of observation date UTC
   receivedAt: number;      // Epoch ms when FEF ingested the data
+  retrievedAt?: number;    // Epoch ms when retrieved from provider
   
   provider: string;
   source: string;
   provenance: EvidenceClassification;
   
   freshness: MacroFreshness;
+  freshnessState?: MacroFreshness;
   freshnessReason: string;
+  temporalUsability?: MacroFreshness;
+  trustWeight?: number;
+  seriesFrequency?: MacroFrequency;
+  expectedReleaseCadence?: string;
+  isLatestOfficialObservation?: boolean;
+  isVerified?: boolean;
+  isActionable?: boolean;
   affectedAssets: string[];
   metadata?: Record<string, unknown>;
 }

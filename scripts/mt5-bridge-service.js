@@ -15,8 +15,10 @@
 const net = require('net');
 
 const PORT = parseInt(process.env.MT5_PORT || '5555', 10);
-const HOST = '127.0.0.1'; // STRICT LOOPBACK BINDING
-const VALID_TOKEN = process.env.FEF_BRIDGE_TOKEN || 'fef_local_bridge_token_v1';
+const VALID_TOKEN = (process.env.FEF_BRIDGE_TOKEN || '').trim();
+if (!VALID_TOKEN || VALID_TOKEN === 'fef_local_bridge_token_v1') {
+  console.warn('[BRIDGE CONFIG] FEF_BRIDGE_TOKEN is unconfigured or uses retired public fallback. Fail-closed.');
+}
 const MAGIC_NUMBER = 8882026;
 
 // Reference mock data for CI/CD test suites or fallback simulation mode
@@ -181,8 +183,8 @@ let pendingRelayRequests = new Map();
 function handleMockRequest(req) {
   const { reqId = `req-${Date.now()}`, command, token, symbol } = req;
 
-  // 1. Auth check
-  if (token !== VALID_TOKEN) {
+  // 1. Auth check (fail-closed, no public fallback)
+  if (!VALID_TOKEN || VALID_TOKEN === 'fef_local_bridge_token_v1' || token !== VALID_TOKEN) {
     return {
       reqId,
       command,
@@ -422,8 +424,8 @@ function createBridgeServer(port = PORT, host = HOST, forceMockMode = false) {
                 continue;
               }
 
-              // Auth check
-              if (msg.token !== VALID_TOKEN) {
+              // Auth check (fail-closed, no public fallback)
+              if (!VALID_TOKEN || VALID_TOKEN === 'fef_local_bridge_token_v1' || msg.token !== VALID_TOKEN) {
                 socket.write(
                   JSON.stringify({
                     reqId: msg.reqId || 'req-0',

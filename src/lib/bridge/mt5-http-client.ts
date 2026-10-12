@@ -32,7 +32,7 @@ export interface MT5HttpClientConfig {
 
 export const DEFAULT_HTTP_BRIDGE_CONFIG: MT5HttpClientConfig = {
   baseUrl: 'http://127.0.0.1:5556',
-  token: process.env.FEF_BRIDGE_TOKEN || 'fef_local_bridge_token_v1',
+  token: (process.env.FEF_BRIDGE_TOKEN || '').trim(),
   timeoutMs: 4000,
   magicNumber: 8882026,
 };
@@ -60,6 +60,21 @@ export class MT5HttpClient {
     params?: Record<string, any>,
     symbol?: string
   ): Promise<BridgeResponsePayload<T>> {
+    // 0. Enforce configured local bridge authentication token (fail-closed, no public fallback)
+    if (!this.config.token || this.config.token === 'fef_local_bridge_token_v1') {
+      return {
+        reqId: `req-${Date.now()}`,
+        command,
+        success: false,
+        state: 'ERROR',
+        error: {
+          code: 'BRIDGE_AUTH_NOT_CONFIGURED',
+          message: 'FEF_BRIDGE_TOKEN is unconfigured or uses retired public fallback. Fail-closed.'
+        },
+        timestamp: Date.now()
+      };
+    }
+
     // 1. Reject live execution and unauthorized mutating commands if order transport is locked
     if (RESTRICTED_EXECUTION_COMMANDS.has(command) && !isMt5OrderTransportAllowed()) {
       return {
