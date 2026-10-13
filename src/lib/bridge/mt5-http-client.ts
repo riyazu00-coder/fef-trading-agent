@@ -22,6 +22,7 @@ import {
 } from './mt5-bridge-protocol';
 import { symbolDirectory } from './symbol-mapper';
 import { READ_ONLY_EXECUTION_ERROR, isMt5OrderTransportAllowed } from '../execution/execution-policy';
+import { telemetryRepository } from '../telemetry/telemetry-repository';
 
 export interface MT5HttpClientConfig {
   baseUrl: string;
@@ -163,6 +164,95 @@ export class MT5HttpClient {
    * Get raw aggregated bridge status
    */
   public async getStatus(): Promise<any> {
+    const isVercel = process.env.VERCEL === '1';
+
+    // 1. In Vercel cloud production, NEVER attempt to contact localhost:5556
+    if (isVercel || telemetryRepository.isCloudStoreConfigured()) {
+      try {
+        const hbRecord = await telemetryRepository.getLatestHeartbeat();
+        const accRecord = await telemetryRepository.getLatestAccountStatus();
+
+        if (hbRecord) {
+          const hb = hbRecord.data;
+          const acc = accRecord?.data;
+          const capturedTime = Date.parse(hbRecord.capturedAt) || Date.now();
+          const heartbeatAgeMs = Math.max(0, Date.now() - capturedTime);
+
+          return {
+            success: true,
+            transport: 'CLOUD_PERSISTENT_TELEMETRY',
+            localBridge: 'ONLINE',
+            mt5Connected: hb.terminalConnected,
+            state: hb.terminalConnected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+            mode: 'READ_ONLY',
+            operatingMode: hb.operatingMode || 'READ_ONLY',
+            heartbeatAgeMs,
+            lastHeartbeat: hbRecord.capturedAt,
+            heartbeatCount: hbRecord.sequence,
+            host: 'cloud-ingress',
+            port: 443,
+            terminal: {
+              build: hb.terminalBuild,
+              broker: hb.broker,
+              server: hb.server,
+              accountLogin: acc?.maskedLogin || '00***00',
+              currency: acc?.currency || 'USD',
+              magic: hb.magicNumber,
+              terminalConnected: hb.terminalConnected,
+              operatingMode: hb.operatingMode || 'READ_ONLY',
+            },
+            account: acc
+              ? {
+                  maskedLogin: acc.maskedLogin,
+                  broker: acc.broker,
+                  server: acc.server,
+                  currency: acc.currency,
+                  tradeMode: acc.tradeMode,
+                  balance: acc.balance,
+                  equity: acc.equity,
+                  margin: acc.margin,
+                  freeMargin: acc.freeMargin,
+                  marginLevel: acc.marginLevel,
+                  leverage: acc.leverage,
+                  tradeAllowed: false,
+                  terminalBuild: hb.terminalBuild,
+                  operatingMode: acc.operatingMode,
+                  lastUpdated: Date.parse(accRecord!.capturedAt) || Date.now(),
+                }
+              : undefined,
+            activePositionsCount: 0,
+            activeOrdersCount: 0,
+            quotesAvailable: hb.quotesCount,
+            quotes: {},
+            positions: [],
+            orders: [],
+            sessions: {},
+            symbols: [],
+            symbolSpecs: [],
+            specsBySymbol: {},
+            assetDiagnostics: {},
+            journal: [],
+            localBridgeLatencyMs: 5,
+          };
+        }
+      } catch (err: any) {
+        console.warn('[MT5HttpClient.getStatus] Error reading cloud telemetry:', err?.message);
+      }
+
+      // If running on Vercel and no cloud telemetry found, fail closed immediately (DO NOT call localhost)
+      if (isVercel) {
+        return {
+          success: false,
+          localBridge: 'OFFLINE',
+          mt5Connected: false,
+          state: 'BRIDGE_OFFLINE',
+          localBridgeLatencyMs: 0,
+          error: { code: 'NO_CLOUD_TELEMETRY', message: 'No live telemetry found in cloud persistent store' },
+        };
+      }
+    }
+
+    // 2. Local development: query local HTTP Bridge (:5556)
     const startTime = Date.now();
     try {
       const controller = new AbortController();
@@ -186,7 +276,6 @@ export class MT5HttpClient {
           localBridgeLatencyMs: localLatencyMs,
         };
       }
-      console.warn('[MT5HttpClient.getStatus non-200]:', res.status, res.statusText);
       return {
         success: false,
         localBridge: 'OFFLINE',
@@ -195,7 +284,6 @@ export class MT5HttpClient {
         localBridgeLatencyMs: localLatencyMs,
       };
     } catch (err: any) {
-      console.error('[MT5HttpClient.getStatus error]:', err?.message, err?.code, err?.cause);
       return {
         success: false,
         localBridge: 'OFFLINE',
@@ -219,6 +307,53 @@ export class MT5HttpClient {
   }
 
   public async getQuote(symbol: string): Promise<BridgeResponsePayload<MT5QuoteData>> {
+    const isVercel = process.env.VERCEL === '1';
+
+    // 1. In cloud production or when cloud store is configured, check persistent repository first
+    if (isVercel || telemetryRepository.isCloudStoreConfigured()) {
+      try {
+        const record = await telemetryRepository.getLatestQuote(symbol.toUpperCase());
+        if (record) {
+          const q = record.data;
+          const quoteAgeMs = Math.max(0, Date.now() - q.timestamp);
+          const normSym = symbol.toUpperCase();
+          return {
+            reqId: `cloud-quote-${Date.now()}`,
+            command: 'GET_QUOTE',
+            success: true,
+            state: 'CONNECTED_READ_ONLY',
+            data: {
+              canonicalSymbol: normSym,
+              brokerSymbol: normSym,
+              bid: q.bid,
+              ask: q.ask,
+              spread: q.spread,
+              digits: 5,
+              point: 0.00001,
+              time: new Date(q.timestamp).toISOString(),
+              timestamp: q.timestamp,
+              isStale: quoteAgeMs > 15000,
+              ageMs: quoteAgeMs,
+            },
+            timestamp: Date.now(),
+          };
+        }
+      } catch (err: any) {
+        console.warn('[MT5HttpClient.getQuote] Cloud quote error:', err?.message);
+      }
+
+      if (isVercel) {
+        return {
+          reqId: `cloud-quote-${Date.now()}`,
+          command: 'GET_QUOTE',
+          success: false,
+          state: 'MT5_OFFLINE',
+          error: { code: 'QUOTE_UNAVAILABLE', message: `No quote available in cloud store for ${symbol}` },
+          timestamp: Date.now(),
+        };
+      }
+    }
+
     return this.sendCommand<MT5QuoteData>('GET_QUOTE', undefined, symbol);
   }
 
@@ -243,8 +378,8 @@ export class MT5HttpClient {
   }
 
   /**
-   * Retrieve verified OHLC candles from the local MT5 bridge.
-   * Returns UNAVAILABLE if the EA has not yet pushed candles for the requested symbol/timeframe.
+   * Retrieve verified OHLC candles from persistent cloud telemetry or local bridge.
+   * Returns UNAVAILABLE if candles have not yet been pushed for the requested symbol/timeframe.
    */
   public async getCandles(symbol: string, timeframe: string): Promise<{
     success: boolean;
@@ -257,6 +392,51 @@ export class MT5HttpClient {
     candles: Array<{ timestamp: number; open: number; high: number; low: number; close: number; tickVolume: number }>;
     error?: { code: string; message: string };
   }> {
+    const isVercel = process.env.VERCEL === '1';
+
+    // 1. Check persistent cloud telemetry store
+    if (isVercel || telemetryRepository.isCloudStoreConfigured()) {
+      try {
+        const record = await telemetryRepository.getLatestCandles(symbol.toUpperCase(), timeframe.toUpperCase());
+        if (record && record.data.candles && record.data.candles.length > 0) {
+          const c = record.data;
+          const capturedTime = Date.parse(record.capturedAt) || Date.now();
+          return {
+            success: true,
+            state: 'VERIFIED_REAL',
+            symbol: c.canonicalSymbol,
+            timeframe: c.timeframe,
+            count: c.candles.length,
+            updatedAt: capturedTime,
+            ageMs: Math.max(0, Date.now() - capturedTime),
+            candles: c.candles.map((b) => ({
+              timestamp: b.timestamp,
+              open: b.open,
+              high: b.high,
+              low: b.low,
+              close: b.close,
+              tickVolume: b.tickVolume || 0,
+            })),
+          };
+        }
+      } catch (err: any) {
+        console.warn('[MT5HttpClient.getCandles] Cloud candles error:', err?.message);
+      }
+
+      if (isVercel) {
+        return {
+          success: false,
+          state: 'UNAVAILABLE',
+          symbol,
+          timeframe,
+          count: 0,
+          candles: [],
+          error: { code: 'NO_CLOUD_CANDLES', message: `No verified candles in cloud store for ${symbol} (${timeframe})` },
+        };
+      }
+    }
+
+    // 2. Local development fallback to local HTTP Bridge
     const startTime = Date.now();
     try {
       const controller = new AbortController();

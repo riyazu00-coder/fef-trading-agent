@@ -1,26 +1,27 @@
 #!/usr/bin/env node
 /**
  * FEF TRADING SOLUTIONS — OUTBOUND LOCAL MT5 CONNECTOR AGENT
- * 
+ *
  * Runs locally on the user's workstation alongside MetaTrader 5:
- * 1. Connects strictly OUTBOUND to the FEF Secure Remote Relay via WSS.
- * 2. Opens NO public inbound listening ports (Zero attack surface).
- * 3. Polls the local MT5 bridge (127.0.0.1:5556) for live telemetry.
- * 4. Pushes authenticated snapshots to the cloud control plane.
- * 5. Reconnects automatically and safely on network interruption.
+ * 1. Reads local verified MT5 telemetry from 127.0.0.1:5556.
+ * 2. Authenticates locally using FEF_BRIDGE_TOKEN (Local Mac only, never sent to cloud).
+ * 3. Builds bounded, read-only telemetry snapshots (Heartbeat, Account, Quotes, Candles).
+ * 4. Signs each snapshot using HMAC-SHA256 with FEF_TELEMETRY_DEVICE_SECRET.
+ * 5. Sends strictly outbound HTTPS POST to production /api/telemetry/ingress.
+ * 6. PHYSICAL SAFETY: Contains ZERO trading or order execution capability.
  */
 
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const WebSocket = require('ws');
 
 // Load .env.local if present
 const envLocalPath = path.resolve(__dirname, '../.env.local');
 if (fs.existsSync(envLocalPath)) {
   const content = fs.readFileSync(envLocalPath, 'utf8');
-  content.split('\n').forEach(line => {
+  content.split('\n').forEach((line) => {
     const trimmed = line.trim();
     if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
       const idx = trimmed.indexOf('=');
@@ -33,99 +34,66 @@ if (fs.existsSync(envLocalPath)) {
   });
 }
 
-// Canonical execution bridge is HTTP Bridge V1 on port 5556
+// 1. Local bridge configuration
 const LOCAL_BRIDGE_URL = process.env.FEF_LOCAL_BRIDGE_URL || 'http://127.0.0.1:5556';
 const LOCAL_BRIDGE_TOKEN = (process.env.FEF_BRIDGE_TOKEN || '').trim();
-if (!LOCAL_BRIDGE_TOKEN || LOCAL_BRIDGE_TOKEN === 'fef_local_bridge_token_v1') {
-  console.warn('[CONNECTOR CONFIG] FEF_BRIDGE_TOKEN is unconfigured or uses retired public fallback. Local bridge calls will fail closed.');
-}
-const RELAY_URL = process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557';
-const DEVICE_ID = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
-const KEY_ID = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';
-const DEVICE_SECRET = (process.env.FEF_REMOTE_DEVICE_SECRET || '').trim();
-const POLL_INTERVAL_MS = 1000;
 
-// Replay protection and nonce tracking
-// NOTE [PHASE 2A LIMITATION & PHASE 2B REQUIREMENT]:
-// In Phase 2A, processedRequestIds and lastSeenNonce are in-memory state.
-// For diagnostic TRANSPORT_PROBE envelopes, this is fail-safe.
-// CRITICAL: Persistent idempotency and durable nonce tracking are MANDATORY
-// before remote broker execution (OrderSend) activation in Phase 2B/2C.
-const processedRequestIds = new Set();
-let lastSeenNonce = 0;
+// 2. Cloud telemetry ingress configuration
+const CLOUD_INGRESS_URL = (
+  process.env.FEF_CLOUD_TELEMETRY_URL ||
+  process.env.NEXT_PUBLIC_APP_URL ||
+  'https://app.feftradingsolutions.com/api/telemetry/ingress'
+).trim();
 
-let ws = null;
+const DEVICE_ID = (process.env.FEF_TELEMETRY_DEVICE_ID || 'fef-mac-primary-01').trim();
+const TELEMETRY_SECRET = (process.env.FEF_TELEMETRY_DEVICE_SECRET || '').trim();
+
+const POLL_INTERVAL_MS = 2000;
+let sequenceCounter = 0;
 let pollTimer = null;
-let reconnectTimer = null;
-let reconnectDelayMs = 1000;
-let isConnectedToRelay = false;
+let candleTickCount = 0;
 
-function toWebSocketUrl(httpUrl) {
-  const url = new URL(httpUrl);
-  const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${url.host}/connector`;
-}
+// Canonical assets supported by MT5 bridge
+const CANONICAL_SYMBOLS = [
+  'XAUUSD', 'XAGUSD',
+  'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'NZDUSD', 'USDCAD', 'USDCHF', 'GBPJPY', 'EURJPY', 'EURGBP',
+  'US100', 'US30', 'US500', 'UK100', 'JP225',
+  'USOIL', 'UKOIL', 'NATGAS',
+  'BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'BNBUSD'
+];
 
+/**
+ * Fetch status from local HTTP Bridge (:5556)
+ */
 function fetchLocalBridgeStatus() {
   return new Promise((resolve) => {
-    // 1. Primary: query Canonical HTTP Bridge V1 (:5556)
     const v1Url = new URL('/api/status', LOCAL_BRIDGE_URL);
-    const req = http.request(v1Url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${LOCAL_BRIDGE_TOKEN}`,
-        'x-bridge-token': LOCAL_BRIDGE_TOKEN,
+    const req = http.request(
+      v1Url,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${LOCAL_BRIDGE_TOKEN}`,
+          'x-bridge-token': LOCAL_BRIDGE_TOKEN,
+        },
+        timeout: 2000,
       },
-      timeout: 2000,
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => (data += chunk));
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed && (parsed.success || parsed.localBridge)) {
-            return resolve(parsed);
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed && (parsed.success || parsed.localBridge)) {
+              return resolve(parsed);
+            }
+            resolve(null);
+          } catch {
+            resolve(null);
           }
-          resolve(null);
-        } catch {
-          resolve(null);
-        }
-      });
-    });
-
-    req.on('error', () => {
-      resolve(null);
-    });
-
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(null);
-    });
-    req.end();
-  });
-}
-
-function fetchLocalBridgeCandles(symbol = 'XAUUSD', timeframe = 'H1') {
-  return new Promise((resolve) => {
-    const url = new URL(`/mt5/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`, LOCAL_BRIDGE_URL);
-    const req = http.request(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${LOCAL_BRIDGE_TOKEN}`,
-        'x-bridge-token': LOCAL_BRIDGE_TOKEN,
-      },
-      timeout: 2500,
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => (data += chunk));
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch {
-          resolve(null);
-        }
-      });
-    });
+        });
+      }
+    );
 
     req.on('error', () => resolve(null));
     req.on('timeout', () => {
@@ -136,645 +104,313 @@ function fetchLocalBridgeCandles(symbol = 'XAUUSD', timeframe = 'H1') {
   });
 }
 
-const lastCandleFingerprint = new Map();
-
-async function syncCandlesForTimeframe(symbol = 'XAUUSD', timeframe = 'H1', force = false) {
-  if (!isConnectedToRelay || !ws || ws.readyState !== WebSocket.OPEN) return;
-
-  const res = await fetchLocalBridgeCandles(symbol, timeframe);
-  if (!res || !res.success || !Array.isArray(res.candles) || res.candles.length === 0) return;
-
-  const lastCandle = res.candles[res.candles.length - 1];
-  const fp = `${lastCandle.timestamp}:${lastCandle.close}:${res.candles.length}`;
-  const key = `${symbol}:${timeframe}`;
-
-  if (!force && lastCandleFingerprint.get(key) === fp) {
-    return; // Deduplicated
-  }
-
-  lastCandleFingerprint.set(key, fp);
-
-  const payload = {
-    deviceId: DEVICE_ID,
-    broker: 'Exness Technologies Ltd',
-    server: 'Exness-MT5Trial16',
-    symbol,
-    timeframe,
-    candles: res.candles,
-    generatedAt: Date.now(),
-    sourceTimestamp: res.updatedAt || Date.now(),
-    schemaVersion: '1.0',
-  };
-
-  try {
-    ws.send(JSON.stringify({
-      type: 'CANDLES_SNAPSHOT',
-      payload,
-    }));
-  } catch (err) {
-    console.error(`[FEF-CONNECTOR] Error sending ${symbol} ${timeframe} candles:`, err.message);
-  }
-}
-
-function getCanonicalUniverse() {
-  try {
-    const manifestPath = path.resolve(__dirname, '../src/lib/registry/canonical-manifest.json');
-    if (fs.existsSync(manifestPath)) {
-      const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      if (Array.isArray(parsed.instruments) && parsed.instruments.length > 0) {
-        return parsed.instruments.map(i => i.symbol);
-      }
-    }
-  } catch {}
-  return [
-    'XAUUSD', 'XAGUSD',
-    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURJPY', 'GBPJPY', 'EURGBP',
-    'US30', 'US100', 'US500', 'GER40', 'UK100', 'JP225',
-    'USOIL', 'UKOIL', 'NATGAS',
-    'BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'BNBUSD'
-  ];
-}
-
-async function syncAllCandles(force = false) {
-  const envSymbols = process.env.FEF_SYNC_SYMBOLS ? process.env.FEF_SYNC_SYMBOLS.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : null;
-  const symbols = (envSymbols && envSymbols.length > 0) ? envSymbols : getCanonicalUniverse();
-  const tfs = ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
-  for (const sym of symbols) {
-    for (const tf of tfs) {
-      await syncCandlesForTimeframe(sym, tf, force);
-    }
-  }
-}
-
-function dispatchLocalBridgeCommand(payload) {
+/**
+ * Fetch verified closed candles from local HTTP Bridge (:5556)
+ */
+function fetchLocalBridgeCandles(symbol, timeframe) {
   return new Promise((resolve) => {
-    const url = new URL('/api/command', LOCAL_BRIDGE_URL);
-    const bodyStr = JSON.stringify(payload);
-    const req = http.request(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(bodyStr),
-        'Authorization': `Bearer ${LOCAL_BRIDGE_TOKEN}`,
-        'x-bridge-token': LOCAL_BRIDGE_TOKEN,
+    const url = new URL(
+      `/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`,
+      LOCAL_BRIDGE_URL
+    );
+    const req = http.request(
+      url,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${LOCAL_BRIDGE_TOKEN}`,
+          'x-bridge-token': LOCAL_BRIDGE_TOKEN,
+        },
+        timeout: 2500,
       },
-      timeout: 10000,
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => (data += chunk));
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch {
-          resolve({ success: false, error: { code: 'PARSE_ERROR', message: 'Failed to parse bridge response.' } });
-        }
-      });
-    });
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed && parsed.success && Array.isArray(parsed.candles)) {
+              return resolve(parsed.candles);
+            }
+            resolve([]);
+          } catch {
+            resolve([]);
+          }
+        });
+      }
+    );
 
-    req.on('error', (err) => resolve({ success: false, error: { code: 'BRIDGE_REQUEST_FAILED', message: err.message } }));
+    req.on('error', () => resolve([]));
     req.on('timeout', () => {
       req.destroy();
-      resolve({ success: false, error: { code: 'BRIDGE_TIMEOUT', message: 'Local bridge timed out.' } });
+      resolve([]);
     });
-    req.write(bodyStr);
     req.end();
   });
 }
 
-async function registerDeviceWithRelay() {
-  return new Promise((resolve) => {
-    const url = new URL('/device/register', RELAY_URL);
-    const payload = JSON.stringify({
-      deviceId: DEVICE_ID,
-      deviceName: 'Local MT5 Workstation',
-      connectorVersion: '2.0.0',
-      keyId: KEY_ID,
-      authToken: DEVICE_SECRET,
-      tradeMode: 'DEMO',
-      operatingMode: 'DEMO_EXECUTION',
-    });
-
-    const isHttps = url.protocol === 'https:';
-    const client = isHttps ? require('https') : require('http');
-
-    const req = client.request(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload),
-      },
-      timeout: 3000,
-    }, (res) => {
-      let raw = '';
-      res.on('data', chunk => (raw += chunk));
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(raw));
-        } catch {
-          resolve({ success: false });
-        }
-      });
-    });
-
-    req.on('error', () => resolve({ success: false }));
-    req.write(payload);
-    req.end();
-  });
-}
-
-function connectToRelay() {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-    return;
-  }
-
-  const wsUrl = toWebSocketUrl(RELAY_URL);
-  console.log(`[FEF-CONNECTOR] Initiating OUTBOUND connection to relay: ${wsUrl}`);
-
-  ws = new WebSocket(wsUrl);
-
-  ws.on('open', () => {
-    console.log('[FEF-CONNECTOR] Connected to relay. Authenticating device...');
-    reconnectDelayMs = 1000; // Reset backoff
-
-    // Send authentication handshake
-    ws.send(JSON.stringify({
-      type: 'AUTH',
-      deviceId: DEVICE_ID,
-      keyId: KEY_ID,
-      authToken: DEVICE_SECRET,
-    }));
-  });
-
-  ws.on('message', (raw) => {
-    try {
-      const msg = JSON.parse(raw.toString('utf8'));
-
-      if (msg.type === 'AUTH_OK') {
-        isConnectedToRelay = true;
-        console.log(`✓ [FEF-CONNECTOR] Authenticated with relay (Device: ${msg.publicDeviceId || DEVICE_ID})`);
-        startTelemetryStream();
-        // Bootstrap candle snapshot across all 5 timeframes immediately upon authentication
-        syncAllCandles(true).catch((err) => {
-          console.error('[FEF-CONNECTOR] Error in initial candle bootstrap:', err.message);
-        });
-        return;
-      }
-
-      if (msg.type === 'AUTH_FAILED') {
-        console.error(`✕ [FEF-CONNECTOR] Authentication rejected by relay: ${msg.message}`);
-        isConnectedToRelay = false;
-        ws.close();
-        return;
-      }
-
-      if (msg.type === 'TELEMETRY_ACK' || msg.type === 'HEARTBEAT_ACK') {
-        // Telemetry acknowledged
-        return;
-      }
-
-      if (msg.type === 'CANDLES_ACK') {
-        // Candles acknowledged by relay
-        return;
-      }
-
-      if (msg.type === 'CANDLES_REJECTED') {
-        console.warn(`[FEF-CONNECTOR] Relay rejected candles for ${msg.symbol} ${msg.timeframe}: ${msg.message}`);
-        return;
-      }
-
-      // 4. Transport Probe (Phase 2A Non-Executing Verification)
-      if (msg.type === 'TRANSPORT_PROBE' || (msg.type === 'COMMAND' && msg.command?.commandType === 'TRANSPORT_PROBE')) {
-        const probe = msg.command || msg.probe || msg;
-        handleTransportProbe(probe);
-        return;
-      }
-
-      // 5. Remote Execution Command (Phase 2C Controlled Remote DEMO Execution)
-      if (msg.type === 'EXECUTE_ORDER' || msg.type === 'COMMAND') {
-        const cmd = msg.command;
-        if (cmd && cmd.commandType === 'TRANSPORT_PROBE') {
-          handleTransportProbe(cmd);
-          return;
-        }
-        handleExecuteOrder(cmd);
-        return;
-      }
-    } catch (err) {
-      console.error('[FEF-CONNECTOR] Error processing message:', err.message);
-    }
-  });
-
-function handleTransportProbe(probe) {
-  if (!probe || !probe.requestId) return;
-
-  const now = Date.now();
-  console.log(`[FEF-CONNECTOR] Received TRANSPORT_PROBE '${probe.requestId}'`);
-
-  // 1. Device ID verification
-  if (probe.deviceId && probe.deviceId !== DEVICE_ID) {
-    console.warn(`[FEF-CONNECTOR-SECURITY] Rejected probe '${probe.requestId}': deviceId mismatch (${probe.deviceId} !== ${DEVICE_ID})`);
-    sendProbeAck(probe.requestId, 'REJECTED', false, {
-      code: 'DEVICE_MISMATCH',
-      message: `Target deviceId '${probe.deviceId}' does not match connector device '${DEVICE_ID}'.`,
-    });
-    return;
-  }
-
-  // 2. TTL verification
-  if (!probe.expiresAt || probe.expiresAt <= now) {
-    console.warn(`[FEF-CONNECTOR-SECURITY] Rejected probe '${probe.requestId}': expired (cutoff ${probe.expiresAt}, current ${now})`);
-    sendProbeAck(probe.requestId, 'EXPIRED', false, {
-      code: 'COMMAND_EXPIRED',
-      message: 'Transport probe expired before connector validation.',
-    });
-    return;
-  }
-
-  // 3. Monotonic Nonce check
-  if (typeof probe.nonce !== 'number' || probe.nonce <= lastSeenNonce) {
-    console.warn(`[FEF-CONNECTOR-SECURITY] Rejected probe '${probe.requestId}': stale nonce (${probe.nonce} <= ${lastSeenNonce})`);
-    sendProbeAck(probe.requestId, 'REJECTED', false, {
-      code: 'STALE_NONCE',
-      message: `Probe nonce ${probe.nonce} is not greater than last observed nonce ${lastSeenNonce}. Replay attack prevented.`,
-    });
-    return;
-  }
-
-  // 4. Idempotency check
-  if (processedRequestIds.has(probe.requestId)) {
-    console.warn(`[FEF-CONNECTOR-SECURITY] Rejected probe '${probe.requestId}': duplicate requestId`);
-    sendProbeAck(probe.requestId, 'REJECTED', false, {
-      code: 'DUPLICATE_COMMAND_ID',
-      message: `Request ID '${probe.requestId}' has already been processed. Replays are prohibited.`,
-    });
-    return;
-  }
-
-  // 5. Signature verification (if signature provided)
-  if (probe.signature && DEVICE_SECRET) {
-    const normPayload = probe.probePayload || '';
-    const normKeyId = probe.keyId || '';
-    const normCreatedAt = probe.createdAt || 0;
-    const payload = `${probe.requestId}:${probe.deviceId}:${probe.commandType}:${probe.nonce}:${normCreatedAt}:${probe.expiresAt}:${normKeyId}:${normPayload}`;
-    const expectedSig = crypto.createHmac('sha256', DEVICE_SECRET).update(payload).digest('hex');
-    const sigBuf = Buffer.from(probe.signature, 'utf8');
-    const expBuf = Buffer.from(expectedSig, 'utf8');
-    const isValid = sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
-    if (!isValid) {
-      console.warn(`[FEF-CONNECTOR-SECURITY] Rejected probe '${probe.requestId}': signature mismatch`);
-      sendProbeAck(probe.requestId, 'REJECTED', false, {
-        code: 'INVALID_SIGNATURE',
-        message: 'Transport probe HMAC signature verification failed.',
-      });
-      return;
-    }
-  }
-
-  // Mark processed and update monotonic nonce
-  processedRequestIds.add(probe.requestId);
-  lastSeenNonce = probe.nonce;
-
-  // Crucially: STOP before Bridge V2 execution dispatch! Never call OrderSend!
-  console.log(`✓ [FEF-CONNECTOR] TRANSPORT_PROBE '${probe.requestId}' successfully validated. Sending PROBE_VALIDATED ACK.`);
-  sendProbeAck(probe.requestId, 'PROBE_VALIDATED', true, null, probe.createdAt);
-}
-
-function sendProbeAck(requestId, status, success, error, createdAt) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'COMMAND_ACK',
-      ack: {
-        requestId,
-        deviceId: DEVICE_ID,
-        commandType: 'TRANSPORT_PROBE',
-        status,
-        success,
-        bridgePort: 5556,
-        roundTripMs: createdAt ? Date.now() - createdAt : 0,
-        error: error || undefined,
-        timestamp: Date.now(),
-      }
-    }));
-  }
-}
-
-async function handleExecuteOrder(cmd) {
-  if (!cmd || !cmd.requestId) return;
-
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'COMMAND_ACK',
-      ack: {
-        requestId: cmd.requestId,
-        deviceId: DEVICE_ID,
-        status: 'REJECTED',
-        success: false,
-        error: {
-          code: 'GLOBAL_READ_ONLY_LOCK',
-          message: 'FEF CORTEX V1.1.2-S is READ_ONLY / TELEMETRY ONLY. Connector execution forwarding is disabled.',
-        },
-        timestamp: Date.now(),
-      }
-    }));
-  }
-  return;
-
-  console.log(`[FEF-CONNECTOR] Received remote execution command '${cmd.requestId}' for ${cmd.symbol} ${cmd.direction} ${cmd.volume} lots.`);
-
-  // 1. Layer 3 DEMO Check: command level
-  if (cmd.accountMode === 'REAL') {
-    console.warn(`[FEF-CONNECTOR-SECURITY] Rejected REAL execution command '${cmd.requestId}'.`);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: 'COMMAND_ACK',
-        ack: {
-          requestId: cmd.requestId,
-          deviceId: DEVICE_ID,
-          status: 'REJECTED',
-          success: false,
-          error: { code: 'REAL_EXECUTION_LOCKED', message: 'REAL account execution strictly locked across all layers.' },
-          timestamp: Date.now(),
-        }
-      }));
-    }
-    return;
-  }
-
-  // 2. Layer 3 DEMO Check: local terminal level
-  const localStatus = await fetchLocalBridgeStatus();
-  if (!localStatus || !localStatus.success) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: 'COMMAND_ACK',
-        ack: {
-          requestId: cmd.requestId,
-          deviceId: DEVICE_ID,
-          status: 'FAILED',
-          success: false,
-          error: { code: 'MT5_OFFLINE', message: 'Local MT5 HTTP bridge is offline or unreachable.' },
-          timestamp: Date.now(),
-        }
-      }));
-    }
-    return;
-  }
-
-  if (localStatus.account && localStatus.account.tradeMode === 'REAL') {
-    console.warn(`[FEF-CONNECTOR-SECURITY] Connected account is REAL. Execution locked fail-closed.`);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: 'COMMAND_ACK',
-        ack: {
-          requestId: cmd.requestId,
-          deviceId: DEVICE_ID,
-          status: 'REJECTED',
-          success: false,
-          error: { code: 'REAL_EXECUTION_LOCKED', message: 'Connected local MT5 account is a REAL account. Execution strictly prohibited.' },
-          timestamp: Date.now(),
-        }
-      }));
-    }
-    return;
-  }
-
-  // 3. Mandatory Protection Validation
-  if (cmd.testType !== 'ENGINEERING_DEMO_TEST') {
-    if (!cmd.sl || cmd.sl <= 0) {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'COMMAND_ACK',
-          ack: {
-            requestId: cmd.requestId,
-            deviceId: DEVICE_ID,
-            status: 'REJECTED',
-            success: false,
-            error: { code: 'MISSING_SL', message: 'Stop Loss is mandatory under institutional protection policy.' },
-            timestamp: Date.now(),
-          }
-        }));
-      }
-      return;
+/**
+ * Sign and post telemetry payload outbound via HTTPS
+ */
+function postTelemetryOutbound(envelope) {
+  return new Promise((resolve, reject) => {
+    if (!TELEMETRY_SECRET) {
+      return reject(new Error('LOCAL_TELEMETRY_SECRET_REQUIRED'));
     }
 
-    if (!cmd.tp1 || cmd.tp1 <= 0) {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'COMMAND_ACK',
-          ack: {
-            requestId: cmd.requestId,
-            deviceId: DEVICE_ID,
-            status: 'REJECTED',
-            success: false,
-            error: { code: 'MISSING_TP1', message: 'Take Profit 1 is mandatory under institutional protection policy.' },
-            timestamp: Date.now(),
-          }
-        }));
-      }
-      return;
-    }
-  }
+    const rawBody = JSON.stringify(envelope);
+    const url = new URL(CLOUD_INGRESS_URL);
+    const path = url.pathname;
+    const timestamp = String(Date.now());
+    const nonce = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
 
-  // 4. Dispatch to Local MT5 Bridge
-  const bridgePayload = {
-    command: 'PLACE_ORDER',
-    params: {
-      requestId: cmd.requestId,
-      symbol: cmd.canonicalSymbol || cmd.symbol,
-      brokerSymbol: cmd.brokerSymbol || cmd.symbol,
-      direction: cmd.direction,
-      orderType: cmd.orderType || cmd.direction,
-      volume: cmd.volume,
-      price: cmd.priceBasis,
-      sl: cmd.sl,
-      tp: cmd.tp1 || cmd.tp,
-      tp1: cmd.tp1,
-      tp2: cmd.tp2,
-      tp3: cmd.tp3,
-      humanApproved: true,
-      comment: cmd.comment || 'FEF REMOTE DEMO 2C',
-      magic: cmd.magic || 8882026,
-    }
-  };
+    // Build canonical string: METHOD\nPATH\nTIMESTAMP\nNONCE\nBODY_HASH
+    const bodyHash = crypto.createHash('sha256').update(rawBody).digest('hex');
+    const canonical = ['POST', path, timestamp, nonce, bodyHash].join('\n');
+    const signature = crypto.createHmac('sha256', TELEMETRY_SECRET).update(canonical).digest('hex');
 
-  const bridgeRes = await dispatchLocalBridgeCommand(bridgePayload);
-  const success = Boolean(bridgeRes && bridgeRes.success);
-
-  console.log(`[FEF-CONNECTOR] Bridge dispatch result for '${cmd.requestId}': success=${success} ticket=${bridgeRes?.ticket || bridgeRes?.data?.ticket || 'N/A'}`);
-
-  // 5. Transmit COMMAND_ACK back to Relay
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'COMMAND_ACK',
-      ack: {
-        requestId: cmd.requestId,
-        deviceId: DEVICE_ID,
-        status: success ? 'EXECUTED' : 'FAILED',
-        success,
-        ticket: bridgeRes?.ticket || bridgeRes?.data?.ticket,
-        deal: bridgeRes?.deal || bridgeRes?.data?.deal,
-        fillPrice: bridgeRes?.fillPrice || bridgeRes?.data?.fillPrice,
-        volume: cmd.volume,
-        symbol: cmd.symbol,
-        direction: cmd.direction,
-        sl: cmd.sl,
-        tp: cmd.tp1,
-        retcode: bridgeRes?.retcode || bridgeRes?.data?.retcode,
-        retcodeDescription: bridgeRes?.retcodeDescription || bridgeRes?.data?.retcodeDescription,
-        error: bridgeRes?.error,
-        timestamp: Date.now(),
-      }
-    }));
-  }
-}
-
-  ws.on('close', (code, reason) => {
-    isConnectedToRelay = false;
-    stopTelemetryStream();
-    console.warn(`⚠ [FEF-CONNECTOR] Disconnected from relay (Code: ${code}). Reconnecting in ${Math.round(reconnectDelayMs / 1000)}s...`);
-    scheduleReconnect();
-  });
-
-  ws.on('error', (err) => {
-    console.error(`✕ [FEF-CONNECTOR] Relay socket error: ${err.message}`);
-  });
-}
-
-function scheduleReconnect() {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(() => {
-    reconnectDelayMs = Math.min(10000, reconnectDelayMs * 1.5);
-    connectToRelay();
-  }, reconnectDelayMs);
-}
-
-function startTelemetryStream() {
-  if (pollTimer) clearInterval(pollTimer);
-
-  pollTimer = setInterval(async () => {
-    if (!isConnectedToRelay || !ws || ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    const localStatus = await fetchLocalBridgeStatus();
-    if (!localStatus || !localStatus.success) {
-      // Local bridge is offline; send heartbeat indicating bridge disconnected
-      ws.send(JSON.stringify({
-        type: 'TELEMETRY',
-        snapshot: {
-          terminalConnected: false,
-          bridgeConnected: false,
-          heartbeatAgeMs: 99999,
-          broker: 'UNKNOWN',
-          server: 'UNKNOWN',
-          maskedAccount: '00***00',
-          tradeMode: 'DEMO',
-          operatingMode: 'READ_ONLY',
-          quotes: {},
-          symbolSpecs: {},
-          positions: [],
-          pendingOrders: [],
-          sessions: {},
-        }
-      }));
-      return;
-    }
-
-    // Stream rich local bridge telemetry to relay
-    const snapshot = {
-      terminalConnected: Boolean(localStatus.terminal?.terminalConnected),
-      bridgeConnected: localStatus.localBridge === 'ONLINE',
-      heartbeatAgeMs:
-        localStatus.heartbeatAgeMs !== null &&
-        localStatus.heartbeatAgeMs !== undefined &&
-        Number.isFinite(Number(localStatus.heartbeatAgeMs)) &&
-        Number(localStatus.heartbeatAgeMs) >= 0
-          ? Number(localStatus.heartbeatAgeMs)
-          : 99999,
-      broker: localStatus.terminal?.broker || localStatus.account?.broker || 'Exness Technologies Ltd',
-      server: localStatus.terminal?.server || localStatus.account?.server || 'Exness-MT5Trial16',
-      maskedAccount: localStatus.account?.maskedLogin || '26***84',
-      tradeMode: localStatus.account?.tradeMode || 'DEMO',
-      operatingMode: localStatus.operatingMode || 'DEMO_EXECUTION',
-      quotes: localStatus.quotes || {},
-      symbolSpecs: localStatus.specsBySymbol || {},
-      positions: localStatus.positions || [],
-      pendingOrders: localStatus.orders || [],
-      sessions: localStatus.sessions || {},
-      assetDiagnostics: localStatus.assetDiagnostics || {},
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(rawBody, 'utf8'),
+      'x-fef-device-id': DEVICE_ID,
+      'x-fef-timestamp': timestamp,
+      'x-fef-nonce': nonce,
+      'x-fef-signature': signature,
+      'x-fef-signature-version': 'v1',
     };
 
-    ws.send(JSON.stringify({
-      type: 'TELEMETRY',
-      snapshot,
-    }));
+    const client = url.protocol === 'https:' ? https : http;
+    const req = client.request(
+      url,
+      {
+        method: 'POST',
+        headers,
+        timeout: 4000,
+      },
+      (res) => {
+        let respData = '';
+        res.on('data', (c) => (respData += c));
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve({ success: true, statusCode: res.statusCode });
+          } else {
+            resolve({ success: false, statusCode: res.statusCode, response: respData });
+          }
+        });
+      }
+    );
 
-    // Timeframe-aware periodic candle synchronization across active supported symbols
-    candleTickCount++;
-    const discoveredSymbols = Array.from(new Set([
-      ...Object.keys(localStatus.quotes || {}),
-      ...Object.keys(localStatus.specsBySymbol || {})
-    ])).filter(s => !s.endsWith('m') && !s.includes('.')); // Canonical symbols preferred
-    const syncTargetSymbols = discoveredSymbols.length > 0 ? discoveredSymbols : ['XAUUSD', 'EURUSD', 'BTCUSD', 'US100', 'USOIL'];
+    req.on('error', (err) => resolve({ success: false, error: err.message }));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ success: false, error: 'Request timeout' });
+    });
 
-    if (candleTickCount % 4 === 0) {
-      for (const sym of syncTargetSymbols) {
-        syncCandlesForTimeframe(sym, 'M5', false).catch(() => {});
-        syncCandlesForTimeframe(sym, 'M15', false).catch(() => {});
-        syncCandlesForTimeframe(sym, 'M30', false).catch(() => {});
+    req.write(rawBody);
+    req.end();
+  });
+}
+
+/**
+ * Main polling iteration
+ */
+async function pollAndPushTelemetry() {
+  const localStatus = await fetchLocalBridgeStatus();
+  if (!localStatus) {
+    console.log(`[CONNECTOR] Local bridge at ${LOCAL_BRIDGE_URL} is unreachable or offline`);
+    return;
+  }
+
+  const isConnected = Boolean(localStatus.mt5Connected);
+  const nowIso = new Date().toISOString();
+
+  // 1. Push HEARTBEAT
+  const heartbeatEnvelope = {
+    version: 1,
+    deviceId: DEVICE_ID,
+    type: 'HEARTBEAT',
+    capturedAt: nowIso,
+    sequence: ++sequenceCounter,
+    payload: {
+      terminalBuild: localStatus.terminal?.build || 5000,
+      broker: localStatus.terminal?.broker || 'UNKNOWN',
+      server: localStatus.terminal?.server || 'UNKNOWN',
+      magicNumber: localStatus.terminal?.magic || 8882026,
+      heartbeatIntervalSec: 2,
+      operatingMode: 'READ_ONLY',
+      activeSymbolsCount: CANONICAL_SYMBOLS.length,
+      quotesCount: Object.keys(localStatus.quotes || {}).length,
+      terminalConnected: isConnected,
+    },
+  };
+  await postTelemetryOutbound(heartbeatEnvelope);
+
+  if (!isConnected) return;
+
+  // 2. Push ACCOUNT_STATUS
+  if (localStatus.account) {
+    const acc = localStatus.account;
+    const accountEnvelope = {
+      version: 1,
+      deviceId: DEVICE_ID,
+      type: 'ACCOUNT_STATUS',
+      capturedAt: nowIso,
+      sequence: ++sequenceCounter,
+      payload: {
+        maskedLogin: acc.maskedLogin || '00***00',
+        broker: acc.broker || 'UNKNOWN',
+        server: acc.server || 'UNKNOWN',
+        currency: acc.currency || 'USD',
+        tradeMode: acc.tradeMode || 'DEMO',
+        leverage: acc.leverage || 100,
+        balance: acc.balance || 0,
+        equity: acc.equity || 0,
+        margin: acc.margin || 0,
+        freeMargin: acc.freeMargin || 0,
+        marginLevel: acc.marginLevel || 0,
+        operatingMode: 'READ_ONLY',
+        tradeAllowed: false,
+      },
+    };
+    await postTelemetryOutbound(accountEnvelope);
+  }
+
+  // 3. Push QUOTE_SNAPSHOT
+  const quotesList = [];
+  if (localStatus.quotes && typeof localStatus.quotes === 'object') {
+    for (const [sym, q] of Object.entries(localStatus.quotes)) {
+      if (CANONICAL_SYMBOLS.includes(sym) && q && typeof q === 'object') {
+        const bid = Number(q.bid);
+        const ask = Number(q.ask);
+        if (bid > 0 && ask >= bid) {
+          quotesList.push({
+            symbol: sym,
+            bid,
+            ask,
+            spread: Number(q.spread) || Math.round((ask - bid) * 10000),
+            timestamp: Number(q.quoteTimestamp) || Date.now(),
+          });
+        }
       }
     }
-    if (candleTickCount % 16 === 0) {
-      for (const sym of syncTargetSymbols) {
-        syncCandlesForTimeframe(sym, 'H1', false).catch(() => {});
-        syncCandlesForTimeframe(sym, 'H4', false).catch(() => {});
-        syncCandlesForTimeframe(sym, 'D1', false).catch(() => {});
+  }
+
+  if (quotesList.length > 0) {
+    const quoteEnvelope = {
+      version: 1,
+      deviceId: DEVICE_ID,
+      type: 'QUOTE_SNAPSHOT',
+      capturedAt: nowIso,
+      sequence: ++sequenceCounter,
+      payload: {
+        quotes: quotesList,
+      },
+    };
+    await postTelemetryOutbound(quoteEnvelope);
+  }
+
+  // 4. Timeframe-aware closed candle sync
+  candleTickCount++;
+  const primarySyncSymbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'US100', 'USOIL', 'BTCUSD'];
+
+  // Fast timeframes (M15, M30) every 4 ticks (~8s)
+  if (candleTickCount % 4 === 0) {
+    for (const sym of primarySyncSymbols) {
+      for (const tf of ['M15', 'M30']) {
+        const rawBars = await fetchLocalBridgeCandles(sym, tf);
+        if (rawBars && rawBars.length >= 15) {
+          const validBars = rawBars
+            .filter((b) => b && b.open > 0 && b.high >= b.low && b.close > 0)
+            .slice(-50); // Bounded 50 closed bars
+          if (validBars.length >= 15) {
+            const candleEnvelope = {
+              version: 1,
+              deviceId: DEVICE_ID,
+              type: 'CANDLE_SNAPSHOT',
+              capturedAt: new Date().toISOString(),
+              sequence: ++sequenceCounter,
+              payload: {
+                canonicalSymbol: sym,
+                brokerSymbol: sym,
+                timeframe: tf,
+                candles: validBars,
+                closed: true,
+                provider: 'MT5_BROKER_BRIDGE',
+              },
+            };
+            await postTelemetryOutbound(candleEnvelope);
+          }
+        }
       }
     }
+  }
+
+  // Higher timeframes (H1, H4) every 16 ticks (~32s)
+  if (candleTickCount % 16 === 0) {
+    for (const sym of primarySyncSymbols) {
+      for (const tf of ['H1', 'H4']) {
+        const rawBars = await fetchLocalBridgeCandles(sym, tf);
+        if (rawBars && rawBars.length >= 15) {
+          const validBars = rawBars
+            .filter((b) => b && b.open > 0 && b.high >= b.low && b.close > 0)
+            .slice(-50);
+          if (validBars.length >= 15) {
+            const candleEnvelope = {
+              version: 1,
+              deviceId: DEVICE_ID,
+              type: 'CANDLE_SNAPSHOT',
+              capturedAt: new Date().toISOString(),
+              sequence: ++sequenceCounter,
+              payload: {
+                canonicalSymbol: sym,
+                brokerSymbol: sym,
+                timeframe: tf,
+                candles: validBars,
+                closed: true,
+                provider: 'MT5_BROKER_BRIDGE',
+              },
+            };
+            await postTelemetryOutbound(candleEnvelope);
+          }
+        }
+      }
+    }
+  }
+}
+
+function start() {
+  console.log('================================================================');
+  console.log('FEF TRADING SOLUTIONS: LOCAL OUTBOUND MT5 TELEMETRY CONNECTOR');
+  console.log('================================================================');
+  console.log(`- Local MT5 Bridge:     ${LOCAL_BRIDGE_URL}`);
+  console.log(`- Cloud Ingress Target: ${CLOUD_INGRESS_URL}`);
+  console.log(`- Device ID:            ${DEVICE_ID}`);
+  console.log(
+    `- Telemetry Secret:     ${TELEMETRY_SECRET ? 'CONFIGURED' : 'NOT_CONFIGURED (FAIL-CLOSED)'}`
+  );
+  console.log('- Mode:                 READ-ONLY TELEMETRY (Zero Execution Transport)');
+  console.log('================================================================\n');
+
+  if (!TELEMETRY_SECRET) {
+    console.error('❌ FATAL: FEF_TELEMETRY_DEVICE_SECRET is missing from local environment.');
+    console.error('Please configure FEF_TELEMETRY_DEVICE_SECRET in .env.local to enable cloud telemetry push.');
+    return;
+  }
+
+  pollTimer = setInterval(() => {
+    pollAndPushTelemetry().catch((err) => {
+      console.error('[CONNECTOR ERROR]:', err?.message);
+    });
   }, POLL_INTERVAL_MS);
 }
 
-let candleTickCount = 0;
-
-function stopTelemetryStream() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-}
-
-async function main() {
-  if (!DEVICE_SECRET) {
-    throw new Error('FEF_REMOTE_DEVICE_SECRET_REQUIRED');
-  }
-  console.log('================================================================');
-  console.log('FEF TRADING SOLUTIONS: LOCAL OUTBOUND MT5 CONNECTOR AGENT');
-  console.log('================================================================');
-  console.log(`- Local MT5 Bridge: ${LOCAL_BRIDGE_URL}`);
-  console.log(`- Remote Relay URL: ${RELAY_URL}`);
-  console.log(`- Device ID: ${DEVICE_ID}`);
-  console.log(`- Key ID: ${KEY_ID}`);
-  console.log('- Transport: Outbound-Only Persistent WSS (Zero Inbound Ports)');
-  console.log('================================================================\n');
-
-  // 1. Ensure device is registered with relay
-  console.log('[STEP 1] Ensuring device registration on relay...');
-  const regResult = await registerDeviceWithRelay();
-  if (regResult && regResult.success) {
-    console.log('✓ [STEP 1] Device registered / verified on relay');
-  } else {
-    console.log('ℹ [STEP 1] Device registration note: Proceeding with connector handshake...');
-  }
-
-  // 2. Connect outbound to relay
-  connectToRelay();
-}
-
 if (require.main === module) {
-  main();
+  start();
 }
 
 module.exports = {
-  connectToRelay,
   fetchLocalBridgeStatus,
-  registerDeviceWithRelay,
+  fetchLocalBridgeCandles,
+  postTelemetryOutbound,
+  pollAndPushTelemetry,
 };
