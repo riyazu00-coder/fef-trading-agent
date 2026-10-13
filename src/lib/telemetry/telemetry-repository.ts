@@ -250,6 +250,13 @@ export class TelemetryRepository {
   // QUOTE SNAPSHOTS
   // =========================================================================
 
+  /**
+   * Canonical versioned key for the quote symbol index.
+   * Stores a JSON array of symbol strings from the most recent QUOTE_SNAPSHOT.
+   * TTL is aligned with quoteTtlSec so the index cannot outlive the quote data.
+   */
+  private static readonly QUOTE_INDEX_KEY = 'cortex:telemetry:v1:quote:index';
+
   public async saveQuoteSnapshot(
     deviceId: string,
     capturedAt: string,
@@ -257,6 +264,8 @@ export class TelemetryRepository {
     quotes: QuoteItem[]
   ): Promise<void> {
     const receivedAt = new Date().toISOString();
+
+    // Persist individual quote records
     for (const q of quotes) {
       const key = `cortex:telemetry:v1:quote:${q.symbol}`;
       const record: StoredRecord<QuoteItem> = {
@@ -268,6 +277,19 @@ export class TelemetryRepository {
       };
       await this.execRedisCommand(['SET', key, JSON.stringify(record), 'EX', String(this.config.quoteTtlSec)]);
     }
+
+    // Persist a quote-symbol index so getLatestQuotes() can enumerate without KEYS/SCAN.
+    // TTL matches quoteTtlSec — the index is invalidated at the same time as quote data.
+    if (quotes.length > 0) {
+      const symbols = quotes.map((q) => q.symbol);
+      await this.execRedisCommand([
+        'SET',
+        TelemetryRepository.QUOTE_INDEX_KEY,
+        JSON.stringify(symbols),
+        'EX',
+        String(this.config.quoteTtlSec),
+      ]);
+    }
   }
 
   public async getLatestQuote(symbol: string): Promise<StoredRecord<QuoteItem> | null> {
@@ -278,6 +300,71 @@ export class TelemetryRepository {
       return JSON.parse(result);
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Retrieve all currently persisted quote records using the persistent quote-symbol index.
+   *
+   * Algorithm (no Redis KEYS/SCAN):
+   *  1. Read the index key to obtain the list of canonical symbols.
+   *  2. Bulk-fetch all per-symbol quote keys with a single MGET command.
+   *  3. Deserialize, discard missing/expired/malformed entries.
+   *  4. Return a map of { symbol → StoredRecord<QuoteItem> }.
+   *
+   * Returns {} when the index is absent, empty, or all quotes have expired.
+   * Never synthesizes a quote, never reuses expired data, fails closed on errors.
+   */
+  public async getLatestQuotes(): Promise<Record<string, StoredRecord<QuoteItem>>> {
+    try {
+      // Step 1: read symbol index
+      const indexRaw = await this.execRedisCommand(['GET', TelemetryRepository.QUOTE_INDEX_KEY]);
+      if (!indexRaw) return {};
+
+      let symbols: string[];
+      try {
+        symbols = JSON.parse(indexRaw);
+      } catch {
+        return {}; // malformed index — fail closed
+      }
+
+      if (!Array.isArray(symbols) || symbols.length === 0) return {};
+
+      // Defensive: limit to a sane bound to guard against oversized index
+      const bounded = symbols.slice(0, 50);
+
+      // Step 2: bulk-fetch all per-symbol keys with MGET (single round trip)
+      const quoteKeys = bounded.map((sym) => `cortex:telemetry:v1:quote:${sym}`);
+      const results: (string | null)[] = await this.execRedisCommand(['MGET', ...quoteKeys]);
+
+      // Step 3: deserialize; skip missing/expired/malformed entries
+      const output: Record<string, StoredRecord<QuoteItem>> = {};
+      for (let i = 0; i < bounded.length; i++) {
+        const raw = results[i];
+        if (!raw) continue; // key expired or absent
+        try {
+          const record: StoredRecord<QuoteItem> = JSON.parse(raw);
+          // Basic structural integrity check — must have non-null data with numeric bid/ask
+          if (
+            record &&
+            record.data &&
+            typeof record.data.symbol === 'string' &&
+            typeof record.data.bid === 'number' &&
+            typeof record.data.ask === 'number' &&
+            isFinite(record.data.bid) &&
+            isFinite(record.data.ask)
+          ) {
+            output[record.data.symbol] = record;
+          }
+        } catch {
+          // malformed JSON — discard silently (fail closed)
+        }
+      }
+
+      return output;
+    } catch {
+      // Storage/network error — fail closed, return empty map
+      return {};
     }
   }
 

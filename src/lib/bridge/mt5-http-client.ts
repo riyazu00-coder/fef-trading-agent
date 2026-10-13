@@ -178,6 +178,42 @@ export class MT5HttpClient {
           const capturedTime = Date.parse(hbRecord.capturedAt) || Date.now();
           const heartbeatAgeMs = Math.max(0, Date.now() - capturedTime);
 
+          // Load all persisted broker quotes from the persistent symbol-indexed repository.
+          // Returns {} when no quotes are present or all have expired — never invents data.
+          const quotesMap = await telemetryRepository.getLatestQuotes();
+
+          // Convert StoredRecord<QuoteItem> map to the quote dict shape expected by
+          // MT5TelemetryContext (allQuotes / quotes) and MarketOverviewCard.
+          // Each entry retains the fields needed for buildCanonicalFromBrokerQuote().
+          const quotesDict: Record<string, {
+            symbol: string;
+            bid: number;
+            ask: number;
+            spread: number;
+            timestamp: number;
+            capturedAt: string;
+            receivedAt: string;
+            sequence: number;
+            deviceId: string;
+          }> = {};
+          for (const [sym, rec] of Object.entries(quotesMap)) {
+            quotesDict[sym] = {
+              symbol: rec.data.symbol,
+              bid: rec.data.bid,
+              ask: rec.data.ask,
+              spread: rec.data.spread,
+              timestamp: rec.data.timestamp,
+              capturedAt: rec.capturedAt,
+              receivedAt: rec.receivedAt,
+              sequence: rec.sequence,
+              deviceId: rec.deviceId,
+            };
+          }
+
+          // quotesAvailable reflects the number of actually retrievable quote records,
+          // not the heartbeat's quotesCount (which could be stale / ahead of stored data).
+          const quotesAvailable = Object.keys(quotesDict).length;
+
           return {
             success: true,
             transport: 'CLOUD_PERSISTENT_TELEMETRY',
@@ -222,12 +258,13 @@ export class MT5HttpClient {
               : undefined,
             activePositionsCount: 0,
             activeOrdersCount: 0,
-            quotesAvailable: hb.quotesCount,
-            quotes: {},
+            quotesAvailable,
+            quotes: quotesDict,
+            allQuotes: quotesDict,
             positions: [],
             orders: [],
             sessions: {},
-            symbols: [],
+            symbols: Object.keys(quotesDict),
             symbolSpecs: [],
             specsBySymbol: {},
             assetDiagnostics: {},
