@@ -193,14 +193,16 @@ export const MasterTopNav: React.FC = () => {
             {/* Brand Typography Block */}
             <div className="flex flex-col justify-center text-left select-none min-w-0 flex-shrink">
               {/* Line 1: FEF CORTEX (Dominant, clean futuristic geometric lettering, cyan/ice-blue/white glow) */}
-              <Link
-                href="/cockpit"
-                className="text-[14px] xs:text-[15px] sm:text-[18px] font-black tracking-[0.10em] sm:tracking-[0.12em] font-sans uppercase leading-none text-transparent bg-clip-text bg-gradient-to-r from-white via-[#F0F9FF] to-[#67E8F9] drop-shadow-[0_0_14px_rgba(34,211,238,0.5)] flex items-center space-x-1 cursor-pointer whitespace-nowrap"
-                title="FEF Trading Intelligence Cockpit"
-              >
-                <span>FEF</span>
-                <span className="text-[#38BDF8] tracking-[0.14em] sm:tracking-[0.16em]">CORTEX</span>
-              </Link>
+              <div className="m-0 p-0 text-inherit leading-none inline-flex">
+                <Link
+                  href="/cockpit"
+                  className="text-[14px] xs:text-[15px] sm:text-[18px] font-black tracking-[0.10em] sm:tracking-[0.12em] font-sans uppercase leading-none text-transparent bg-clip-text bg-gradient-to-r from-white via-[#F0F9FF] to-[#67E8F9] drop-shadow-[0_0_14px_rgba(34,211,238,0.5)] flex items-center space-x-1 cursor-pointer whitespace-nowrap"
+                  title="FEF Trading Intelligence Cockpit"
+                >
+                  <span>FEF</span>
+                  <span className="text-[#38BDF8] tracking-[0.14em] sm:tracking-[0.16em]">CORTEX</span>
+                </Link>
+              </div>
 
               {/* Line 2: AUTONOMOUS TRADING INTELLIGENCE (High-tech cyan, hidden on mobile) */}
               <div className="hidden sm:block text-[7.5px] sm:text-[8.5px] font-black tracking-[0.16em] sm:tracking-[0.18em] font-sans uppercase text-[#38BDF8] group-hover/brand:text-[#67E8F9] transition-colors leading-none mt-0.5 truncate">
