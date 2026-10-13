@@ -171,6 +171,10 @@ await runTest('supervisor loads ONLY the explicit FEF allowlist from .env.local'
   assert(allowed instanceof Set, 'ALLOWED_ENV_KEYS must be a Set');
   const expectedKeys = [
     'FEF_BRIDGE_TOKEN',
+    'FEF_TELEMETRY_DEVICE_SECRET',
+    'FEF_TELEMETRY_DEVICE_ID',
+    'FEF_CLOUD_TELEMETRY_URL',
+    'NEXT_PUBLIC_APP_URL',
     'FEF_REMOTE_RELAY_URL',
     'FEF_REMOTE_DEVICE_ID',
     'FEF_REMOTE_KEY_ID',

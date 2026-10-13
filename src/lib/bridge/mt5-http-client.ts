@@ -9,6 +9,7 @@
 
 import {
   BridgeCommand,
+  BridgeConnectionState,
   BridgeResponsePayload,
   RESTRICTED_EXECUTION_COMMANDS,
   MT5TerminalStatus,
@@ -22,6 +23,7 @@ import {
 } from './mt5-bridge-protocol';
 import { symbolDirectory } from './symbol-mapper';
 import { READ_ONLY_EXECUTION_ERROR, isMt5OrderTransportAllowed } from '../execution/execution-policy';
+import { ConnectivityState, HEARTBEAT_FRESH_THRESHOLD_MS, HEARTBEAT_WARNING_THRESHOLD_MS, HEARTBEAT_EXPIRED_THRESHOLD_MS } from './connectivity-policy';
 import { telemetryRepository } from '../telemetry/telemetry-repository';
 
 export interface MT5HttpClientConfig {
@@ -214,12 +216,34 @@ export class MT5HttpClient {
           // not the heartbeat's quotesCount (which could be stale / ahead of stored data).
           const quotesAvailable = Object.keys(quotesDict).length;
 
+          const isFresh = heartbeatAgeMs <= HEARTBEAT_FRESH_THRESHOLD_MS;
+          const isDegraded = heartbeatAgeMs > HEARTBEAT_FRESH_THRESHOLD_MS && heartbeatAgeMs <= HEARTBEAT_WARNING_THRESHOLD_MS;
+          const isExpired = heartbeatAgeMs > HEARTBEAT_EXPIRED_THRESHOLD_MS;
+
+          const mt5Connected = Boolean(hb.terminalConnected && !isExpired);
+          const connState: BridgeConnectionState = !hb.terminalConnected
+            ? 'MT5_OFFLINE'
+            : isExpired
+            ? 'MT5_OFFLINE'
+            : isDegraded
+            ? 'CONNECTED_DEGRADED'
+            : 'CONNECTED_READ_ONLY';
+
+          const connectionStatus: ConnectivityState = !hb.terminalConnected
+            ? 'OFFLINE'
+            : isExpired
+            ? 'OFFLINE'
+            : isDegraded
+            ? 'DEGRADED'
+            : 'ONLINE';
+
           return {
             success: true,
             transport: 'CLOUD_PERSISTENT_TELEMETRY',
-            localBridge: 'ONLINE',
-            mt5Connected: hb.terminalConnected,
-            state: hb.terminalConnected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+            localBridge: (isExpired && heartbeatAgeMs > 60_000) ? 'OFFLINE' : 'ONLINE',
+            mt5Connected,
+            state: connState,
+            connectionStatus,
             mode: 'READ_ONLY',
             operatingMode: hb.operatingMode || 'READ_ONLY',
             heartbeatAgeMs,
@@ -283,6 +307,8 @@ export class MT5HttpClient {
           localBridge: 'OFFLINE',
           mt5Connected: false,
           state: 'BRIDGE_OFFLINE',
+          connectionStatus: 'OFFLINE' as ConnectivityState,
+          heartbeatAgeMs: null,
           localBridgeLatencyMs: 0,
           error: { code: 'NO_CLOUD_TELEMETRY', message: 'No live telemetry found in cloud persistent store' },
         };

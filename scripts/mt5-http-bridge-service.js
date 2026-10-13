@@ -13,20 +13,17 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 
-// Load environment configuration if available
-const envLocalPath = path.resolve(__dirname, '../.env.local');
-let envToken = null;
-if (fs.existsSync(envLocalPath)) {
-  const content = fs.readFileSync(envLocalPath, 'utf8');
-  const match = content.match(/FEF_BRIDGE_TOKEN=["']?([^"'\r\n]+)["']?/);
-  if (match) envToken = match[1].trim();
-}
+// Load device identity & secure token provisioning
+const { resolveActiveBridgeToken, RETIRED_UNIVERSAL_TOKEN } = require('./fef-device-identity');
 
 const PORT = 5556;
 const HOST = '127.0.0.1';
-const VALID_TOKEN = (process.env.FEF_BRIDGE_TOKEN || envToken || '').trim();
-if (!VALID_TOKEN || VALID_TOKEN === 'fef_local_bridge_token_v1') {
+const tokenResolution = resolveActiveBridgeToken();
+const VALID_TOKEN = (tokenResolution.token || '').trim();
+if (!VALID_TOKEN || VALID_TOKEN === RETIRED_UNIVERSAL_TOKEN) {
   console.warn('[BRIDGE CONFIG] FEF_BRIDGE_TOKEN is unconfigured or uses retired public fallback. Fail-closed.');
+} else {
+  console.log(`[BRIDGE CONFIG] Active bridge authentication source: ${tokenResolution.source}`);
 }
 const HEARTBEAT_TIMEOUT_MS = 10000; // 10 seconds aligns with HEARTBEAT_FRESH_THRESHOLD_MS
 const CANONICAL_EXECUTION_MODE = 'READ_ONLY';

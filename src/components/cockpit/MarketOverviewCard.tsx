@@ -12,9 +12,19 @@ import {
   QUOTE_DISPLAY_STALE_THRESHOLD_MS
 } from '@/lib/bridge/connectivity-policy';
 import { analyzeMarketStructure, MarketStructure } from '@/lib/market/market-structure-engine';
+import { evaluateCanonicalDailyStats } from '@/lib/price/canonical-daily-ohlc';
 
 export const MarketOverviewCard: React.FC = () => {
-  const { activeAsset, timeframe, setTimeframe, assetProfile, candles, candleBundle } = useActiveAsset();
+  const {
+    activeAsset,
+    timeframe,
+    setTimeframe,
+    assetProfile,
+    candles,
+    candleBundle,
+    candleProvenance,
+    candleProvider
+  } = useActiveAsset();
   const { telemetry, activeTelemetry, isMt5Connected } = useMT5Telemetry();
   const [mounted, setMounted] = useState<boolean>(false);
 
@@ -100,50 +110,46 @@ export const MarketOverviewCard: React.FC = () => {
     ? `$${activeAsset.price.toFixed(4)}`
     : `$${activeAsset.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
 
-  // 1. Authoritative Today's Daily Open (00:00 UTC / Broker Day Open)
-  const dailyOpen = useMemo(() => {
-    // A. Check D1 candle in bundle if available
-    const d1Candles = candleBundle?.['D1'] || candleBundle?.['1d'];
-    if (d1Candles && d1Candles.length > 0) {
-      const latestD1 = d1Candles[d1Candles.length - 1];
-      if (latestD1.open > 0) return latestD1.open;
-    }
+  // 1. Authoritative All-Asset Daily OHLC & Invariant Guard
+  const d1Candles = useMemo(() => {
+    return (
+      candleBundle?.['D1'] ||
+      candleBundle?.['1d'] ||
+      (timeframe === 'D1' && Array.isArray(candles) ? candles : undefined)
+    );
+  }, [candleBundle, timeframe, candles]);
 
-    // B. Search candles for today's 00:00 UTC boundary
-    if (candles && candles.length > 0) {
-      const now = new Date();
-      const todayMidnightUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-
-      const todayCandle = candles.find((c) => {
-        const ts = c.timestamp > 1e11 ? c.timestamp : c.timestamp * 1000;
-        return ts >= todayMidnightUtc;
-      });
-      if (todayCandle && todayCandle.open > 0) {
-        return todayCandle.open;
-      }
-
-      const firstTs = candles[0].timestamp > 1e11 ? candles[0].timestamp : candles[0].timestamp * 1000;
-      if (firstTs >= todayMidnightUtc && candles[0].open > 0) {
-        return candles[0].open;
-      }
-    }
-
-    // C. Mathematical baseline from current price & change
-    const p = activeAsset.price;
-    if (p > 0 && typeof activeAsset.change24h === 'number') {
-      const derived = p / (1 + activeAsset.change24h / 100);
-      if (derived > 0) return derived;
-    }
-
-    return activeAsset.price || 1;
-  }, [candleBundle, candles, activeAsset.price, activeAsset.change24h]);
+  const dailyStats = useMemo(() => {
+    return evaluateCanonicalDailyStats({
+      symbol: activeAsset.symbol,
+      category: activeAsset.category,
+      isBrokerConnected: isBrokerConnected,
+      brokerQuote: brokerCanonical,
+      referencePrice: activeAsset.referencePrice || activeAsset.price,
+      referenceProvider: activeAsset.referenceProvider || activeAsset.provider,
+      d1Candles: d1Candles,
+      d1Provenance: candleProvenance || (activeAsset as any).source,
+      d1Provider: candleProvider || activeAsset.provider,
+      nowMs: Date.now(),
+    });
+  }, [
+    activeAsset.symbol,
+    activeAsset.category,
+    activeAsset.price,
+    activeAsset.referencePrice,
+    activeAsset.referenceProvider,
+    activeAsset.provider,
+    (activeAsset as any).source,
+    isBrokerConnected,
+    brokerCanonical,
+    d1Candles,
+    candleProvenance,
+    candleProvider,
+  ]);
 
   const currentExecPrice = brokerCanonical?.bid ?? brokerCanonical?.mid ?? activeAsset.price;
-  const dayDelta = dailyOpen > 0
-    ? ((currentExecPrice - dailyOpen) / dailyOpen) * 100
-    : (activeAsset.change24h || 0);
-
-  const isDayPos = dayDelta >= 0;
+  const isDayPos = dailyStats.isVerified ? dailyStats.isPositive : ((activeAsset.change24h || 0) >= 0);
+  const dayDelta = dailyStats.isVerified && dailyStats.changePct != null ? dailyStats.changePct : (activeAsset.change24h || 0);
 
   // 2. Authoritative H4 Market Structure & Directional Momentum
   // Evaluates strictly from verified H4 candles in candleBundle['H4']
@@ -283,9 +289,9 @@ export const MarketOverviewCard: React.FC = () => {
 
           <div className="text-right text-[9px] text-gray-300 space-y-0.5 font-mono">
             <div>Spread: <span className="text-cyan-300 font-bold">{isBrokerConnected && brokerCanonical && brokerCanonical.ask != null && brokerCanonical.bid != null ? `${brokerCanonical.spread} pts ($${(brokerCanonical.ask - brokerCanonical.bid).toFixed(brokerCanonical.digits)} USD)` : activeAsset.spread}</span></div>
-            <div>Day Open: <span className="text-white font-bold">{isForex ? dailyOpen.toFixed(4) : dailyOpen.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span></div>
-            <div>Day High: <span className="text-white font-bold">{isForex ? activeAsset.high24h.toFixed(4) : activeAsset.high24h.toLocaleString()}</span></div>
-            <div>Day Low: <span className="text-white font-bold">{isForex ? activeAsset.low24h.toFixed(4) : activeAsset.low24h.toLocaleString()}</span></div>
+            <div>Day Open: <span className="text-white font-bold">{dailyStats.isVerified && dailyStats.open != null ? (isForex ? dailyStats.open.toFixed(4) : dailyStats.open.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })) : <span className="text-gray-500 font-bold" title={dailyStats.reason || dailyStats.statusLabel}>—</span>}</span></div>
+            <div>Day High: <span className="text-white font-bold">{dailyStats.isVerified && dailyStats.high != null ? (isForex ? dailyStats.high.toFixed(4) : dailyStats.high.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })) : <span className="text-gray-500 font-bold" title={dailyStats.reason || dailyStats.statusLabel}>—</span>}</span></div>
+            <div>Day Low: <span className="text-white font-bold">{dailyStats.isVerified && dailyStats.low != null ? (isForex ? dailyStats.low.toFixed(4) : dailyStats.low.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })) : <span className="text-gray-500 font-bold" title={dailyStats.reason || dailyStats.statusLabel}>—</span>}</span></div>
             <div>Status: <span className={assetProfile.sessionState?.isOpen ? 'text-emerald-300 font-bold' : 'text-rose-300 font-bold'}>{assetProfile.sessionState?.statusLabel || assetProfile.session}</span></div>
           </div>
         </div>
@@ -321,8 +327,8 @@ export const MarketOverviewCard: React.FC = () => {
               </div>
               <div className="text-right font-mono">
                 <div className="text-[7.5px] text-gray-400 font-bold uppercase tracking-wider">DAY OPEN</div>
-                <div className={`text-[10.5px] font-bold ${isDayPos ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {isDayPos ? '▲ +' : '▼ '}{dayDelta.toFixed(2)}%
+                <div className={`text-[10.5px] font-bold ${dailyStats.isVerified ? (isDayPos ? 'text-emerald-400' : 'text-rose-400') : 'text-amber-400 font-mono'}`}>
+                  {dailyStats.isVerified ? `${isDayPos ? '▲ +' : '▼ '}${dayDelta.toFixed(2)}%` : <span title={dailyStats.reason || dailyStats.statusLabel}>DATA LIMITED</span>}
                 </div>
               </div>
             </div>
@@ -354,8 +360,12 @@ export const MarketOverviewCard: React.FC = () => {
               </span>
               <div className="text-right font-mono">
                 <div className="text-[7.5px] text-gray-400 font-bold uppercase tracking-wider">DAY OPEN</div>
-                <div className={`text-[10.5px] font-bold ${isDayPos ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {isDayPos ? '▲ +' : '▼ '}{dayDelta.toFixed(2)}% ({isDayPos ? '+' : ''}{(currentExecPrice - dailyOpen).toFixed(brokerCanonical?.digits ?? (isForex ? 4 : 2))})
+                <div className={`text-[10.5px] font-bold ${dailyStats.isVerified ? (isDayPos ? 'text-emerald-400' : 'text-rose-400') : 'text-amber-400 font-mono'}`}>
+                  {dailyStats.isVerified ? (
+                    `${isDayPos ? '▲ +' : '▼ '}${dayDelta.toFixed(2)}% (${isDayPos ? '+' : ''}${(dailyStats.change ?? 0).toFixed(brokerCanonical?.digits ?? (isForex ? 4 : 2))})`
+                  ) : (
+                    <span title={dailyStats.reason || dailyStats.statusLabel}>DATA LIMITED</span>
+                  )}
                 </div>
               </div>
             </div>

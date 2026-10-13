@@ -31,8 +31,8 @@ export const HEARTBEAT_WARNING_THRESHOLD_MS = 20_000;
 /** Over 20s: Definitive heartbeat loss — terminal is disconnected / OFFLINE */
 export const HEARTBEAT_EXPIRED_THRESHOLD_MS = 20_000;
 
-/** Max transient poll failures before transitioning from DEGRADED to OFFLINE */
-export const MAX_TRANSIENT_POLL_FAILURES = 3;
+/** Max transient poll failures before transitioning from DEGRADED to OFFLINE (6 * 3s = 18s, aligned with 20s grace threshold) */
+export const MAX_TRANSIENT_POLL_FAILURES = 6;
 
 // ---------------------------------------------------------------------------
 // 3. Broker Quote Freshness Thresholds

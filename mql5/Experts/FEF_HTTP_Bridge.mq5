@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright   "FEF Trading Solutions"
 #property link        "https://feftradingsolutions.com"
-#property version     "1.21"
+#property version     "1.22"
 #property description "Native HTTP WebRequest Telemetry Bridge for FEF Trading Solutions"
 #property description "Communicates with 127.0.0.1:5556 via MQL5 WebRequest()"
 #property description "Strictly READ-ONLY — Zero DLL imports — 100% macOS / Wine Compatible"
@@ -14,9 +14,63 @@
 //--- Input Parameters (Only necessary parameters)
 input group "=== Bridge HTTP Configuration ==="
 input string   InpBridgeBaseUrl     = "http://127.0.0.1:5556";     // Bridge HTTP Base URL
-input string   InpAuthToken         = "fef_local_bridge_token_v1"; // Bridge Authentication Token
+input string   InpAuthTokenFallback = "";                          // Migration Token Override (Leave blank for auto-provisioned identity)
 input ulong    InpMagicNumber       = 8882026;                     // FEF Magic Number
 input int      InpHeartbeatSeconds  = 2;                           // Heartbeat Cadence (Seconds)
+
+//--- Dynamic Runtime Authentication Token (Held in memory only, never logged or exposed)
+string g_runtime_auth_token = "";
+
+//+------------------------------------------------------------------+
+//| Helper: Load Provisioned Credential from MQL5/Files Sandbox       |
+//+------------------------------------------------------------------+
+bool LoadRuntimeAuthToken()
+{
+   g_runtime_auth_token = "";
+
+   // 1. Check local terminal sandbox: MQL5/Files/fef/bridge-auth.dat
+   string relPath = "fef\\bridge-auth.dat";
+   int hFile = FileOpen(relPath, FILE_READ | FILE_TXT | FILE_ANSI);
+
+   // 2. If not found in local sandbox, check Common sandbox: Common/Files/fef/bridge-auth.dat
+   if(hFile == INVALID_HANDLE)
+   {
+      hFile = FileOpen(relPath, FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   }
+
+   if(hFile != INVALID_HANDLE)
+   {
+      while(!FileIsEnding(hFile))
+      {
+         string line = FileReadString(hFile);
+         StringTrimLeft(line);
+         StringTrimRight(line);
+         if(StringLen(line) >= 32)
+         {
+            g_runtime_auth_token = line;
+            break;
+         }
+      }
+      FileClose(hFile);
+   }
+
+   // 3. Fallback to migration override input if sandbox file not yet present
+   if(StringLen(g_runtime_auth_token) < 32 && StringLen(InpAuthTokenFallback) >= 32)
+   {
+      g_runtime_auth_token = InpAuthTokenFallback;
+      StringTrimLeft(g_runtime_auth_token);
+      StringTrimRight(g_runtime_auth_token);
+   }
+
+   // 4. Strict fail-closed: Reject empty, short, or retired universal fallback tokens
+   if(StringLen(g_runtime_auth_token) < 32 || g_runtime_auth_token == "fef_local_bridge_token_v1")
+   {
+      g_runtime_auth_token = "";
+      return false;
+   }
+
+   return true;
+}
 
 //--- Operating Mode Configuration
 enum ENUM_FEF_OPERATING_MODE
@@ -211,10 +265,10 @@ int PostJson(string endpoint, string jsonPayload, string &responseString)
 {
    string url = InpBridgeBaseUrl + endpoint;
    string headers = "Content-Type: application/json\r\n";
-   if(StringLen(InpAuthToken) > 0)
+   if(StringLen(g_runtime_auth_token) > 0)
    {
-      headers += "Authorization: Bearer " + InpAuthToken + "\r\n";
-      headers += "x-bridge-token: " + InpAuthToken + "\r\n";
+      headers += "Authorization: Bearer " + g_runtime_auth_token + "\r\n";
+      headers += "x-bridge-token: " + g_runtime_auth_token + "\r\n";
    }
 
    // 1. Convert string to UTF-8 char array
@@ -1045,6 +1099,15 @@ int OnInit()
       }
       Print("⚠ [FEF-HTTP] Real account detected. Strict read-only telemetry only. Execution locked.");
    }
+
+   // CRITICAL AUTHENTICATION INITIALIZATION: Load provisioned credential from MQL5/Files sandbox
+   if(!LoadRuntimeAuthToken())
+   {
+      Print("✕ [FEF-HTTP] CRITICAL AUTHENTICATION ERROR: No valid device credential found in MQL5/Files/fef/bridge-auth.dat.");
+      Print("✕ [FEF-HTTP] Run the FEF local bridge supervisor to provision your unique device identity.");
+      return INIT_FAILED;
+   }
+   Print("[FEF-HTTP] Device credential loaded successfully from secure local sandbox.");
 
    // Perform initial multi-asset symbol discovery & resolution
    InitializeSymbolResolution();

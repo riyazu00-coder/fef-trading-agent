@@ -307,16 +307,24 @@ export const MasterTopNav: React.FC = () => {
           {isMt5Connected ? (
             <Link
               href="/execution"
-              className="inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 font-mono text-[9px] transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.2)] whitespace-nowrap flex-shrink-0"
+              className={`inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl font-mono text-[9px] transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+                telemetry.connectionStatus === 'DEGRADED'
+                  ? 'bg-amber-950/40 border border-amber-500/50 hover:border-amber-400 text-amber-300 hover:text-amber-100 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                  : 'bg-emerald-950/40 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+              }`}
               title={
                 telemetry.connectionStatus === 'DEGRADED'
                   ? `MT5 Telemetry Connected • Syncing: ${telemetry.statusLabel || 'Degraded Heartbeat'}`
                   : `MT5 Telemetry Connected (${telemetry.account?.tradeMode || (telemetry.operatingMode === 'LIVE_EXECUTION' ? 'REAL' : 'DEMO')}) • Broker: ${brokerNameRaw || (telemetry.isRemote ? 'RELAY' : 'LIVE')}`
               }
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                telemetry.connectionStatus === 'DEGRADED'
+                  ? 'bg-amber-400 animate-pulse'
+                  : 'bg-emerald-400 animate-pulse'
+              }`} />
               <span className="font-bold tracking-wider">
-                MT5: {brokerDisplay}
+                MT5: {brokerDisplay}{telemetry.connectionStatus === 'DEGRADED' ? ' (SYNCING)' : ''}
               </span>
             </Link>
           ) : (

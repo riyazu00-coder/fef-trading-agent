@@ -67,14 +67,14 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       let mt5Online = false;
       let isRemote = false;
 
-      // 1. Try local bridge endpoint first
+      // 1. Try local bridge / cloud ingress endpoint first
       try {
         const res = await fetch('/api/bridge/mt5?action=TELEMETRY', {
           headers: { 'Cache-Control': 'no-cache' }
         });
         if (res.ok) {
           const localData = await res.json();
-          if (localData.localBridge === 'ONLINE' || localData.mt5Connected) {
+          if (localData && typeof localData === 'object') {
             data = localData;
             localOnline = localData.localBridge === 'ONLINE' || localData.success === true;
             mt5Online = Boolean(localData.mt5Connected);
@@ -83,8 +83,10 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
       } catch {}
 
-      // 2. If local bridge is not connected / offline, fall back to remote relay telemetry
-      if (!mt5Online) {
+      // 2. Only fall back to remote relay if local/cloud bridge was not configured or completely failed
+      // and not already served by cloud persistent telemetry transport
+      const isCloudTransport = data?.transport === 'CLOUD_PERSISTENT_TELEMETRY';
+      if (!mt5Online && !isCloudTransport) {
         try {
           const remoteRes = await fetch('/api/remote-mt5/telemetry', {
             headers: { 'Cache-Control': 'no-cache' }
@@ -129,7 +131,7 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       connectionStateRef.current = connEval.state;
       consecutiveFailuresRef.current = connEval.consecutiveFailures;
-      if (connEval.state === 'ONLINE') {
+      if (connEval.state === 'ONLINE' || (connEval.state === 'DEGRADED' && !connEval.isInGracePeriod)) {
         lastSuccessTimeRef.current = Date.now();
       }
 
@@ -138,13 +140,15 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       if (!data || (!localOnline && !mt5Online)) {
         if (connEval.isInGracePeriod && connEval.isMt5Connected) {
-          // Grace period: keep previous telemetry alive, mark DEGRADED
+          // Grace period: keep previous telemetry alive, preserve mt5Connected: true, mark DEGRADED
           setTelemetry(prev => ({
             ...prev,
             connectionStatus: 'DEGRADED',
             statusLabel: connEval.statusLabel,
             isInGracePeriod: true,
-            state: prev.mt5Connected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+            mt5Connected: true,
+            localBridgeOnline: true,
+            state: prev.operatingMode === 'READ_ONLY' || prev.readOnlyLockActive ? 'CONNECTED_READ_ONLY' : 'CONNECTED_DEMO_EXECUTION',
             lastSyncTimestamp: Date.now()
           }));
         } else {
@@ -212,7 +216,9 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       } : null;
 
       const effectiveMt5Connected = connEval.isMt5Connected;
-      const connectionState = isRealAccount
+      const connectionState = connEval.state === 'DEGRADED'
+        ? 'CONNECTED_DEGRADED'
+        : isRealAccount
         ? 'CONNECTED_READ_ONLY'
         : (data.state || (effectiveMt5Connected ? 'CONNECTED_DEMO_EXECUTION' : localOnline ? 'MT5_OFFLINE' : 'BRIDGE_OFFLINE'));
 
@@ -265,7 +271,9 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
           connectionStatus: 'DEGRADED',
           statusLabel: connEval.statusLabel,
           isInGracePeriod: true,
-          state: prev.mt5Connected ? 'CONNECTED_READ_ONLY' : 'MT5_OFFLINE',
+          mt5Connected: true,
+          localBridgeOnline: true,
+          state: prev.operatingMode === 'READ_ONLY' || prev.readOnlyLockActive ? 'CONNECTED_READ_ONLY' : 'CONNECTED_DEMO_EXECUTION',
           lastSyncTimestamp: Date.now()
         }));
       } else {

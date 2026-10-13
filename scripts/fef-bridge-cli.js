@@ -141,8 +141,8 @@ async function handleStatus() {
       : (liveState?.server || "UNKNOWN");
     console.log("BROKER       :", broker);
     console.log("SERVER       :", server);
-    console.log("SYMBOL       :", liveState.symbol);
-    console.log("BID / ASK    :", liveState.bid + " / " + liveState.ask);
+    console.log("SYMBOL       :", liveState?.symbol || "N/A");
+    console.log("BID / ASK    :", (liveState?.bid != null && liveState?.ask != null) ? `${liveState.bid} / ${liveState.ask}` : "N/A");
     const quoteAgeMs = canonicalBridge?.quotes?.XAUUSD?.ageMs ?? liveState?.brokerQuoteAgeMs;
     const quoteFreshness = canonicalBridge?.quotes?.XAUUSD?.freshness ?? (liveState?.feedStatus === 'LIVE' ? 'FRESH' : 'SESSION_CLOSED');
     const quoteReason = canonicalBridge?.quotes?.XAUUSD?.freshnessReason ?? '';

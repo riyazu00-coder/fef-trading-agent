@@ -79,8 +79,8 @@ function buildInitialLiveAssets(): Record<string, LiveMarketAsset> {
       ask: isCrypto ? 0 : Number((p + spread / 2).toFixed(def.decimalPrecision)),
       spread: spread,
       change24h: change,
-      high24h: isCrypto ? 0 : Number((p * (1 + Math.abs(change) * 0.008 + 0.004)).toFixed(def.decimalPrecision)),
-      low24h: isCrypto ? 0 : Number((p * (1 - Math.abs(change) * 0.008 - 0.004)).toFixed(def.decimalPrecision)),
+      high24h: 0,
+      low24h: 0,
       volume: def.category === 'INDICES' ? '$38.4B' : def.category === 'CRYPTO' ? '$42.1B' : def.category === 'METALS' ? '$24.8B' : '$54.2B',
       sparkline: isPos
         ? '0,28 20,24 40,20 60,18 80,14 100,16 120,10 140,8'

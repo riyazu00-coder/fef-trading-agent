@@ -34,9 +34,13 @@ if (fs.existsSync(envLocalPath)) {
   });
 }
 
+// Load device identity & secure token provisioning
+const { resolveActiveBridgeToken } = require('./fef-device-identity');
+
 // 1. Local bridge configuration
 const LOCAL_BRIDGE_URL = process.env.FEF_LOCAL_BRIDGE_URL || 'http://127.0.0.1:5556';
-const LOCAL_BRIDGE_TOKEN = (process.env.FEF_BRIDGE_TOKEN || '').trim();
+const tokenResolution = resolveActiveBridgeToken();
+const LOCAL_BRIDGE_TOKEN = (tokenResolution.token || '').trim();
 
 // 2. Cloud telemetry ingress configuration
 const CLOUD_INGRESS_URL = (
@@ -192,8 +196,12 @@ function postTelemetryOutbound(envelope) {
         res.on('data', (c) => (respData += c));
         res.on('end', () => {
           if (res.statusCode >= 200 && res.statusCode < 300) {
+            if (envelope.type === 'HEARTBEAT' && envelope.sequence % 5 === 0) {
+              console.log(`[CONNECTOR] Successfully pushed ${envelope.type} (seq ${envelope.sequence}) to cloud ingress: HTTP ${res.statusCode}`);
+            }
             resolve({ success: true, statusCode: res.statusCode });
           } else {
+            console.warn(`[CONNECTOR] Cloud ingress returned HTTP ${res.statusCode} on ${envelope.type}: ${respData.slice(0, 100)}`);
             resolve({ success: false, statusCode: res.statusCode, response: respData });
           }
         });
@@ -313,8 +321,8 @@ async function pollAndPushTelemetry() {
   candleTickCount++;
   const primarySyncSymbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'US100', 'USOIL', 'BTCUSD'];
 
-  // Fast timeframes (M15, M30) every 4 ticks (~8s)
-  if (candleTickCount % 4 === 0) {
+  // Fast timeframes (M15, M30) on start (tick 1) and every 4 ticks (~8s)
+  if (candleTickCount === 1 || candleTickCount % 4 === 0) {
     for (const sym of primarySyncSymbols) {
       for (const tf of ['M15', 'M30']) {
         const rawBars = await fetchLocalBridgeCandles(sym, tf);
@@ -345,16 +353,21 @@ async function pollAndPushTelemetry() {
     }
   }
 
-  // Higher timeframes (H1, H4) every 16 ticks (~32s)
-  if (candleTickCount % 16 === 0) {
-    for (const sym of primarySyncSymbols) {
-      for (const tf of ['H1', 'H4']) {
+  // Higher timeframes (H1, H4, D1) on start (tick 1) and every 16 ticks (~32s)
+  if (candleTickCount === 1 || candleTickCount % 16 === 0) {
+    // Determine active batch: primary symbols + rotating canonical batch for universe-wide D1 coverage
+    const rotatingBatchStart = ((candleTickCount / 16) * 4) % CANONICAL_SYMBOLS.length;
+    const additionalSymbols = CANONICAL_SYMBOLS.slice(rotatingBatchStart, rotatingBatchStart + 4);
+    const syncTargetSymbols = Array.from(new Set([...primarySyncSymbols, ...additionalSymbols]));
+
+    for (const sym of syncTargetSymbols) {
+      for (const tf of ['H1', 'H4', 'D1']) {
         const rawBars = await fetchLocalBridgeCandles(sym, tf);
-        if (rawBars && rawBars.length >= 15) {
+        if (rawBars && rawBars.length >= 10) {
           const validBars = rawBars
             .filter((b) => b && b.open > 0 && b.high >= b.low && b.close > 0)
             .slice(-50);
-          if (validBars.length >= 15) {
+          if (validBars.length >= 10) {
             const candleEnvelope = {
               version: 1,
               deviceId: DEVICE_ID,

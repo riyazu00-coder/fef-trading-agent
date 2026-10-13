@@ -35,7 +35,7 @@ export interface TelemetryConfig {
 }
 
 export const DEFAULT_TELEMETRY_CONFIG: TelemetryConfig = {
-  heartbeatTtlSec: 15, // Mark disconnected if no heartbeat for 15s
+  heartbeatTtlSec: 60, // Keep heartbeat record in store for 60s so age can be evaluated dynamically without sudden key eviction cliff
   quoteTtlSec: 30, // Quotes expire if older than 30s
   nonceTtlSec: 60, // Nonce stored for 60s (must exceed 15s timestamp tolerance)
 };

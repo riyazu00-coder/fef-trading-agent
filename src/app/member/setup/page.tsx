@@ -8,6 +8,7 @@ import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilt
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { CONNECTOR_RELEASE_MANIFEST } from '@/lib/downloads/connector-manifest';
 import { SUPPORT_CONFIG, CORTEX_WHATSAPP_CONFIG } from '@/lib/config/support-config';
 
 export default function MemberSetupPage() {
@@ -82,12 +83,19 @@ export default function MemberSetupPage() {
               <div className="pl-10 pt-2 flex flex-wrap gap-3">
                 <a
                   href="/api/downloads/connector"
-                  download="FEF_HTTP_Bridge.ex5"
+                  download={CONNECTOR_RELEASE_MANIFEST.filename}
                   className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-black font-bold text-xs rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.35)] flex items-center space-x-2 cursor-pointer transition-all"
                 >
                   <span>⬇️</span>
-                  <span>DOWNLOAD FEF_HTTP_Bridge.ex5 (V1.21 COMPILED)</span>
+                  <span>DOWNLOAD {CONNECTOR_RELEASE_MANIFEST.filename} (v{CONNECTOR_RELEASE_MANIFEST.version} &bull; {(CONNECTOR_RELEASE_MANIFEST.expectedSize / 1024).toFixed(1)} KB &bull; SHA256 VERIFIED)</span>
                 </a>
+              </div>
+              <div className="pl-10 text-[11px] text-gray-400 flex items-center space-x-3">
+                <span className="text-emerald-400 font-mono">✓ Release SHA256: {CONNECTOR_RELEASE_MANIFEST.expectedSha256.slice(0, 8)}...{CONNECTOR_RELEASE_MANIFEST.expectedSha256.slice(-3)}</span>
+                <span>&bull;</span>
+                <span>Protected Member Distribution</span>
+                <span>&bull;</span>
+                <span className="text-cyan-300">Auto-Provisioned Device Security</span>
               </div>
             </div>
 

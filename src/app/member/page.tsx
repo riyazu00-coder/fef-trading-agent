@@ -9,6 +9,7 @@ import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
 import { useMemberAuth } from '@/context/MemberAuthContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
+import { CONNECTOR_RELEASE_MANIFEST } from '@/lib/downloads/connector-manifest';
 import { SUPPORT_CONFIG, CORTEX_WHATSAPP_CONFIG } from '@/lib/config/support-config';
 
 export default function MemberPortalPage() {
@@ -144,20 +145,20 @@ export default function MemberPortalPage() {
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
                 <span className="text-gray-400 uppercase tracking-wider text-[11px]">3. MT5 Connector</span>
                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                  isMt5Connected && (isLocalBridgeOnline || telemetry.account?.broker)
+                  telemetry.connectionStatus === 'DEGRADED'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : isMt5Connected && (isLocalBridgeOnline || telemetry.account?.broker)
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                     : isLocalBridgeOnline
                     ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                    : telemetry.connectionStatus === 'DEGRADED'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                     : 'bg-gray-800 text-gray-400'
                 }`}>
-                  {isMt5Connected && (isLocalBridgeOnline || telemetry.account?.broker)
+                  {telemetry.connectionStatus === 'DEGRADED'
+                    ? 'DEGRADED / RECONNECTING'
+                    : isMt5Connected && (isLocalBridgeOnline || telemetry.account?.broker)
                     ? 'CONNECTED'
                     : isLocalBridgeOnline
                     ? 'BRIDGE ONLINE (NO MT5)'
-                    : telemetry.connectionStatus === 'DEGRADED'
-                    ? 'DEGRADED / RECONNECTING'
                     : 'WAITING FOR MT5'}
                 </span>
               </div>
@@ -187,13 +188,167 @@ export default function MemberPortalPage() {
                 </div>
               </div>
 
-              <Link
-                href="/member/setup"
-                className="w-full py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-cyan-300 text-xs font-bold rounded-xl flex items-center justify-center space-x-1 transition-all block text-center"
-              >
-                <span>📥</span>
-                <span>MT5 SETUP GUIDE &amp; DOWNLOADS</span>
-              </Link>
+              <div className="pt-1 flex flex-col space-y-1.5">
+                <a
+                  href="/api/downloads/connector"
+                  download={CONNECTOR_RELEASE_MANIFEST.filename}
+                  className="w-full py-2 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-black text-xs font-bold rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(6,182,212,0.25)]"
+                >
+                  <span>⬇️</span>
+                  <span>DOWNLOAD MT5 EA (v{CONNECTOR_RELEASE_MANIFEST.version})</span>
+                </a>
+                <Link
+                  href="/member/setup"
+                  className="w-full py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-cyan-300 text-[11px] font-bold rounded-xl flex items-center justify-center space-x-1 transition-all block text-center"
+                >
+                  <span>📖</span>
+                  <span>MT5 SETUP GUIDE &amp; WEBREQUEST</span>
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {/* MT5 EA Download & Installation Section */}
+          <div className="ghost-glass-panel rounded-2xl p-6 space-y-5 font-sans border border-cyan-500/20 shadow-[0_0_25px_rgba(6,182,212,0.1)]">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-2xl">⚡</span>
+                  <h2 className="text-base sm:text-lg font-bold text-white uppercase tracking-wider">
+                    FEF MT5 Bridge EA
+                  </h2>
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    {CONNECTOR_RELEASE_MANIFEST.status === 'CURRENT' ? 'CURRENT / LATEST' : CONNECTOR_RELEASE_MANIFEST.status}
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-cyan-950/60 text-cyan-300 border border-cyan-500/30">
+                    MetaTrader 5
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Version {CONNECTOR_RELEASE_MANIFEST.version} &bull; Secure Member Download &bull; Native MQL5 WebRequest (No DLL)
+                </p>
+              </div>
+
+              <div>
+                <a
+                  href="/api/downloads/connector"
+                  download={CONNECTOR_RELEASE_MANIFEST.filename}
+                  className="px-6 py-3 bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-400 hover:from-cyan-400 hover:to-emerald-300 text-black font-black text-xs uppercase tracking-wider rounded-xl shadow-[0_0_25px_rgba(6,182,212,0.4)] flex items-center space-x-2 cursor-pointer transition-all active:scale-[0.98]"
+                >
+                  <span>⬇️</span>
+                  <span>DOWNLOAD MT5 EA</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Verified Release Metadata Ribbon */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-[11px] p-3 bg-black/40 rounded-xl border border-white/5">
+              <div>
+                <span className="text-gray-500 block text-[10px] uppercase">Binary File</span>
+                <span className="text-white font-bold">{CONNECTOR_RELEASE_MANIFEST.filename}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 block text-[10px] uppercase">Version</span>
+                <span className="text-cyan-300 font-bold">v{CONNECTOR_RELEASE_MANIFEST.version}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 block text-[10px] uppercase">Binary Size</span>
+                <span className="text-gray-200">{(CONNECTOR_RELEASE_MANIFEST.expectedSize / 1024).toFixed(1)} KB ({CONNECTOR_RELEASE_MANIFEST.expectedSize.toLocaleString()} bytes)</span>
+              </div>
+              <div>
+                <span className="text-gray-500 block text-[10px] uppercase">Integrity SHA256</span>
+                <span className="text-emerald-400 truncate block" title={CONNECTOR_RELEASE_MANIFEST.expectedSha256}>
+                  {CONNECTOR_RELEASE_MANIFEST.expectedSha256.slice(0, 8)}...{CONNECTOR_RELEASE_MANIFEST.expectedSha256.slice(-8)}
+                </span>
+              </div>
+            </div>
+
+            {/* Step-by-Step Installation Flow */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center space-x-1.5">
+                <span>📋</span>
+                <span>INSTALLATION &amp; WORKSTATION SETUP FLOW</span>
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs text-gray-300">
+                <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1.5">
+                  <div className="font-bold text-white flex items-center space-x-2">
+                    <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-mono flex items-center justify-center font-bold">1</span>
+                    <span>Download Official EA</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed pl-7">
+                    Click <strong>DOWNLOAD MT5 EA</strong> above to obtain the official compiled <code className="text-cyan-300 font-mono">FEF_HTTP_Bridge.ex5</code>.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1.5">
+                  <div className="font-bold text-white flex items-center space-x-2">
+                    <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-mono flex items-center justify-center font-bold">2</span>
+                    <span>Copy to MT5 Experts Folder</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed pl-7">
+                    In MetaTrader 5, click <strong>File &rarr; Open Data Folder</strong>, navigate to <code className="text-cyan-300 font-mono">MQL5/Experts</code>, and paste the file.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1.5">
+                  <div className="font-bold text-white flex items-center space-x-2">
+                    <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-mono flex items-center justify-center font-bold">3</span>
+                    <span>Refresh MT5 Navigator</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed pl-7">
+                    In MT5 Navigator (Ctrl+N), right-click <strong>Expert Advisors</strong> and select <strong>Refresh</strong>.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1.5">
+                  <div className="font-bold text-white flex items-center space-x-2">
+                    <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-mono flex items-center justify-center font-bold">4</span>
+                    <span>Attach to a Single Chart</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed pl-7">
+                    Drag <code className="text-cyan-300 font-mono">FEF_HTTP_Bridge</code> onto any chart (e.g. XAUUSD). Only one chart attachment is required across your account.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1.5">
+                  <div className="font-bold text-white flex items-center space-x-2">
+                    <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-mono flex items-center justify-center font-bold">5</span>
+                    <span>Automated Local Provisioning</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed pl-7">
+                    FEF secure local provisioning delivers your device credential automatically into the MT5 sandbox. No token copy/paste is required.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1.5">
+                  <div className="font-bold text-white flex items-center space-x-2">
+                    <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-mono flex items-center justify-center font-bold">6</span>
+                    <span>Restart Persistence</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed pl-7">
+                    Normal MT5 restarts automatically restore the attached EA and reconnect to the local bridge without manual intervention.
+                  </p>
+                </div>
+              </div>
+
+              {/* Workstation Requirement Note */}
+              <div className="p-3.5 bg-amber-950/30 border border-amber-500/30 rounded-xl text-[11px] text-amber-200/90 leading-relaxed flex items-start space-x-2.5">
+                <span className="text-base flex-shrink-0">⚠️</span>
+                <span>
+                  <strong>Workstation Requirement Note:</strong> Automated credential provisioning requires the FEF local background service to be running on your computer. If configuring on a new workstation for the first time, ensure your local FEF connectivity package is active before attaching the EA.
+                </span>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <Link
+                  href="/member/setup"
+                  className="text-xs text-cyan-300 hover:text-cyan-200 font-bold flex items-center space-x-1.5 transition-all"
+                >
+                  <span>VIEW FULL STEP-BY-STEP SETUP GUIDE WITH WEBREQUEST PERMISSIONS</span>
+                  <span>&rarr;</span>
+                </Link>
+              </div>
             </div>
           </div>
 

@@ -35,8 +35,8 @@ function buildBaselineAssets(): Record<string, LiveMarketAsset> {
       ask: isCrypto ? 0 : Number((p + spread / 2).toFixed(def.decimalPrecision)),
       spread: spread,
       change24h: change,
-      high24h: isCrypto ? 0 : Number((p * (1 + Math.abs(change) * 0.008 + 0.004)).toFixed(def.decimalPrecision)),
-      low24h: isCrypto ? 0 : Number((p * (1 - Math.abs(change) * 0.008 - 0.004)).toFixed(def.decimalPrecision)),
+      high24h: 0,
+      low24h: 0,
       volume:
         def.category === 'INDICES'
           ? '$38.4B'

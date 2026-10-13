@@ -26,6 +26,7 @@ import {
   MARKET_DATA_POLL_INTERVAL_MS,
 } from '../lib/bridge/connectivity-policy';
 import { symbolDirectory } from '../lib/bridge/symbol-mapper';
+import { evaluateCanonicalDailyStats } from '../lib/price/canonical-daily-ohlc';
 
 export type CandleLoadingState = 'LOADING' | 'VERIFIED' | 'STALE' | 'UNAVAILABLE' | 'ERROR';
 
@@ -368,13 +369,13 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
       let explicitDisconnect = false;
 
       try {
-        // Check local HTTP bridge
+        // Check local HTTP bridge / cloud telemetry
         const localRes = await fetch('/api/bridge/mt5?action=TELEMETRY', {
           headers: { 'Cache-Control': 'no-cache' }
         });
         if (localRes.ok) {
           const lData = await localRes.json();
-          if (lData.mt5Connected || lData.localBridge === 'ONLINE') {
+          if (lData && typeof lData === 'object') {
             mt5Data = lData;
             mt5Online = Boolean(lData.mt5Connected);
             resolvedBroker = lData.broker || lData.terminal?.brokerName || resolvedBroker;
@@ -383,8 +384,9 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
           }
         }
 
-        // Fall back to remote relay if local is not connected
-        if (!mt5Online) {
+        // Only fall back to remote relay if not served by cloud persistent telemetry transport
+        const isCloudTransport = mt5Data?.transport === 'CLOUD_PERSISTENT_TELEMETRY';
+        if (!mt5Online && !isCloudTransport) {
           try {
             const remoteRes = await fetch('/api/remote-mt5/telemetry', {
               headers: { 'Cache-Control': 'no-cache' }
@@ -417,7 +419,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       connectionStateRef.current = connEval.state;
       consecutiveFailuresRef.current = connEval.consecutiveFailures;
-      if (connEval.state === 'ONLINE') {
+      if (connEval.state === 'ONLINE' || (connEval.state === 'DEGRADED' && !connEval.isInGracePeriod)) {
         lastSuccessTimeRef.current = Date.now();
       }
 
@@ -446,12 +448,51 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
             if (freshness.ageMs <= QUOTE_DISPLAY_STALE_THRESHOLD_MS) {
               // Quote <= 30s (within display tolerance): Retain MT5 broker price authority
               const midPrice = Number(((quote.bid + quote.ask) / 2).toFixed(quote.digits || 2));
+
+              // Evaluate verified D1 stats from cached multi-asset candles if available
+              const cachedD1 =
+                multiAssetCandleCacheRef.current[canonical]?.bundle?.['D1'] ||
+                multiAssetCandleCacheRef.current[symKey]?.bundle?.['D1'];
+              let verifiedHigh = 0;
+              let verifiedLow = 0;
+              let verifiedChange = baseAsset.change24h;
+
+              if (cachedD1 && cachedD1.length > 0) {
+                const evalDaily = evaluateCanonicalDailyStats({
+                  symbol: canonical,
+                  category: baseAsset.category,
+                  isBrokerConnected: true,
+                  brokerQuote: {
+                    bid: quote.bid,
+                    ask: quote.ask,
+                    mid: midPrice,
+                    spread: quote.spread,
+                    digits: quote.digits,
+                    ageMs: freshness.ageMs,
+                    broker: resolvedBroker,
+                    isDisplayLive: freshness.isDisplayLive,
+                  },
+                  d1Candles: cachedD1,
+                  d1Provenance: 'LIVE_MT5',
+                  d1Provider: resolvedBroker,
+                  nowMs,
+                });
+                if (evalDaily.isVerified && evalDaily.high != null && evalDaily.low != null && evalDaily.changePct != null) {
+                  verifiedHigh = evalDaily.high;
+                  verifiedLow = evalDaily.low;
+                  verifiedChange = Number(evalDaily.changePct.toFixed(2));
+                }
+              }
+
               workingAssets[symKey] = {
                 ...baseAsset,
                 price: midPrice,
                 bid: quote.bid,
                 ask: quote.ask,
                 spread: Number(quote.spread || (quote.ask - quote.bid)),
+                high24h: verifiedHigh,
+                low24h: verifiedLow,
+                change24h: verifiedHigh > 0 ? verifiedChange : baseAsset.change24h,
                 source: 'MT5 Broker',
                 provider: resolvedBroker,
                 feedStatus: freshness.isDisplayLive ? 'LIVE' : 'FALLBACK',

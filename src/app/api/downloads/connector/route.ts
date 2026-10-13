@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 import { verifySessionToken } from '@/lib/licensing/member-session-token';
 import { licenseService } from '@/lib/licensing/license-service';
+import {
+  CONNECTOR_RELEASE_MANIFEST,
+  validateConnectorBinary,
+} from '@/lib/downloads/connector-manifest';
 
 export const dynamic = 'force-dynamic';
-
-const BINARY_FILENAME = 'FEF_HTTP_Bridge.ex5';
-const EXPECTED_SIZE = 99806;
-const EXPECTED_SHA256 = '104b63a6989b032aa48ac2e79932693a9bd0ba43c0f022354ee4ea9c82d938fc';
 
 /**
  * GET /api/downloads/connector
  * Securely serves the compiled MT5 Bridge EA binary ONLY to authenticated Members or Master.
  * Anonymous / unauthenticated requests are strictly rejected with 401 Unauthorized.
+ * Inactive accounts receive 403 Forbidden.
+ * Fails closed if the binary does not match the canonical release manifest checksum or size.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -54,40 +54,37 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 2. Locate binary on disk (primary: storage/binaries, fallback: public/downloads for local resilience)
-    const primaryPath = path.resolve(process.cwd(), 'storage/binaries', BINARY_FILENAME);
-    const fallbackPath = path.resolve(process.cwd(), 'public/downloads', BINARY_FILENAME);
-    const filePath = fs.existsSync(primaryPath) ? primaryPath : fallbackPath;
-
-    if (!fs.existsSync(filePath)) {
+    // 2. Validate binary on disk strictly against release manifest
+    const validation = validateConnectorBinary();
+    if (!validation.valid || !validation.buffer) {
+      console.error('[DOWNLOAD ROUTE] Binary integrity validation failed:', validation.error);
       return NextResponse.json(
         {
-          error: 'FILE_NOT_FOUND',
-          message: 'Connector binary is temporarily unavailable. Contact support.',
+          error: 'INTEGRITY_CHECK_FAILED',
+          message: 'Connector binary verification failed or file is unavailable.',
+          detail: process.env.NODE_ENV === 'development' ? validation.error : undefined,
         },
-        { status: 404 }
+        { status: 500 }
       );
     }
 
-    const fileBuffer = fs.readFileSync(filePath);
-
-    return new NextResponse(fileBuffer, {
+    return new NextResponse(validation.buffer, {
       status: 200,
       headers: {
         'Content-Type': 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${BINARY_FILENAME}"`,
-        'Content-Length': fileBuffer.length.toString(),
-        'X-FEF-Binary-Version': '1.21',
-        'X-FEF-SHA256': EXPECTED_SHA256,
+        'Content-Disposition': `attachment; filename="${CONNECTOR_RELEASE_MANIFEST.filename}"`,
+        'Content-Length': validation.buffer.length.toString(),
+        'X-FEF-Binary-Version': CONNECTOR_RELEASE_MANIFEST.version,
+        'X-FEF-SHA256': CONNECTOR_RELEASE_MANIFEST.expectedSha256,
+        'X-FEF-Release-Date': CONNECTOR_RELEASE_MANIFEST.releaseDate,
         'Cache-Control': 'no-store, no-cache, must-revalidate, private',
       },
     });
   } catch (err: any) {
-    console.error('Connector download error:', err);
+    console.error('Connector download route error:', err);
     return NextResponse.json(
       { error: 'INTERNAL_ERROR', message: 'Failed to stream connector binary.' },
       { status: 500 }
     );
   }
 }
-

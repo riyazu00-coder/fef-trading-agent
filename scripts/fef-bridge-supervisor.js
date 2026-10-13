@@ -35,6 +35,10 @@ if (!fs.existsSync(RUNTIME_DIR)) {
 
 const ALLOWED_ENV_KEYS = new Set([
   'FEF_BRIDGE_TOKEN',
+  'FEF_TELEMETRY_DEVICE_SECRET',
+  'FEF_TELEMETRY_DEVICE_ID',
+  'FEF_CLOUD_TELEMETRY_URL',
+  'NEXT_PUBLIC_APP_URL',
   'FEF_REMOTE_RELAY_URL',
   'FEF_REMOTE_DEVICE_ID',
   'FEF_REMOTE_KEY_ID',
@@ -96,6 +100,10 @@ function buildConnectorChildEnv(sourceEnv = process.env, bridgeUrl = LOCAL_BRIDG
   };
   const connectorKeys = [
     'FEF_BRIDGE_TOKEN',
+    'FEF_TELEMETRY_DEVICE_SECRET',
+    'FEF_TELEMETRY_DEVICE_ID',
+    'FEF_CLOUD_TELEMETRY_URL',
+    'NEXT_PUBLIC_APP_URL',
     'FEF_REMOTE_RELAY_URL',
     'FEF_REMOTE_DEVICE_ID',
     'FEF_REMOTE_KEY_ID',
@@ -275,8 +283,8 @@ class ConnectivitySupervisor {
 
     child.stdout.on("data", (d) => {
       const msg = d.toString().trim();
-      if (msg.includes("Authenticated") || msg.includes("Connected") || msg.includes("ERROR")) {
-        log("DEBUG", "[ConnectorStdout] " + msg);
+      if (msg.includes("Successfully pushed") || msg.includes("Authenticated") || msg.includes("Connected") || msg.includes("ERROR") || msg.includes("CONNECTOR")) {
+        log("INFO", "[Connector] " + msg);
       }
     });
 
@@ -394,7 +402,18 @@ class ConnectivitySupervisor {
 
     try { fs.writeFileSync(PID_FILE, String(process.pid)); } catch {}
 
-    this.startStatusServer();
+    // Provision active device credential into local MT5 sandbox
+    try {
+      const { provisionMt5SandboxCredential } = require('./fef-device-identity');
+      const provResult = provisionMt5SandboxCredential();
+      if (provResult.provisioned) {
+        log("INFO", `✓ MT5 Sandbox credential provisioned (${provResult.paths.length} file paths)`);
+      } else if (provResult.error) {
+        log("WARN", `MT5 Sandbox provisioning notice: ${provResult.error}`);
+      }
+    } catch (e) {
+      log("WARN", `MT5 Sandbox provisioning exception: ${e.message}`);
+    }
 
     const bridgeAlreadyActive = await this.checkPortInUse(BRIDGE_PORT);
     if (bridgeAlreadyActive) {
