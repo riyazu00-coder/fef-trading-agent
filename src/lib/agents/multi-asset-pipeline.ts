@@ -1020,6 +1020,89 @@ export function generateAssetIntelligence(
       case 'CORRELATION': {
         const corrTarget = getCrossAssetBenchmark(normSymbol);
         const expectedBenchmark = getExpectedBenchmarkCorrelation(normSymbol);
+        const matrix = feeds?.crossAsset;
+
+        if (matrix && matrix.relationships && typeof matrix.relationships === 'object') {
+          const relEntries = Object.entries(matrix.relationships);
+          const verifiedRels = relEntries.filter(([, rel]) =>
+            rel.status === 'VERIFIED' &&
+            typeof rel.rollingCorrelation === 'number' &&
+            Number.isFinite(rel.rollingCorrelation) &&
+            rel.sampleCount >= 5
+          );
+
+          // Strongest verified standard: activePairCount >= 2 and at least 2 verified relationships with finite correlation and n >= 5
+          const isVerified = (matrix.activePairCount >= 2 || verifiedRels.length >= 2) && verifiedRels.length >= 2;
+
+          if (isVerified) {
+            const availableBenchmarks = verifiedRels.map(([, rel]) => rel.targetSymbol);
+            const evidenceLines = verifiedRels.map(([, rel]) => {
+              const sign = (rel.rollingCorrelation ?? 0) >= 0 ? '+' : '';
+              return `${rel.targetSymbol}: rolling correlation ${sign}${(rel.rollingCorrelation ?? 0).toFixed(2)} (n=${rel.sampleCount}) — VERIFIED. ${rel.notes}`;
+            });
+
+            const now = Date.now();
+            const computedTime = matrix.computedAt || now;
+            const ageMs = Math.max(0, now - computedTime);
+            // Closed candles computation: CURRENT if within 2 hours, DELAYED if within 24h, else STALE
+            const corrFreshness: 'CURRENT' | 'DELAYED' | 'STALE' = ageMs <= 2 * 3600 * 1000 ? 'CURRENT' : ageMs <= 24 * 3600 * 1000 ? 'DELAYED' : 'STALE';
+
+            return {
+              ...base,
+              bias: 'NEUTRAL',
+              confidence: 0,
+              status: 'ONLINE',
+              lastOpinion: `Intermarket correlation matrix verified across ${verifiedRels.length} factor(s) (base: ${matrix.baseSymbol || normSymbol}). Zero synthetic correlations. Directional trading bias remains neutral.`,
+              evidence: evidenceLines,
+              keyRisk: 'Intermarket covariance decoupling or abrupt contagion',
+              invalidation: 'Correlation regime breakdown or structural decoupling',
+              requiredInputs: ['Base Asset OHLC', 'Benchmark OHLC'],
+              availableInputs: hasCandles ? ['Base Asset OHLC', ...availableBenchmarks] : availableBenchmarks,
+              missingInputs: [],
+              lastRun: new Date(computedTime).toISOString(),
+              freshness: corrFreshness,
+              provenanceBadge: 'DERIVED',
+            };
+          }
+
+          // Matrix is present but insufficient or partial (< 2 verified relationships)
+          const partialBenchmarks = relEntries
+            .filter(([, rel]) => rel.sampleCount > 0 || rel.status === 'DATA_LIMITED')
+            .map(([, rel]) => rel.targetSymbol);
+
+          const missingFactors: string[] = [];
+          if (verifiedRels.length === 0) {
+            missingFactors.push('Verified benchmark relationships (0 verified)');
+          } else {
+            missingFactors.push(`Additional verified benchmark series (current: ${verifiedRels.length}/2 required)`);
+          }
+
+          return {
+            ...base,
+            bias: 'NEUTRAL',
+            confidence: 0,
+            status: 'DATA LIMITED',
+            lastOpinion: `Intermarket correlation data limited: Cross-asset matrix contains ${verifiedRels.length} verified factor(s) (< 2 required for statistical confidence). Contextual reference only.`,
+            evidence: [
+              `Active Factor Coverage: ${verifiedRels.length} verified relationship(s) (Minimum: 2)`,
+              ...(relEntries.length > 0
+                ? relEntries.map(([, rel]) => `${rel.targetSymbol}: status=${rel.status} (n=${rel.sampleCount})${typeof rel.rollingCorrelation === 'number' ? ` r=${rel.rollingCorrelation.toFixed(2)}` : ''}`)
+                : [`Benchmark Asset: ${corrTarget} (Awaiting synchronized benchmark series)`]),
+              `Historical Reference Baseline: ${expectedBenchmark >= 0 ? '+' : ''}${expectedBenchmark} (Contextual Reference Only)`,
+              'Regime State: DATA_LIMITED'
+            ],
+            keyRisk: 'Abrupt cross-asset contagion',
+            invalidation: 'Regime breakdown',
+            requiredInputs: ['Base Asset OHLC', 'Benchmark OHLC'],
+            availableInputs: hasCandles ? ['Base Asset OHLC', ...partialBenchmarks] : partialBenchmarks,
+            missingInputs: missingFactors,
+            lastRun: new Date(matrix.computedAt || Date.now()).toISOString(),
+            freshness: 'DELAYED',
+            provenanceBadge: 'DATA LIMITED',
+          };
+        }
+
+        // No crossAsset matrix present: fail closed
         return {
           ...base,
           bias: 'NEUTRAL',
@@ -1039,6 +1122,7 @@ export function generateAssetIntelligence(
           missingInputs: ['Benchmark OHLC'],
           lastRun: new Date().toISOString(),
           freshness: 'OFFLINE',
+          provenanceBadge: 'DATA LIMITED',
         };
       }
 
@@ -1499,11 +1583,19 @@ export function generateAssetIntelligence(
         sourceTimestampMs = candleTimestampMs;
         structuralGate = false;
       } else if (ag.type === 'CORRELATION') {
-        classification = 'STATIC_REFERENCE';
-        sourceName = 'Intermarket Correlation Baseline';
-        sourceType = 'HISTORICAL_REFERENCE';
-        sourceTimestampMs = undefined;
-        structuralGate = false;
+        if (ag.status === 'ONLINE' && feeds?.crossAsset) {
+          classification = 'DERIVED_FROM_VERIFIED';
+          sourceName = 'Cross-Asset & Correlation Engine';
+          sourceType = 'INTERMARKET_COVARIANCE';
+          sourceTimestampMs = feeds.crossAsset.computedAt || evalTimeMs;
+          structuralGate = false;
+        } else {
+          classification = 'STATIC_REFERENCE';
+          sourceName = 'Intermarket Correlation Baseline';
+          sourceType = 'HISTORICAL_REFERENCE';
+          sourceTimestampMs = undefined;
+          structuralGate = false;
+        }
       } else if (ag.type === 'VISION' && hasCandles && marketStructure) {
         classification = effectiveCandleProvenance === 'INDEPENDENT_REFERENCE'
           ? 'INDEPENDENT_REFERENCE'
@@ -2348,7 +2440,11 @@ export function generateAssetIntelligence(
     tp2: blueprint && blueprint.tp2 ? blueprint.tp2.price : (null as any),
     tp3: blueprint && blueprint.tp3 ? blueprint.tp3.price : (null as any),
     rr: blueprint ? blueprint.rrRatio || '1:1.5' : (null as any),
-    invalidation: blueprint ? blueprint.invalidation.reason : 'No structural invalidation computed yet — awaiting verified candles',
+    invalidation: blueprint
+      ? blueprint.invalidation.reason
+      : hasCandles
+      ? `Structure analyzed (${structureTf}) — awaiting valid risk geometry / execution trigger`
+      : 'No structural invalidation computed yet — awaiting verified candles',
     whyThisTrade: [
       `Price: ${p.toFixed(5)} (${isPos ? '+' : ''}${liveAsset?.change24h?.toFixed(2) || 0}% 24h).`,
       hasCandles

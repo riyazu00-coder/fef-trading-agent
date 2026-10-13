@@ -461,7 +461,7 @@ export function evaluateCrossAssetAgent(inputs: {
   const instrument = (inputs.instrument || 'XAUUSD').toUpperCase();
   const matrix = inputs.matrix;
   const activeCount = matrix?.activePairCount || 0;
-  const hasValidMatrix = activeCount >= 2;
+  const hasValidMatrix = activeCount >= 2 && Boolean(matrix?.relationships && typeof matrix.relationships === 'object');
 
   const confidence = hasValidMatrix ? 75 : 0;
   const evidenceTrust = hasValidMatrix ? 80 : 0;
@@ -481,7 +481,7 @@ export function evaluateCrossAssetAgent(inputs: {
     primaryThesis: hasValidMatrix && matrix
       ? matrix.summary
       : 'Synchronized live cross-asset series unavailable (DATA_LIMITED). Zero directional bias.',
-    evidence: hasValidMatrix && matrix ? Object.entries(matrix.relationships).map(([key, rel]) => ({
+    evidence: hasValidMatrix && matrix && matrix.relationships ? Object.entries(matrix.relationships).map(([key, rel]) => ({
       id: `cross-${key}`,
       agentId: 'CROSS_ASSET_AGENT',
       domainFamily: 'CROSS_ASSET' as const,
