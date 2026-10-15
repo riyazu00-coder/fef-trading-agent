@@ -368,11 +368,14 @@ async function handleCli() {
         console.log('-----------------------------------------------------------------');
         console.log(`LOCAL BRIDGE    : ${bridgeOnline ? 'ONLINE (:5556)' : 'OFFLINE (:5556 NOT REACHABLE)'}`);
         console.log(`CONNECTOR AGENT : ${h ? h.connectorAgent : 'OFFLINE'}`);
+        console.log(`LOCAL DATABASE  : ${h?.localDatabase || 'OFFLINE'}`);
+        console.log(`CLOUD SYNC      : ${h?.cloudSync || 'DISABLED'}`);
         console.log(`REMOTE RELAY    : ${h ? h.remoteRelay : 'OFFLINE'}`);
 
         // MT5 Terminal status truthfulness: only CONNECTED if fresh valid telemetry from bridge/terminal exists
         const mt5Connected = Boolean(cb ? cb.mt5Connected : (h && h.mt5Terminal === 'CONNECTED'));
         console.log(`MT5 TERMINAL    : ${mt5Connected ? 'CONNECTED' : 'DISCONNECTED'}`);
+        console.log(`FEED STATUS     : ${h?.feedStatus || 'UNKNOWN'}`);
 
         const broker = (cb && cb.terminal?.broker && cb.terminal.broker !== 'UNKNOWN BROKER') ? cb.terminal.broker : (h?.broker || 'UNKNOWN');
         const server = (cb && cb.terminal?.server && cb.terminal.server !== 'MT5 SERVER') ? cb.terminal.server : (h?.server || 'UNKNOWN');

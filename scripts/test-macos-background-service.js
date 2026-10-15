@@ -557,6 +557,14 @@ await runTest('incorrect LOCAL_BRIDGE_URL is absent from connector child env', (
     }
   });
 
+  // 45. Supervisor explicitly invokes startStatusServer() in start() lifecycle
+  await runTest('supervisor explicitly invokes startStatusServer() in start() lifecycle', () => {
+    const supervisorSource = fs.readFileSync(path.resolve(ROOT_DIR, 'scripts/fef-bridge-supervisor.js'), 'utf8');
+    const startMatch = supervisorSource.match(/async\s+start\s*\(\)\s*\{([\s\S]*?)(checkPortInUse|startBridgeService)/);
+    assert(startMatch, 'Supervisor must define async start() method');
+    assert(startMatch[1].includes('this.startStatusServer()'), 'start() must invoke this.startStatusServer() to ensure port 5558 is online');
+  });
+
   console.log('=================================================================');
   console.log(`ALL ${passedTests}/${totalTests} TESTS PASSED CLEANLY.`);
   console.log('=================================================================');

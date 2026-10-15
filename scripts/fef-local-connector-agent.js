@@ -36,6 +36,20 @@ if (fs.existsSync(envLocalPath)) {
 
 // Load device identity & secure token provisioning
 const { resolveActiveBridgeToken } = require('./fef-device-identity');
+const { LocalTelemetryRepository } = require('./fef-local-telemetry-repository');
+
+// Storage mode: LOCAL (default), CLOUD, HYBRID
+const TELEMETRY_STORAGE_MODE = (process.env.FEF_TELEMETRY_STORAGE_MODE || 'LOCAL').trim().toUpperCase();
+
+// Initialize local repository for local-first persistence
+let localRepo = null;
+if (TELEMETRY_STORAGE_MODE === 'LOCAL' || TELEMETRY_STORAGE_MODE === 'HYBRID') {
+  try {
+    localRepo = new LocalTelemetryRepository();
+  } catch (err) {
+    console.error('[CONNECTOR] Failed to initialize LocalTelemetryRepository:', err.message);
+  }
+}
 
 // 1. Local bridge configuration
 const LOCAL_BRIDGE_URL = process.env.FEF_LOCAL_BRIDGE_URL || 'http://127.0.0.1:5556';
@@ -56,6 +70,15 @@ const POLL_INTERVAL_MS = 2000;
 let sequenceCounter = 0;
 let pollTimer = null;
 let candleTickCount = 0;
+let initialCandlesSynced = false;
+if (localRepo) {
+  try {
+    const metrics = localRepo.getCandleMetrics();
+    if (metrics && metrics.count > 0) {
+      initialCandlesSynced = true;
+    }
+  } catch {}
+}
 
 // Canonical assets supported by MT5 bridge
 const CANONICAL_SYMBOLS = [
@@ -65,6 +88,10 @@ const CANONICAL_SYMBOLS = [
   'USOIL', 'UKOIL', 'NATGAS',
   'BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'BNBUSD'
 ];
+
+function getCanonicalUniverse() {
+  return CANONICAL_SYMBOLS;
+}
 
 /**
  * Fetch status from local HTTP Bridge (:5556)
@@ -226,64 +253,56 @@ async function pollAndPushTelemetry() {
   const localStatus = await fetchLocalBridgeStatus();
   if (!localStatus) {
     console.log(`[CONNECTOR] Local bridge at ${LOCAL_BRIDGE_URL} is unreachable or offline`);
-    return;
+    if (localRepo) {
+      try {
+        localRepo.updateConnectorState(DEVICE_ID, 'DEGRADED', {
+          lastError: 'LOCAL_BRIDGE_UNREACHABLE',
+          storageMode: TELEMETRY_STORAGE_MODE,
+          consecutiveErrors: 1,
+        });
+      } catch {}
+    }
+    return { success: false, error: 'LOCAL_BRIDGE_UNREACHABLE' };
   }
 
   const isConnected = Boolean(localStatus.mt5Connected);
   const nowIso = new Date().toISOString();
 
-  // 1. Push HEARTBEAT
-  const heartbeatEnvelope = {
-    version: 1,
-    deviceId: DEVICE_ID,
-    type: 'HEARTBEAT',
-    capturedAt: nowIso,
-    sequence: ++sequenceCounter,
-    payload: {
-      terminalBuild: localStatus.terminal?.build || 5000,
-      broker: localStatus.terminal?.broker || 'UNKNOWN',
-      server: localStatus.terminal?.server || 'UNKNOWN',
-      magicNumber: localStatus.terminal?.magic || 8882026,
-      heartbeatIntervalSec: 2,
-      operatingMode: 'READ_ONLY',
-      activeSymbolsCount: CANONICAL_SYMBOLS.length,
-      quotesCount: Object.keys(localStatus.quotes || {}).length,
-      terminalConnected: isConnected,
-    },
+  // 1. Build HEARTBEAT payload
+  const heartbeatPayload = {
+    terminalBuild: localStatus.terminal?.build || 5000,
+    broker: localStatus.terminal?.broker || 'UNKNOWN',
+    server: localStatus.terminal?.server || 'UNKNOWN',
+    magicNumber: localStatus.terminal?.magic || 8882026,
+    heartbeatIntervalSec: 2,
+    operatingMode: 'READ_ONLY',
+    activeSymbolsCount: CANONICAL_SYMBOLS.length,
+    quotesCount: Object.keys(localStatus.quotes || {}).length,
+    terminalConnected: isConnected,
   };
-  await postTelemetryOutbound(heartbeatEnvelope);
 
-  if (!isConnected) return;
-
-  // 2. Push ACCOUNT_STATUS
+  // 2. Build ACCOUNT_STATUS payload
+  let accountPayload = null;
   if (localStatus.account) {
     const acc = localStatus.account;
-    const accountEnvelope = {
-      version: 1,
-      deviceId: DEVICE_ID,
-      type: 'ACCOUNT_STATUS',
-      capturedAt: nowIso,
-      sequence: ++sequenceCounter,
-      payload: {
-        maskedLogin: acc.maskedLogin || '00***00',
-        broker: acc.broker || 'UNKNOWN',
-        server: acc.server || 'UNKNOWN',
-        currency: acc.currency || 'USD',
-        tradeMode: acc.tradeMode || 'DEMO',
-        leverage: acc.leverage || 100,
-        balance: acc.balance || 0,
-        equity: acc.equity || 0,
-        margin: acc.margin || 0,
-        freeMargin: acc.freeMargin || 0,
-        marginLevel: acc.marginLevel || 0,
-        operatingMode: 'READ_ONLY',
-        tradeAllowed: false,
-      },
+    accountPayload = {
+      maskedLogin: acc.maskedLogin || '00***00',
+      broker: acc.broker || 'UNKNOWN',
+      server: acc.server || 'UNKNOWN',
+      currency: acc.currency || 'USD',
+      tradeMode: acc.tradeMode || 'DEMO',
+      leverage: acc.leverage || 100,
+      balance: acc.balance || 0,
+      equity: acc.equity || 0,
+      margin: acc.margin || 0,
+      freeMargin: acc.freeMargin || 0,
+      marginLevel: acc.marginLevel || 0,
+      operatingMode: 'READ_ONLY',
+      tradeAllowed: false,
     };
-    await postTelemetryOutbound(accountEnvelope);
   }
 
-  // 3. Push QUOTE_SNAPSHOT
+  // 3. Build QUOTE_SNAPSHOT payload
   const quotesList = [];
   if (localStatus.quotes && typeof localStatus.quotes === 'object') {
     for (const [sym, q] of Object.entries(localStatus.quotes)) {
@@ -303,26 +322,16 @@ async function pollAndPushTelemetry() {
     }
   }
 
-  if (quotesList.length > 0) {
-    const quoteEnvelope = {
-      version: 1,
-      deviceId: DEVICE_ID,
-      type: 'QUOTE_SNAPSHOT',
-      capturedAt: nowIso,
-      sequence: ++sequenceCounter,
-      payload: {
-        quotes: quotesList,
-      },
-    };
-    await postTelemetryOutbound(quoteEnvelope);
-  }
-
-  // 4. Timeframe-aware closed candle sync
+  // 4. Timeframe-aware closed candle collection
   candleTickCount++;
   const primarySyncSymbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'US100', 'USOIL', 'BTCUSD'];
+  const candleSnapshots = [];
 
-  // Fast timeframes (M15, M30) on start (tick 1) and every 4 ticks (~8s)
-  if (candleTickCount === 1 || candleTickCount % 4 === 0) {
+  const shouldSyncFastTfs = candleTickCount === 1 || candleTickCount % 60 === 0 || (!initialCandlesSynced && candleTickCount % 5 === 0);
+  const shouldSyncSlowTfs = candleTickCount === 1 || candleTickCount % 180 === 0 || (!initialCandlesSynced && candleTickCount % 5 === 0);
+
+  // Fast timeframes (M15, M30) on start (tick 1) and every 60 ticks (~2 min)
+  if (shouldSyncFastTfs) {
     for (const sym of primarySyncSymbols) {
       for (const tf of ['M15', 'M30']) {
         const rawBars = await fetchLocalBridgeCandles(sym, tf);
@@ -331,32 +340,23 @@ async function pollAndPushTelemetry() {
             .filter((b) => b && b.open > 0 && b.high >= b.low && b.close > 0)
             .slice(-50); // Bounded 50 closed bars
           if (validBars.length >= 15) {
-            const candleEnvelope = {
-              version: 1,
-              deviceId: DEVICE_ID,
-              type: 'CANDLE_SNAPSHOT',
-              capturedAt: new Date().toISOString(),
-              sequence: ++sequenceCounter,
-              payload: {
-                canonicalSymbol: sym,
-                brokerSymbol: sym,
-                timeframe: tf,
-                candles: validBars,
-                closed: true,
-                provider: 'MT5_BROKER_BRIDGE',
-              },
-            };
-            await postTelemetryOutbound(candleEnvelope);
+            candleSnapshots.push({
+              canonicalSymbol: sym,
+              brokerSymbol: sym,
+              timeframe: tf,
+              candles: validBars,
+              closed: true,
+              provider: 'MT5_BROKER_BRIDGE',
+            });
           }
         }
       }
     }
   }
 
-  // Higher timeframes (H1, H4, D1) on start (tick 1) and every 16 ticks (~32s)
-  if (candleTickCount === 1 || candleTickCount % 16 === 0) {
-    // Determine active batch: primary symbols + rotating canonical batch for universe-wide D1 coverage
-    const rotatingBatchStart = ((candleTickCount / 16) * 4) % CANONICAL_SYMBOLS.length;
+  // Higher timeframes (H1, H4, D1) on start (tick 1) and every 180 ticks (~6 min)
+  if (shouldSyncSlowTfs) {
+    const rotatingBatchStart = ((candleTickCount / 180) * 4) % CANONICAL_SYMBOLS.length;
     const additionalSymbols = CANONICAL_SYMBOLS.slice(rotatingBatchStart, rotatingBatchStart + 4);
     const syncTargetSymbols = Array.from(new Set([...primarySyncSymbols, ...additionalSymbols]));
 
@@ -368,27 +368,133 @@ async function pollAndPushTelemetry() {
             .filter((b) => b && b.open > 0 && b.high >= b.low && b.close > 0)
             .slice(-50);
           if (validBars.length >= 10) {
-            const candleEnvelope = {
-              version: 1,
-              deviceId: DEVICE_ID,
-              type: 'CANDLE_SNAPSHOT',
-              capturedAt: new Date().toISOString(),
-              sequence: ++sequenceCounter,
-              payload: {
-                canonicalSymbol: sym,
-                brokerSymbol: sym,
-                timeframe: tf,
-                candles: validBars,
-                closed: true,
-                provider: 'MT5_BROKER_BRIDGE',
-              },
-            };
-            await postTelemetryOutbound(candleEnvelope);
+            candleSnapshots.push({
+              canonicalSymbol: sym,
+              brokerSymbol: sym,
+              timeframe: tf,
+              candles: validBars,
+              closed: true,
+              provider: 'MT5_BROKER_BRIDGE',
+            });
           }
         }
       }
     }
   }
+
+  if (candleSnapshots.length > 0) {
+    initialCandlesSynced = true;
+  }
+
+  // 5. Atomic Local SQLite Persistence (Primary Storage Mode)
+  if (TELEMETRY_STORAGE_MODE === 'LOCAL' || TELEMETRY_STORAGE_MODE === 'HYBRID') {
+    if (!localRepo) {
+      try {
+        localRepo = new LocalTelemetryRepository();
+      } catch (err) {
+        console.error('[CONNECTOR] Failed to initialize LocalTelemetryRepository:', err.message);
+      }
+    }
+    if (localRepo) {
+      const cycleResult = localRepo.saveTelemetryCycle({
+        deviceId: DEVICE_ID,
+        capturedAt: nowIso,
+        sequence: ++sequenceCounter,
+        heartbeat: heartbeatPayload,
+        account: isConnected ? accountPayload : null,
+        quotes: quotesList,
+        candleSnapshots,
+        connectorState: {
+          state: 'ONLINE',
+          storageMode: TELEMETRY_STORAGE_MODE,
+          lastBridgeHeartbeat: Date.now(),
+          lastLocalPersist: Date.now(),
+          lastError: null,
+          consecutiveErrors: 0,
+        },
+      });
+
+      if (cycleResult.success) {
+        if (sequenceCounter % 5 === 0) {
+          console.log(`[CONNECTOR] Persisted telemetry cycle (seq ${sequenceCounter}) to local SQLite [DB: ONLINE]`);
+        }
+      } else {
+        console.error(`[CONNECTOR] Failed to persist to local SQLite: ${cycleResult.error}`);
+        try {
+          localRepo.updateConnectorState(DEVICE_ID, 'DEGRADED', {
+            lastError: cycleResult.error,
+            storageMode: TELEMETRY_STORAGE_MODE,
+          });
+        } catch {}
+      }
+
+      // Periodic candle pruning (once every hour or ~1800 cycles)
+      if (candleTickCount % 1800 === 0) {
+        try {
+          localRepo.pruneCandles(CANONICAL_SYMBOLS, ['M15', 'M30', 'H1', 'H4', 'D1'], 500);
+        } catch {}
+      }
+    }
+  }
+
+  // 6. Cloud Telemetry Push (Only if HYBRID or CLOUD mode)
+  if (TELEMETRY_STORAGE_MODE === 'LOCAL') {
+    // Zero outbound cloud requests, zero Upstash writes, completely decoupled
+    return { success: true };
+  }
+
+  // Outbound HTTPS push to cloud ingress (CLOUD or HYBRID mode)
+  const heartbeatEnvelope = {
+    version: 1,
+    deviceId: DEVICE_ID,
+    type: 'HEARTBEAT',
+    capturedAt: nowIso,
+    sequence: ++sequenceCounter,
+    payload: heartbeatPayload,
+  };
+  const hbRes = await postTelemetryOutbound(heartbeatEnvelope);
+  if (!hbRes || !hbRes.success) {
+    return hbRes || { success: false };
+  }
+  if (!isConnected) return { success: true };
+
+  if (accountPayload) {
+    const accountEnvelope = {
+      version: 1,
+      deviceId: DEVICE_ID,
+      type: 'ACCOUNT_STATUS',
+      capturedAt: nowIso,
+      sequence: ++sequenceCounter,
+      payload: accountPayload,
+    };
+    await postTelemetryOutbound(accountEnvelope);
+  }
+
+  if (quotesList.length > 0) {
+    const quoteEnvelope = {
+      version: 1,
+      deviceId: DEVICE_ID,
+      type: 'QUOTE_SNAPSHOT',
+      capturedAt: nowIso,
+      sequence: ++sequenceCounter,
+      payload: { quotes: quotesList },
+    };
+    await postTelemetryOutbound(quoteEnvelope);
+  }
+
+  for (const cs of candleSnapshots) {
+    const candleEnvelope = {
+      version: 1,
+      deviceId: DEVICE_ID,
+      type: 'CANDLE_SNAPSHOT',
+      capturedAt: new Date().toISOString(),
+      sequence: ++sequenceCounter,
+      payload: cs,
+    };
+    await postTelemetryOutbound(candleEnvelope);
+  }
+
+  return { success: true };
 }
 
 function start() {
@@ -396,25 +502,49 @@ function start() {
   console.log('FEF TRADING SOLUTIONS: LOCAL OUTBOUND MT5 TELEMETRY CONNECTOR');
   console.log('================================================================');
   console.log(`- Local MT5 Bridge:     ${LOCAL_BRIDGE_URL}`);
-  console.log(`- Cloud Ingress Target: ${CLOUD_INGRESS_URL}`);
+  console.log(`- Storage Mode:         ${TELEMETRY_STORAGE_MODE}`);
+  if (TELEMETRY_STORAGE_MODE !== 'LOCAL') {
+    console.log(`- Cloud Ingress Target: ${CLOUD_INGRESS_URL}`);
+    console.log(
+      `- Telemetry Secret:     ${TELEMETRY_SECRET ? 'CONFIGURED' : 'NOT_CONFIGURED (FAIL-CLOSED)'}`
+    );
+  } else {
+    console.log(`- SQLite Database:      ${localRepo ? localRepo.dbPath : 'INITIALIZING'}`);
+    console.log(`- Cloud Telemetry Sync: DISABLED (Zero external quota dependency)`);
+  }
   console.log(`- Device ID:            ${DEVICE_ID}`);
-  console.log(
-    `- Telemetry Secret:     ${TELEMETRY_SECRET ? 'CONFIGURED' : 'NOT_CONFIGURED (FAIL-CLOSED)'}`
-  );
   console.log('- Mode:                 READ-ONLY TELEMETRY (Zero Execution Transport)');
   console.log('================================================================\n');
 
-  if (!TELEMETRY_SECRET) {
+  if (TELEMETRY_STORAGE_MODE !== 'LOCAL' && !TELEMETRY_SECRET) {
     console.error('❌ FATAL: FEF_TELEMETRY_DEVICE_SECRET is missing from local environment.');
     console.error('Please configure FEF_TELEMETRY_DEVICE_SECRET in .env.local to enable cloud telemetry push.');
     return;
   }
 
-  pollTimer = setInterval(() => {
-    pollAndPushTelemetry().catch((err) => {
+  let consecutiveErrors = 0;
+
+  async function scheduleCycle() {
+    let delay = POLL_INTERVAL_MS;
+    try {
+      const res = await pollAndPushTelemetry();
+      if (res && res.success === false) {
+        consecutiveErrors++;
+        // Exponential backoff when cloud ingress returns 503 or 429: 5s, 10s, max 30s
+        delay = Math.min(5000 * Math.pow(1.5, Math.min(consecutiveErrors - 1, 4)), 30000);
+      } else {
+        consecutiveErrors = 0;
+      }
+    } catch (err) {
+      consecutiveErrors++;
+      delay = Math.min(5000 * Math.pow(1.5, Math.min(consecutiveErrors - 1, 4)), 30000);
       console.error('[CONNECTOR ERROR]:', err?.message);
-    });
-  }, POLL_INTERVAL_MS);
+    } finally {
+      pollTimer = setTimeout(scheduleCycle, delay);
+    }
+  }
+
+  scheduleCycle();
 }
 
 if (require.main === module) {
@@ -426,4 +556,6 @@ module.exports = {
   fetchLocalBridgeCandles,
   postTelemetryOutbound,
   pollAndPushTelemetry,
+  getCanonicalUniverse,
+  CANONICAL_SYMBOLS,
 };

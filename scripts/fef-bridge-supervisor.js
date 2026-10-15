@@ -19,6 +19,7 @@ const LOG_FILE = path.resolve(RUNTIME_DIR, "supervisor.log");
 
 const BRIDGE_SCRIPT = path.resolve(ROOT_DIR, "scripts/mt5-http-bridge-service.js");
 const CONNECTOR_SCRIPT = path.resolve(ROOT_DIR, "scripts/fef-local-connector-agent.js");
+const { LocalTelemetryRepository } = require("./fef-local-telemetry-repository");
 
 const BRIDGE_PORT = 5556;
 const BRIDGE_HOST = "127.0.0.1";
@@ -122,11 +123,23 @@ function buildConnectorChildEnv(sourceEnv = process.env, bridgeUrl = LOCAL_BRIDG
   return env;
 }
 
+const MAX_LOG_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+
 function log(level, message, meta) {
   const ts = new Date().toISOString();
   const metaStr = meta ? " " + JSON.stringify(meta) : "";
   const line = "[" + ts + "] [" + level + "] " + message + metaStr + "\n";
-  try { fs.appendFileSync(LOG_FILE, line); } catch {}
+  try {
+    if (fs.existsSync(LOG_FILE)) {
+      const stats = fs.statSync(LOG_FILE);
+      if (stats.size > MAX_LOG_SIZE_BYTES) {
+        const backupFile = LOG_FILE + ".old";
+        try { if (fs.existsSync(backupFile)) fs.unlinkSync(backupFile); } catch {}
+        try { fs.renameSync(LOG_FILE, backupFile); } catch {}
+      }
+    }
+    fs.appendFileSync(LOG_FILE, line);
+  } catch {}
   if (process.env.FEF_SUPERVISOR_SILENT !== "1") {
     if (level === "ERROR") console.error(line.trim());
     else console.log(line.trim());
@@ -142,11 +155,26 @@ class ConnectivitySupervisor {
     this.isShuttingDown = false;
     this.pollInterval = null;
     this.persistState = options.persistState !== false;
+    this.lastConnectorPush = null;
+    this.lastConnectorSuccess = false;
+
+    this.localRepo = null;
+    try {
+      this.localRepo = new LocalTelemetryRepository();
+    } catch (e) {
+      log("WARN", "Failed to initialize LocalTelemetryRepository in supervisor: " + e.message);
+    }
 
     this.healthState = {
       supervisor: "STARTING",
       localBridge: "OFFLINE",
       connectorAgent: "OFFLINE",
+      localDatabase: "INITIALIZING",
+      storageMode: (process.env.FEF_TELEMETRY_STORAGE_MODE || "LOCAL").toUpperCase(),
+      cloudSync: "DISABLED",
+      localPersistenceAgeMs: null,
+      localQuotesCount: 0,
+      localCandlesCount: 0,
       remoteRelay: "OFFLINE",
       mt5Terminal: "DISCONNECTED",
       broker: "UNKNOWN",
@@ -286,10 +314,19 @@ class ConnectivitySupervisor {
       if (msg.includes("Successfully pushed") || msg.includes("Authenticated") || msg.includes("Connected") || msg.includes("ERROR") || msg.includes("CONNECTOR")) {
         log("INFO", "[Connector] " + msg);
       }
+      if (msg.includes("Successfully pushed")) {
+        this.lastConnectorPush = Date.now();
+        this.lastConnectorSuccess = true;
+      }
     });
 
     child.stderr.on("data", (d) => {
-      log("WARN", "[ConnectorStderr] " + d.toString().trim());
+      const msg = d.toString().trim();
+      log("WARN", "[ConnectorStderr] " + msg);
+      if (msg.includes("Cloud ingress returned") || msg.includes("STORAGE_UNAVAILABLE") || msg.includes("HTTP 503") || msg.includes("HTTP 429")) {
+        this.lastConnectorPush = Date.now();
+        this.lastConnectorSuccess = false;
+      }
     });
 
     child.on("exit", (code, signal) => {
@@ -312,6 +349,10 @@ class ConnectivitySupervisor {
     try {
       this.healthState.uptimeSec = Math.floor((Date.now() - this.startTime) / 1000);
       this.healthState.lastUpdated = Date.now();
+
+      if (this.lastConnectorPush) {
+        this.healthState.connectorHeartbeatAgeMs = Date.now() - this.lastConnectorPush;
+      }
 
       const bridgeData = await this.queryLocalBridgeHealth();
       if (bridgeData && (bridgeData.localBridge === "ONLINE" || (bridgeData.success && (bridgeData.port === 5556 || bridgeData.port === "5556")))) {
@@ -342,14 +383,53 @@ class ConnectivitySupervisor {
         this.healthState.mt5Terminal = "OFFLINE";
       }
 
+      // Check local SQLite database health and freshness
+      let isLocalDbFresh = false;
+      if (this.localRepo && this.localRepo.isHealthy()) {
+        try {
+          const connState = this.localRepo.getConnectorState();
+          const latestHb = this.localRepo.getLatestHeartbeat();
+          const now = Date.now();
+          const lastPersist = connState?.last_local_persist || (latestHb ? new Date(latestHb.received_at).getTime() : null);
+          const ageMs = lastPersist ? Math.max(0, now - lastPersist) : null;
+          this.healthState.localPersistenceAgeMs = ageMs;
+
+          if (ageMs !== null && ageMs < 15000) {
+            this.healthState.localDatabase = "ONLINE";
+            isLocalDbFresh = true;
+          } else if (ageMs !== null) {
+            this.healthState.localDatabase = "STALE";
+          } else {
+            this.healthState.localDatabase = "ONLINE";
+            isLocalDbFresh = true;
+          }
+
+          const allQuotes = this.localRepo.getAllQuotes();
+          this.healthState.localQuotesCount = Object.keys(allQuotes).length;
+          const candleMetrics = this.localRepo.getCandleMetrics();
+          this.healthState.localCandlesCount = candleMetrics.count;
+        } catch {
+          this.healthState.localDatabase = "DEGRADED";
+        }
+      } else {
+        this.healthState.localDatabase = "OFFLINE";
+      }
+
+      const isConnectorLive = Boolean(
+        isLocalDbFresh ||
+        (this.lastConnectorSuccess &&
+        typeof this.healthState.connectorHeartbeatAgeMs === 'number' &&
+        this.healthState.connectorHeartbeatAgeMs < 15000)
+      );
+
       const relayData = await this.queryRemoteRelayHealth();
       if (relayData && relayData.success) {
         this.healthState.remoteRelay = relayData.connected ? "ONLINE" : "DEGRADED";
-        this.healthState.connectorAgent = relayData.connected ? "ONLINE" : "SYNCING";
+        this.healthState.connectorAgent = (relayData.connected || isConnectorLive) ? "ONLINE" : "SYNCING";
         this.healthState.remoteRelayHeartbeatAgeMs = relayData.heartbeatAgeMs ?? null;
       } else {
         this.healthState.remoteRelay = "DEGRADED";
-        this.healthState.connectorAgent = this.connectorProcess ? "SYNCING" : "OFFLINE";
+        this.healthState.connectorAgent = isConnectorLive ? "ONLINE" : (this.connectorProcess ? "SYNCING" : "OFFLINE");
       }
 
       const isFresh = typeof this.healthState.brokerQuoteAgeMs === "number" && this.healthState.brokerQuoteAgeMs < 5000;
@@ -377,9 +457,33 @@ class ConnectivitySupervisor {
     this.httpServer = http.createServer((req, res) => {
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Access-Control-Allow-Origin", "*");
-      if (req.url === "/health" || req.url === "/api/status" || req.url === "/") {
+      const parsedUrl = new URL(req.url, "http://127.0.0.1:" + SUPERVISOR_PORT);
+      const pathname = parsedUrl.pathname;
+
+      if (pathname === "/health" || pathname === "/api/status" || pathname === "/") {
         res.writeHead(200);
         res.end(JSON.stringify(this.healthState, null, 2));
+      } else if (pathname === "/telemetry/quotes") {
+        if (this.localRepo && this.localRepo.isHealthy()) {
+          const quotes = this.localRepo.getAllQuotes();
+          res.writeHead(200);
+          res.end(JSON.stringify({ success: true, count: Object.keys(quotes).length, quotes }, null, 2));
+        } else {
+          res.writeHead(503);
+          res.end(JSON.stringify({ success: false, error: "LOCAL_DATABASE_UNAVAILABLE" }));
+        }
+      } else if (pathname === "/telemetry/candles") {
+        const symbol = parsedUrl.searchParams.get("symbol") || "XAUUSD";
+        const timeframe = parsedUrl.searchParams.get("timeframe") || "M15";
+        const limit = parseInt(parsedUrl.searchParams.get("limit") || "50", 10);
+        if (this.localRepo && this.localRepo.isHealthy()) {
+          const candles = this.localRepo.getCandles(symbol, timeframe, limit);
+          res.writeHead(200);
+          res.end(JSON.stringify({ success: true, symbol, timeframe, count: candles.length, candles }, null, 2));
+        } else {
+          res.writeHead(503);
+          res.end(JSON.stringify({ success: false, error: "LOCAL_DATABASE_UNAVAILABLE" }));
+        }
       } else {
         res.writeHead(404);
         res.end(JSON.stringify({ error: "Not found" }));
@@ -401,6 +505,8 @@ class ConnectivitySupervisor {
     log("INFO", "================================================");
 
     try { fs.writeFileSync(PID_FILE, String(process.pid)); } catch {}
+
+    this.startStatusServer();
 
     // Provision active device credential into local MT5 sandbox
     try {
@@ -463,6 +569,11 @@ class ConnectivitySupervisor {
     if (this.bridgeProcess) {
       log("INFO", "Stopping MT5 HTTP Bridge Service...");
       try { this.bridgeProcess.kill("SIGTERM"); } catch {}
+    }
+
+    if (this.localRepo) {
+      try { this.localRepo.close(); } catch {}
+      this.localRepo = null;
     }
 
     try {
