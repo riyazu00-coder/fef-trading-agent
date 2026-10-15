@@ -39,6 +39,8 @@ async function dispatchCommand(action: BridgeCommand, params?: any, symbol?: str
   return { ...tcpRes, transport: 'TCP SOCKET (LEGACY)' };
 }
 
+import { enrichTelemetryWithLocalMarketData } from '@/lib/bridge/local-telemetry-enricher';
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const rawAction = searchParams.get('action') || 'PING';
@@ -54,13 +56,17 @@ export async function GET(req: NextRequest) {
 
   // Dedicated status query for detailed telemetry & heartbeat age
   if (rawAction.toUpperCase() === 'STATUS' || rawAction.toUpperCase() === 'TELEMETRY') {
-    // 1. Prioritize Canonical HTTP Bridge V1 (:5556)
-    if (isV1Online && status) {
-      if (Array.isArray(status.symbols) && status.symbols.length > 0) {
-        symbolDirectory.discoverFromBrokerSymbols(status.symbols);
+    const enriched = await enrichTelemetryWithLocalMarketData(status);
+    const effectiveStatus = enriched || status;
+    const isLocalOnline = Boolean(effectiveStatus && effectiveStatus.localDatabase === 'ONLINE');
+
+    // 1. Prioritize Canonical HTTP Bridge V1 (:5556) or Local SQLite Telemetry
+    if ((isV1Online || isLocalOnline) && effectiveStatus) {
+      if (Array.isArray(effectiveStatus.symbols) && effectiveStatus.symbols.length > 0) {
+        symbolDirectory.discoverFromBrokerSymbols(effectiveStatus.symbols);
       }
       return NextResponse.json({
-        ...status,
+        ...effectiveStatus,
         resolvedMap: symbolDirectory.getResolvedMap()
       });
     }
@@ -74,7 +80,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      ...status,
+      ...effectiveStatus,
       resolvedMap: symbolDirectory.getResolvedMap()
     });
   }
@@ -123,6 +129,21 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(res);
       }
       case 'GET_SYMBOLS': {
+        try {
+          const { getLocalMarketDataProvider } = await import('@/lib/providers/local-market-data-provider');
+          const localProvider = getLocalMarketDataProvider();
+          const localSymbols = await localProvider.getAvailableSymbols();
+          if (localSymbols && localSymbols.length > 0) {
+            symbolDirectory.discoverFromBrokerSymbols(localSymbols);
+            return NextResponse.json({
+              success: true,
+              data: { symbols: localSymbols },
+              resolvedMap: symbolDirectory.getResolvedMap(),
+              storage: 'LOCAL_SQLITE',
+              timestamp: Date.now(),
+            });
+          }
+        } catch {}
         if (isV2Connected && v2Telemetry) {
           const syms = Object.keys(v2Telemetry.allQuotes);
           return NextResponse.json({
@@ -157,6 +178,19 @@ export async function GET(req: NextRequest) {
             { status: 400 }
           );
         }
+        try {
+          const { getLocalMarketDataProvider } = await import('@/lib/providers/local-market-data-provider');
+          const localProvider = getLocalMarketDataProvider();
+          const localQuote = await localProvider.getLatestQuote(symbol);
+          if (localQuote) {
+            return NextResponse.json({
+              success: true,
+              data: localQuote,
+              storage: 'LOCAL_SQLITE',
+              timestamp: Date.now(),
+            });
+          }
+        } catch {}
         if (isV2Connected && v2Telemetry && v2Telemetry.allQuotes[symbol.toUpperCase()]) {
           return NextResponse.json({
             success: true,

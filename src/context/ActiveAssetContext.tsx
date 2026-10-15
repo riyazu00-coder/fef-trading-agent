@@ -427,6 +427,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (connEval.isMt5Connected) {
         const nowMs = Date.now();
         const quotes: Record<string, any> = mt5Data?.quotes || {};
+        const isLocalMode = mt5Data?.storageMode === 'LOCAL' || mt5Data?.localDatabase === 'ONLINE';
         quotesCount = Object.keys(quotes).length;
 
         for (const [symKey, baseAsset] of Object.entries(workingAssets)) {
@@ -493,21 +494,45 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 high24h: verifiedHigh,
                 low24h: verifiedLow,
                 change24h: verifiedHigh > 0 ? verifiedChange : baseAsset.change24h,
-                source: 'MT5 Broker',
+                source: isLocalMode ? 'MT5 Broker (Local SQLite)' : 'MT5 Broker',
                 provider: resolvedBroker,
-                feedStatus: freshness.isDisplayLive ? 'LIVE' : 'FALLBACK',
+                feedStatus: (quote.freshness === 'FRESH' || freshness.isDisplayLive) ? 'LIVE' : (quote.freshness === 'STALE' ? 'STALE' : 'FALLBACK'),
                 referencePrice: baseAsset.referencePrice || baseAsset.price,
                 referenceProvider: baseAsset.provider || 'TradingView Spot',
-                lastUpdated: freshness.statusLabel
+                lastUpdated: quote.freshness || freshness.statusLabel
               };
             } else {
-              // Quote > 30s: Exceeded display tolerance, preserve reference price as primary
-              workingAssets[symKey] = {
-                ...baseAsset,
-                feedStatus: 'FALLBACK',
-                lastUpdated: `Ref Fallback (${freshness.statusLabel})`
-              };
+              // Quote > 30s: Exceeded display tolerance
+              if (isLocalMode) {
+                workingAssets[symKey] = {
+                  ...baseAsset,
+                  feedStatus: 'DATA LIMITED',
+                  source: 'MT5 Broker (Local SQLite)',
+                  provider: resolvedBroker,
+                  lastUpdated: `Stale (${freshness.statusLabel})`
+                };
+              } else {
+                workingAssets[symKey] = {
+                  ...baseAsset,
+                  feedStatus: 'FALLBACK',
+                  lastUpdated: `Ref Fallback (${freshness.statusLabel})`
+                };
+              }
             }
+          } else if (isLocalMode) {
+            // Missing/unsupported broker asset in local mode (e.g. GER40) -> strictly UNAVAILABLE, zero public fallback
+            workingAssets[symKey] = {
+              ...baseAsset,
+              price: 0,
+              bid: 0,
+              ask: 0,
+              spread: 0,
+              source: 'MT5 Broker (Local SQLite)',
+              provider: 'UNAVAILABLE',
+              feedStatus: 'OFFLINE',
+              classification: 'UNAVAILABLE',
+              lastUpdated: 'UNAVAILABLE'
+            };
           }
         }
       }

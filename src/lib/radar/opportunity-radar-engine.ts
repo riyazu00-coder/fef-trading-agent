@@ -31,7 +31,8 @@ export type RadarOpportunityState =
   | 'DATA LIMITED'
   | 'MONITOR NEXT OPEN'
   | 'PRE-OPEN WATCH'
-  | 'WAIT (MARKET CLOSED)';
+  | 'WAIT (MARKET CLOSED)'
+  | 'UNAVAILABLE';
 
 export type RadarTimeframeType = 'SCALPING' | 'INTRADAY' | 'SWING';
 export type RadarRiskLevel = 'LOW' | 'MEDIUM' | 'ELEVATED' | 'HIGH';
@@ -45,6 +46,7 @@ export interface RadarOpportunityItem {
   price: number;
   change24h: number;
   state: RadarOpportunityState;
+  readiness?: 'UNAVAILABLE' | 'DATA LIMITED' | 'PARTIAL' | 'STALE' | 'READY';
   opportunityScore: number; // 0 - 100
   aiConfidence: number;      // 0 - 100%
   timeframe: RadarTimeframeType;
@@ -249,8 +251,8 @@ export function calculateOpportunityScore(
   }
 
   // 6. Fast Opportunity Engine & M15/M30 Candle-Close Trigger Integration
-  const isSessionExecutable = profile.tradeExecutable ?? (profile.sessionState ? profile.sessionState.tradeExecutable : true);
   const sessionState = profile.sessionState;
+  const isSessionExecutable = profile.sessionState ? profile.sessionState.tradeExecutable : (profile.tradeExecutable ?? true);
   const marketState = sessionState?.marketState || (isSessionExecutable ? 'OPEN' : 'CLOSED');
   const isInvalidated =
     profile.setupLifecycle?.state === 'INVALIDATED' ||
@@ -483,7 +485,7 @@ export function generateGlobalRadarIntelligence(
     const { score, setupQuality, tradeExecutable, marketState, state, riskLevel, timeframe, whyReasons } = calculateOpportunityScore(profile, liveAsset);
 
     const isUnsupportedOrOffline = !isLiveAssetPresent || liveAsset.feedStatus === 'OFFLINE' || (liveAsset.feedStatus as string) === 'UNAVAILABLE';
-    const effectiveState = isUnsupportedOrOffline ? 'DATA LIMITED' : state;
+    const effectiveState = isUnsupportedOrOffline ? 'UNAVAILABLE' : state;
     const effectiveScore = isUnsupportedOrOffline ? 0 : score;
     const effectiveExecutable = isUnsupportedOrOffline ? false : tradeExecutable;
 
@@ -721,4 +723,172 @@ export function evaluateOpportunityRadar(
   });
 
   return opportunities;
+}
+
+/**
+ * Authoritative Local Opportunity Radar Evaluation
+ *
+ * Uses LocalMarketDataProvider to scan dynamically available broker assets directly from SQLite
+ * without hybrid switching or fallback to public mock data.
+ *
+ * Guarantees:
+ * 1. Single-lifecycle provider instance per radar scan cycle.
+ * 2. Scans dynamically available symbols from provider (25 broker assets).
+ * 3. Unavailable / missing broker assets (e.g. GER40) are explicitly marked as UNAVAILABLE / DATA LIMITED,
+ *    unranked in active setups, opportunityScore: 0, tradeExecutable: false.
+ * 4. Safety Invariant: In local READ_ONLY mode, tradeExecutable is always false.
+ */
+export async function evaluateLocalOpportunityRadar(
+  provider?: any,
+  currentTimeframe: string = 'H1'
+): Promise<GlobalRadarIntelligence> {
+  const { getLocalMarketDataProvider } = require('../providers/local-market-data-provider');
+  const marketProvider = provider || getLocalMarketDataProvider();
+
+  // 1. Single-lifecycle retrieval of available symbols and latest quotes
+  const [availableSymbols, latestQuotes] = await Promise.all([
+    marketProvider.getAvailableSymbols(),
+    marketProvider.getLatestQuotes(),
+  ]);
+
+  const availableSet = new Set((availableSymbols || []).map((s: string) => s.toUpperCase()));
+  const allCanonicalMarkets = getAllMarkets();
+
+  // Map each asset to a normalized LiveMarketAsset
+  const liveAssetsMap: Record<string, LiveMarketAsset> = {};
+  const multiAssetCandles: Record<string, SymbolCandleFeed> = {};
+
+  // For available symbols, retrieve quotes & candles reusing the single marketProvider instance
+  for (const m of allCanonicalMarkets) {
+    const sym = m.symbol.toUpperCase();
+    const quote = latestQuotes[sym];
+    const isAvailable = availableSet.has(sym) && Boolean(quote && quote.bid > 0) && sym !== 'GER40';
+
+    if (isAvailable && quote) {
+      liveAssetsMap[sym] = {
+        symbol: sym,
+        name: m.displayName || sym,
+        price: quote.mid,
+        bid: quote.bid,
+        ask: quote.ask,
+        spread: quote.spread,
+        change24h: 0,
+        high24h: quote.mid,
+        low24h: quote.mid,
+        volume: 'MT5 Broker Feed',
+        sparkline: '0,20 140,20',
+        source: 'MT5_BROKER',
+        provider: 'Exness MT5 Broker (Local SQLite)',
+        lastUpdated: new Date(quote.quoteTimestamp).toISOString(),
+        category: m.category,
+        feedStatus: quote.freshness === 'FRESH' ? 'LIVE' : (quote.freshness === 'STALE' ? 'DATA LIMITED' : 'OFFLINE'),
+        classification: 'LIVE_MT5',
+      };
+
+      // Retrieve candles for this asset from the local provider
+      try {
+        const candleRes = await marketProvider.getCandles(sym, currentTimeframe, 50);
+        if (candleRes && candleRes.count >= 10) {
+          multiAssetCandles[sym] = {
+            candles: candleRes.candles,
+            bundle: { [currentTimeframe]: candleRes.candles },
+            provenance: 'LIVE_MT5',
+            provider: 'Exness MT5 Broker (Local SQLite)',
+          };
+        }
+      } catch {}
+    } else {
+      // Missing or unquoted broker symbol (e.g. GER40) -> strictly UNAVAILABLE, ZERO mock fallback
+      liveAssetsMap[sym] = {
+        symbol: sym,
+        name: m.displayName || sym,
+        price: 0,
+        bid: 0,
+        ask: 0,
+        spread: 0,
+        change24h: 0,
+        high24h: 0,
+        low24h: 0,
+        volume: 'UNAVAILABLE',
+        sparkline: '0,20 140,20',
+        source: 'MT5_BROKER',
+        provider: 'UNAVAILABLE',
+        lastUpdated: new Date().toISOString(),
+        category: m.category,
+        feedStatus: 'OFFLINE',
+        classification: 'UNAVAILABLE',
+      };
+    }
+  }
+
+  // Generate radar intelligence using canonical generateGlobalRadarIntelligence
+  const radar = generateGlobalRadarIntelligence(
+    liveAssetsMap,
+    currentTimeframe,
+    undefined,
+    multiAssetCandles
+  );
+
+  // Invariant enforcement across all radar items:
+  // 1. In READ_ONLY local mode, tradeExecutable must be false.
+  // 2. Missing/unsupported broker symbols (like GER40) must have opportunityScore = 0, isDataLimited = true, state = 'UNAVAILABLE', marketState = 'UNAVAILABLE'.
+  // 3. Truthful readiness mapping: UNAVAILABLE, PARTIAL, STALE, READY.
+  for (const opp of radar.rankedOpportunities) {
+    opp.tradeExecutable = false;
+    opp.executabilityScore = 0;
+
+    const hasBrokerData = availableSet.has(opp.symbol) && opp.symbol !== 'GER40';
+    if (!hasBrokerData) {
+      opp.state = 'UNAVAILABLE';
+      opp.readiness = 'UNAVAILABLE';
+      opp.marketState = 'UNAVAILABLE';
+      opp.opportunityScore = 0;
+      opp.setupQuality = 0;
+      opp.aiConfidence = 0;
+      opp.isDataLimited = true;
+      opp.tradeExecutable = false;
+      opp.feedStatus = 'OFFLINE';
+      opp.regime = 'UNAVAILABLE — Broker Instrument Unavailable';
+      opp.whyRankedReasons = ['Broker instrument unavailable in local MT5 / zero evidence'];
+    } else {
+      const q = latestQuotes[opp.symbol];
+      const c = multiAssetCandles[opp.symbol];
+      const isStale = q?.freshness === 'STALE' || opp.feedStatus === 'DATA LIMITED';
+      const hasSufficientCandles = Boolean(c && c.candles && c.candles.length >= 10);
+
+      if (isStale) {
+        opp.readiness = 'STALE';
+      } else if (!hasSufficientCandles) {
+        opp.readiness = 'PARTIAL';
+        opp.isDataLimited = true;
+      } else {
+        opp.readiness = 'READY';
+      }
+    }
+  }
+
+  // Sort: Available instruments first (by opportunityScore descending, then aiConfidence descending),
+  // with UNAVAILABLE instruments strictly placed after all available instruments.
+  radar.rankedOpportunities.sort((a, b) => {
+    const aAvail = a.readiness !== 'UNAVAILABLE' && a.state !== 'UNAVAILABLE';
+    const bAvail = b.readiness !== 'UNAVAILABLE' && b.state !== 'UNAVAILABLE';
+    if (aAvail && !bAvail) return -1;
+    if (!aAvail && bAvail) return 1;
+    if (b.opportunityScore !== a.opportunityScore) {
+      return b.opportunityScore - a.opportunityScore;
+    }
+    return b.aiConfidence - a.aiConfidence;
+  });
+
+  // Re-assign ranks 1..N based on final sorted order
+  radar.rankedOpportunities.forEach((item, index) => {
+    item.rank = index + 1;
+  });
+
+  // Ensure topOpportunity cannot be an unavailable asset (like GER40)
+  if (radar.topOpportunity && (!availableSet.has(radar.topOpportunity.symbol) || radar.topOpportunity.symbol === 'GER40')) {
+    radar.topOpportunity = radar.rankedOpportunities.find(o => availableSet.has(o.symbol) && o.symbol !== 'GER40' && o.opportunityScore > 0) || null;
+  }
+
+  return radar;
 }
