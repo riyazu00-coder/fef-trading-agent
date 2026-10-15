@@ -34,7 +34,8 @@ class LocalTelemetryRepository {
    * @param {boolean} [options.readonly] - Open in read-only mode if supported
    */
   constructor(options = {}) {
-    this.dbPath = options.dbPath || process.env.FEF_SQLITE_DB_PATH || DEFAULT_DB_PATH;
+    const customPath = typeof options === 'string' ? options : (options && options.dbPath);
+    this.dbPath = customPath || process.env.FEF_SQLITE_DB_PATH || DEFAULT_DB_PATH;
     this.isMemory = this.dbPath === ':memory:';
     this.db = null;
     this.statements = {};
@@ -66,31 +67,40 @@ class LocalTelemetryRepository {
   init() {
     if (this.isInitialized && this.db) return;
 
-    this.ensureDirectories();
+    try {
+      this.ensureDirectories();
 
-    const fileExisted = !this.isMemory && fs.existsSync(this.dbPath);
-    this.db = new DatabaseSync(this.dbPath);
+      const fileExisted = !this.isMemory && fs.existsSync(this.dbPath);
+      this.db = new DatabaseSync(this.dbPath);
 
-    // If new file created on disk, enforce 0600 permissions
-    if (!this.isMemory && !fileExisted && fs.existsSync(this.dbPath)) {
-      try { fs.chmodSync(this.dbPath, 0o600); } catch {}
+      // If new file created on disk, enforce 0600 permissions
+      if (!this.isMemory && !fileExisted && fs.existsSync(this.dbPath)) {
+        try { fs.chmodSync(this.dbPath, 0o600); } catch {}
+      }
+
+      // Apply performance & durability PRAGMAs
+      this.db.exec(`
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        PRAGMA foreign_keys = ON;
+        PRAGMA busy_timeout = 5000;
+      `);
+
+      // Run migrations
+      this.migrate();
+
+      // Prepare statements for high efficiency
+      this.prepareStatements();
+
+      this.isInitialized = true;
+    } catch (err) {
+      this.isInitialized = false;
+      this.initError = err.message;
+      if (this.db) {
+        try { this.db.close(); } catch {}
+        this.db = null;
+      }
     }
-
-    // Apply performance & durability PRAGMAs
-    this.db.exec(`
-      PRAGMA journal_mode = WAL;
-      PRAGMA synchronous = NORMAL;
-      PRAGMA foreign_keys = ON;
-      PRAGMA busy_timeout = 5000;
-    `);
-
-    // Run migrations
-    this.migrate();
-
-    // Prepare statements for high efficiency
-    this.prepareStatements();
-
-    this.isInitialized = true;
   }
 
   /**

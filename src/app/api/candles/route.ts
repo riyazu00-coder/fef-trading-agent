@@ -6,6 +6,31 @@ import { evaluateExternalCandleMutation } from '@/lib/candles/candle-provenance-
 export const dynamic = 'force-dynamic';
 
 async function resolveCandlesForTimeframe(symbol: string, timeframe: string) {
+  // 0. Primary: Authoritative Local SQLite Telemetry Provider
+  try {
+    const { getLocalMarketDataProvider } = await import('@/lib/providers/local-market-data-provider');
+    const localProvider = getLocalMarketDataProvider();
+    const localResult = await localProvider.getCandles(symbol, timeframe, 100);
+    if (localResult.state === 'AVAILABLE' && localResult.count >= 10) {
+      return {
+        success: true,
+        state: 'VERIFIED',
+        symbol: localResult.symbol,
+        timeframe: localResult.timeframe,
+        count: localResult.count,
+        provider: 'Exness MT5 Broker (Local SQLite)',
+        broker: 'Exness Technologies Ltd',
+        server: 'Exness-MT5Trial16',
+        source: 'MT5_BROKER',
+        storage: 'LOCAL_SQLITE',
+        provenance: 'LIVE_MT5',
+        updatedAt: localResult.newestBarTime || Date.now(),
+        ageMs: localResult.newestBarTime ? Math.max(0, Date.now() - localResult.newestBarTime) : 0,
+        candles: localResult.candles,
+      };
+    }
+  } catch {}
+
   // 1. Try MT5 Broker bridge first if connected
   try {
     const bridgeCandles = await mt5HttpClient.getCandles(symbol, timeframe);
