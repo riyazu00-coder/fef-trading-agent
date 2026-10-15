@@ -153,7 +153,7 @@ export default function AgentsDirectoryPage() {
       confidence: sentinelSpec?.confidence ?? 0,
       status: (sentinelSpec?.readiness === 'READY' ? 'ONLINE' : 'DATA LIMITED') as any,
       lastOpinion: sentinelSpec?.primaryThesis || `Zero feed latency detected. Feed integrity verified for ${activeSymbol}.`,
-      evidence: sentinelSpec?.evidence.map((e) => e.claim) || ['Feed integrity: 0 payload anomalies', 'Provider Health verified'],
+      evidence: sentinelSpec?.evidence.map((e: any) => e.claim) || ['Feed integrity: 0 payload anomalies', 'Provider Health verified'],
       keyRisk: sentinelSpec?.keyRisk || 'Broker disconnect',
       invalidation: sentinelSpec?.invalidation || 'Latency > 250ms',
       id: 'spec-sentinel',
@@ -165,7 +165,7 @@ export default function AgentsDirectoryPage() {
       evidenceTrustScore: sentinelSpec?.evidenceTrust ?? 0,
       systemMandate: 'Verify broker socket ticks, payload structure, staleness limits, and provider health continuously.',
       telemetry: { memoryMb: 128, tokensPerSec: 0, sampleCount: 84200, uptime: '100.00%' },
-      availableInputs: sentinelSpec?.evidence.map((e) => e.claim) || ['Broker Quote Stream', 'Transport Ping'],
+      availableInputs: sentinelSpec?.evidence.map((e: any) => e.claim) || ['Broker Quote Stream', 'Transport Ping'],
       missingInputs: sentinelSpec?.missingEvidence || [],
     },
     {

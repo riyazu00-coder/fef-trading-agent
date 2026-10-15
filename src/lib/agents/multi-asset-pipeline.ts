@@ -146,8 +146,17 @@ export interface AssetIntelligenceProfile {
   crossAssetMatrix?: CrossAssetMatrix | null;
   quantMetrics?: QuantMetricsResult | null;
   historicalAnalogue?: HistoricalAnalogueResult | null;
-  dataSentinel?: UnifiedAgentResponse | null;
   specialistAgents?: UnifiedAgentResponse[];
+  dataSentinel?: UnifiedAgentResponse;
+  // Phase: 32-Agent Evidence Orchestration
+  upstreamAgentCount?: number;
+  registeredAgentCount?: number;
+  readyAgentCount?: number;
+  partialAgentCount?: number;
+  staleAgentCount?: number;
+  dataLimitedAgentCount?: number;
+  notApplicableAgentCount?: number;
+  evidenceBundle?: any | null;
   // M15/M30 Opportunity Recovery & Decision Consistency Additions
   multiTimeframeContext?: MultiTimeframeContext | null;
   triggerEvidence?: CandleCloseTriggerEvidence | null;
@@ -347,7 +356,8 @@ export function generateAssetIntelligence(
   candleProvenance?: EvidenceClassification,
   candleProvider?: string,
   evaluationTime?: Date,
-  feeds?: LiveIntelligenceFeeds
+  feeds?: LiveIntelligenceFeeds,
+  evidenceBundle?: any
 ): AssetIntelligenceProfile {
   const normSymbol = (symbol || 'XAUUSD').toUpperCase();
   const normTf = (timeframe || 'H1').toUpperCase();
@@ -2045,6 +2055,7 @@ export function generateAssetIntelligence(
   }
 
   const trustedCouncilAgents = assembledAgents.filter((a) => {
+    if (a.type === 'FINAL_DECISION') return false; // Exclude synthesizer from upstream trusted count
     if (a.status === 'DATA LIMITED' || a.status === 'OFFLINE' || a.status === 'ERROR') return false;
     if (a.confidence === 0) return false;
     const records = a.evidenceRecords || [];
@@ -2052,7 +2063,7 @@ export function generateAssetIntelligence(
   });
 
   const availableTrustedAgents = trustedCouncilAgents.length;
-  const totalRelevantAgents = assembledAgents.length;
+  const totalRelevantAgents = assembledAgents.filter((a) => a.type !== 'FINAL_DECISION').length;
   const trustedEvidenceRatio = totalRelevantAgents > 0 ? Number((availableTrustedAgents / totalRelevantAgents).toFixed(2)) : 0;
 
   // Family-governed readiness prevents correlated agent multi-counting:
@@ -2154,7 +2165,45 @@ export function generateAssetIntelligence(
     effectiveTradeExecutable = false;
   }
 
-  // 8. Update Final Decision Agent from Confluence consensus
+  // 8. Compute agent readiness breakdown across all 31 upstream unified agents
+  // (FINAL_DECISION is the 32nd synthesizer and is strictly excluded from upstream accounting)
+  let readyAgentCount = 0;
+  let partialAgentCount = 0;
+  let staleAgentCount = 0;
+  let dataLimitedAgentCount = 0;
+  let unavailableAgentCount = 0;
+  let notApplicableAgentCount = 0;
+
+  for (const ag of allUnifiedAgents) {
+    switch (ag.readiness) {
+      case 'READY':
+        readyAgentCount++;
+        break;
+      case 'PARTIAL':
+        partialAgentCount++;
+        break;
+      case 'STALE':
+        staleAgentCount++;
+        break;
+      case 'DATA_LIMITED':
+        dataLimitedAgentCount++;
+        break;
+      case 'UNAVAILABLE':
+        unavailableAgentCount++;
+        break;
+      case 'NOT_APPLICABLE':
+        notApplicableAgentCount++;
+        break;
+      default:
+        dataLimitedAgentCount++;
+        break;
+    }
+  }
+
+  const upstreamAgentCount = allUnifiedAgents.length; // 31 upstream evidence agents
+  const registeredAgentCount = upstreamAgentCount + 1; // 32 registered system agents
+
+  // 8b. Update Final Decision Agent from Confluence consensus
   const finalAgent = assembledAgents.find((a) => a.type === 'FINAL_DECISION');
   if (finalAgent) {
     finalAgent.bias = effectiveSetupDirection.includes('BUY')
@@ -2185,6 +2234,16 @@ export function generateAssetIntelligence(
     } else {
       finalAgent.lastOpinion = `Cortex Confluence: ${effectiveSetupDirection}. Posture: ${confluenceResult.presentationPosture}. Agreement: ${confluenceResult.agreementScore}%, Conflict: ${confluenceResult.conflictScore}%. Evidence Trust: ${confluenceResult.evidenceTrust}%.`;
     }
+
+    finalAgent.evidence = [
+      `Directional Thesis: ${confluenceResult.directionalThesis}`,
+      `Presentation Posture: ${confluenceResult.presentationPosture}`,
+      `Confluence Score: ${confluenceResult.confidence}% (Trust: ${confluenceResult.evidenceTrust}%)`,
+      `Conflict Score: ${confluenceResult.conflictScore}% (${confluenceResult.criticalConflicts.length} conflicts)`,
+      `Agent Swarm Breakdown: ${readyAgentCount} Ready / ${partialAgentCount} Partial / ${staleAgentCount} Stale / ${dataLimitedAgentCount} Data-Limited / ${unavailableAgentCount} Unavailable / ${notApplicableAgentCount} N/A (Total ${upstreamAgentCount} Upstream + 1 Synthesizer = ${registeredAgentCount} Agents)`,
+      `Evidence Completeness: ${evidenceBundle?.completeness?.overallCompleteness ?? Math.round(trustedEvidenceRatio * 100)}%`,
+      `Execution Mode: READ_ONLY (tradeExecutable: false)`
+    ];
   }
 
   const directionalBias: DirectionalBias = effectiveSetupDirection.includes('BUY')
@@ -2464,7 +2523,6 @@ export function generateAssetIntelligence(
     evidenceTrust: consensusTrust.evidenceTrust,
     verifiedAgentCount: consensusTrust.verifiedAgentCount,
     limitedAgentCount: consensusTrust.limitedAgentCount,
-    unavailableAgentCount: consensusTrust.unavailableAgentCount,
     actionabilityState: actionability.actionabilityState,
     blueprint,
     marketStructure,
@@ -2483,5 +2541,15 @@ export function generateAssetIntelligence(
     // Sprint 2B Intelligence Truth Hardening
     dataReadinessSummary,
     waitReason,
+    // Phase: 32-Agent Evidence Orchestration
+    upstreamAgentCount,
+    registeredAgentCount,
+    readyAgentCount,
+    partialAgentCount,
+    staleAgentCount,
+    dataLimitedAgentCount,
+    unavailableAgentCount,
+    notApplicableAgentCount,
+    evidenceBundle: evidenceBundle || null,
   };
 }

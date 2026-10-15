@@ -513,6 +513,17 @@ export class LocalMarketDataProvider {
   }
 
   /**
+   * Get CanonicalEvidenceBundle directly from LocalMarketDataProvider
+   */
+  public async getCanonicalEvidenceBundle(
+    symbol: string,
+    options?: { evaluationTime?: Date; feeds?: any }
+  ): Promise<any> {
+    const { buildCanonicalEvidenceBundle } = require('../evidence/canonical-evidence-bundle');
+    return buildCanonicalEvidenceBundle(this, symbol, options);
+  }
+
+  /**
    * Assembles authoritative local market evidence into a complete AssetIntelligenceProfile
    * for consumption by agent orchestration and decision engines.
    */
@@ -523,6 +534,12 @@ export class LocalMarketDataProvider {
     const canonical = this.toCanonicalSymbol(symbol);
     const quote = await this.getLatestQuote(canonical);
     if (!quote) return null;
+
+    // Build canonical evidence bundle for this asset
+    const { buildCanonicalEvidenceBundle } = require('../evidence/canonical-evidence-bundle');
+    const evidenceBundle = await buildCanonicalEvidenceBundle(this, canonical, {
+      evaluationTime: new Date()
+    });
 
     // Load available timeframes from SQLite
     const bundle: Record<string, OHLCCandle[]> = {};
@@ -575,7 +592,9 @@ export class LocalMarketDataProvider {
       bundle,
       'LIVE_MT5',
       'Exness MT5 Broker (Local SQLite)',
-      new Date()
+      new Date(),
+      undefined,
+      evidenceBundle
     );
   }
 

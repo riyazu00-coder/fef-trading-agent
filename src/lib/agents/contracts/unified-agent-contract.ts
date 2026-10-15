@@ -70,7 +70,7 @@ export interface UnifiedAgentEvidence {
   metadata?: Record<string, unknown>;
 }
 
-export type AgentReadinessState = 'READY' | 'PARTIAL' | 'DATA_LIMITED' | 'UNAVAILABLE';
+export type AgentReadinessState = 'READY' | 'PARTIAL' | 'STALE' | 'DATA_LIMITED' | 'UNAVAILABLE' | 'NOT_APPLICABLE';
 
 export interface UnifiedAgentResponse {
   agentId: string;

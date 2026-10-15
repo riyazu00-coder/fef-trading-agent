@@ -48,6 +48,8 @@ const mapSpecialistToState = (
         return 'ONLINE';
       case 'PARTIAL':
         return 'PROCESSING';
+      case 'STALE':
+      case 'NOT_APPLICABLE':
       case 'DATA_LIMITED':
       case 'UNAVAILABLE':
       default:

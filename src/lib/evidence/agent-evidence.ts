@@ -361,8 +361,9 @@ export interface ConsensusTrustMetrics {
  * Computes Consensus Trust across the 15 Voting Council Members
  */
 export function calculateConsensusTrust(agents: AgentState[]): ConsensusTrustMetrics {
-  // Enforce strictly 15 voting agents
-  const votingAgents = agents.slice(0, 15);
+  // Exclude FINAL_DECISION synthesizer to prevent circularity in upstream consensus
+  const upstreamVotingAgents = agents.filter(a => a.type !== 'FINAL_DECISION');
+  const votingAgents = upstreamVotingAgents.length > 0 ? upstreamVotingAgents.slice(0, 15) : agents.slice(0, 15);
 
   let totalTrust = 0;
   let verifiedAgentCount = 0;
@@ -405,7 +406,7 @@ export function calculateConsensusTrust(agents: AgentState[]): ConsensusTrustMet
     verifiedAgentCount,
     limitedAgentCount,
     unavailableAgentCount,
-    totalVotingAgents: 15
+    totalVotingAgents: votingAgents.length
   };
 }
 
