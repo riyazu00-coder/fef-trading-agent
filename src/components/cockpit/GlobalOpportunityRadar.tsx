@@ -244,6 +244,21 @@ export const GlobalOpportunityRadar: React.FC = () => {
               <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${getStateBadge(topOpp.state)}`}>
                 {topOpp.state}
               </span>
+              {topOpp.decisionV2 && (
+                <span className={`px-2 py-0.5 rounded text-[9.5px] font-mono font-bold border ${
+                  topOpp.decisionV2.maturity === 'VALIDATED_SETUP'
+                    ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/50'
+                    : topOpp.decisionV2.maturity === 'SETUP_FORMING'
+                    ? 'bg-cyan-950/70 text-cyan-300 border-cyan-500/50'
+                    : topOpp.decisionV2.maturity === 'WATCH'
+                    ? 'bg-indigo-950/70 text-indigo-300 border-indigo-500/50'
+                    : topOpp.decisionV2.maturity === 'UNAVAILABLE'
+                    ? 'bg-rose-950/70 text-rose-300 border-rose-500/50'
+                    : 'bg-black/50 text-gray-400 border border-white/10'
+                }`}>
+                  MATURITY: {topOpp.decisionV2.maturity}
+                </span>
+              )}
               <span className="text-xs font-mono text-gray-400 ml-auto">
                 Price: <span className="text-white font-bold">{topOpp.price.toFixed(topOpp.price < 10 ? 4 : 2)}</span>
                 <span className={`ml-1 text-[11px] ${topOpp.change24h >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -251,6 +266,33 @@ export const GlobalOpportunityRadar: React.FC = () => {
                 </span>
               </span>
             </div>
+
+            {/* Decision V2 Metrics Ribbon */}
+            {topOpp.decisionV2 && (
+              <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5 font-mono text-[9.5px]">
+                <span className="text-gray-400">
+                  Decision V2: <strong className="text-purple-300">{topOpp.decisionV2.confidence}%</strong>
+                </span>
+                <span className="text-gray-600">•</span>
+                <span className="text-gray-400">
+                  Completeness: <strong className="text-cyan-300">{topOpp.decisionV2.evidenceCompleteness}%</strong>
+                </span>
+                <span className="text-gray-600">•</span>
+                <span className="text-gray-400">
+                  Domains: <strong className="text-white">{topOpp.decisionV2.independentDomainCount}</strong> active
+                </span>
+                {topOpp.decisionV2.hardVetoes.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded bg-rose-950/70 text-rose-300 border border-rose-500/40 font-bold ml-auto">
+                    ⛔ HARD VETO
+                  </span>
+                )}
+                {topOpp.decisionV2.softVetoes.length > 0 && topOpp.decisionV2.hardVetoes.length === 0 && (
+                  <span className="px-1.5 py-0.2 rounded bg-amber-950/70 text-amber-300 border border-amber-500/40 font-bold ml-auto">
+                    ⚠️ SOFT VETO
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Score vs Confidence Metrics Side-by-Side */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2 bg-black/40 rounded-xl p-3 border border-white/5 font-mono">
@@ -588,6 +630,23 @@ export const GlobalOpportunityRadar: React.FC = () => {
                       </div>
                     </div>
 
+                    {item.decisionV2 && (
+                      <div className="flex items-center justify-between text-[8px] bg-black/40 px-2 py-1 rounded border border-white/5 font-mono">
+                        <span className="text-gray-400">
+                          Maturity: <strong className="text-cyan-300">{item.decisionV2.maturity}</strong>
+                        </span>
+                        <span className="text-gray-400">
+                          Domains: <strong className="text-white">{item.decisionV2.independentDomainCount}</strong> active
+                        </span>
+                        {item.decisionV2.hardVetoes.length > 0 && (
+                          <span className="text-rose-400 font-bold">⛔ HARD VETO</span>
+                        )}
+                        {item.decisionV2.softVetoes.length > 0 && item.decisionV2.hardVetoes.length === 0 && (
+                          <span className="text-amber-400 font-bold">⚠️ SOFT VETO</span>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between pt-1">
                       <div className="flex items-center space-x-1.5">
                         <MarketStatusBadge symbol={item.symbol} size="xs" showCountdown={false} />
@@ -675,9 +734,33 @@ export const GlobalOpportunityRadar: React.FC = () => {
                         <MarketStatusBadge symbol={item.symbol} size="xs" showCountdown={false} />
                       </td>
                       <td className="py-2.5 px-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] border ${getStateBadge(item.state)}`}>
-                          {item.state}
-                        </span>
+                        <div className="flex flex-col space-y-1">
+                          <span className={`px-2 py-0.5 rounded text-[10px] border w-fit ${getStateBadge(item.state)}`}>
+                            {item.state}
+                          </span>
+                          {item.decisionV2 && (
+                            <div className="flex items-center space-x-1">
+                              <span className={`px-1 py-0.2 rounded text-[7.5px] font-bold ${
+                                item.decisionV2.maturity === 'VALIDATED_SETUP'
+                                  ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
+                                  : item.decisionV2.maturity === 'SETUP_FORMING'
+                                  ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-500/40'
+                                  : item.decisionV2.maturity === 'WATCH'
+                                  ? 'bg-indigo-950/60 text-indigo-300 border border-indigo-500/40'
+                                  : item.decisionV2.maturity === 'UNAVAILABLE'
+                                  ? 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
+                                  : 'bg-black/50 text-gray-400 border border-white/10'
+                              }`}>
+                                {item.decisionV2.maturity}
+                              </span>
+                              {item.decisionV2.hardVetoes.length > 0 && (
+                                <span className="px-1 py-0.2 rounded text-[7px] bg-rose-950/70 text-rose-300 border border-rose-500/40 font-bold" title={item.decisionV2.hardVetoes[0].reason}>
+                                  VETO
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2.5 px-3">
                         <div className="flex items-center space-x-2">
@@ -694,14 +777,23 @@ export const GlobalOpportunityRadar: React.FC = () => {
                         <ExecutabilityBadge executable={item.tradeExecutable} score={item.executabilityScore} size="xs" />
                       </td>
                       <td className="py-2.5 px-3">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-purple-300 w-8">{item.aiConfidence}%</span>
-                          <div className="w-14 h-1.5 rounded-full bg-gray-900 overflow-hidden">
-                            <div
-                              className="h-full bg-purple-400"
-                              style={{ width: `${item.aiConfidence}%` }}
-                            />
+                        <div className="flex flex-col">
+                          <div className="flex items-center space-x-2">
+                            <span className="font-bold text-purple-300 w-8">
+                              {item.decisionV2 ? `${item.decisionV2.confidence}%` : `${item.aiConfidence}%`}
+                            </span>
+                            <div className="w-14 h-1.5 rounded-full bg-gray-900 overflow-hidden">
+                              <div
+                                className="h-full bg-purple-400"
+                                style={{ width: `${item.decisionV2 ? item.decisionV2.confidence : item.aiConfidence}%` }}
+                              />
+                            </div>
                           </div>
+                          {item.decisionV2 && (
+                            <span className="text-[7.5px] text-gray-400 mt-0.5">
+                              {item.decisionV2.independentDomainCount} dom • {item.decisionV2.evidenceCompleteness}% comp
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="py-2.5 px-3 text-gray-300">{item.timeframe}</td>

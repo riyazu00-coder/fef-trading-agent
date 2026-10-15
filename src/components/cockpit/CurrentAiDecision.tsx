@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { useMemberAuth } from '@/context/MemberAuthContext';
+import { projectDecisionV2ForUi, DecisionV2UiProjection } from '@/lib/decision/decision-ui-projection';
 
 export const CurrentAiDecision: React.FC = () => {
   const { activeSymbol, assetProfile } = useActiveAsset();
@@ -17,16 +18,41 @@ export const CurrentAiDecision: React.FC = () => {
     setMounted(true);
   }, []);
 
-  const isBuy = assetProfile.setupDirection.includes('BUY');
-  const isSell = assetProfile.setupDirection.includes('SELL');
+  // Canonical Decision Engine V2 UI Projection
+  const decisionV2: DecisionV2UiProjection =
+    assetProfile.decisionV2Projection ||
+    projectDecisionV2ForUi(assetProfile.decisionIntelligenceV2, activeSymbol);
 
-  const isMarketClosed = !assetProfile.tradeExecutable || assetProfile.sessionState?.tradeExecutable === false;
-  const actionability: string | undefined = assetProfile.actionabilityState;
-  const isActionable = actionability === 'ACTIONABLE' && !isMarketClosed;
+  const isUnavailable = activeSymbol === 'GER40' || decisionV2.maturity === 'UNAVAILABLE';
+  const hasHardVeto = Boolean(decisionV2.hardVetoes && decisionV2.hardVetoes.length > 0);
+  const isMarketClosed =
+    decisionV2.marketAvailability === 'CLOSED' ||
+    !assetProfile.tradeExecutable ||
+    assetProfile.sessionState?.tradeExecutable === false;
 
-  const isIntelligenceReady = (assetProfile.confluence?.evidenceTrust ?? assetProfile.evidenceTrust ?? 0) >= 60;
+  const isBuy = decisionV2.bias === 'BULLISH' || assetProfile.setupDirection.includes('BUY');
+  const isSell = decisionV2.bias === 'BEARISH' || assetProfile.setupDirection.includes('SELL');
+
+  const actionability: string | undefined = isUnavailable
+    ? 'UNAVAILABLE'
+    : assetProfile.actionabilityState;
+  const isActionable =
+    !isUnavailable &&
+    !hasHardVeto &&
+    actionability === 'ACTIONABLE' &&
+    !isMarketClosed &&
+    decisionV2.maturity === 'VALIDATED_SETUP' &&
+    decisionV2.tradeExecutable;
+
+  const isIntelligenceReady =
+    decisionV2.evidenceCompleteness >= 60 ||
+    (assetProfile.confluence?.evidenceTrust ?? assetProfile.evidenceTrust ?? 0) >= 60;
   const isExecutionReady = isMt5Connected && telemetry.operatingMode !== 'READ_ONLY';
-  const executionBadgeLabel = isMarketClosed
+  const executionBadgeLabel = isUnavailable
+    ? 'FEED: UNAVAILABLE'
+    : hasHardVeto
+    ? 'VETO: RESTRICTED'
+    : isMarketClosed
     ? 'SESSION: LOCKED'
     : isActionable
     ? isExecutionReady
@@ -41,7 +67,13 @@ export const CurrentAiDecision: React.FC = () => {
   let buttonTitle: string | undefined = 'Trade setup review: Armed with confirmation for direct MT5 execution.';
   let supportingText: string | null = null;
 
-  if (!isAuthenticated && !isMaster && isActionable) {
+  if (isUnavailable) {
+    buttonLabel = 'UNAVAILABLE (FEED MISSING)';
+    buttonIcon = '🔒';
+    buttonStyle = 'bg-rose-950/40 text-rose-400/70 border-rose-500/20 cursor-not-allowed opacity-85';
+    buttonTitle = 'Instrument telemetry unavailable: Broker instrument feed not detected';
+    supportingText = 'Broker telemetry unavailable in MT5 bridge';
+  } else if (!isAuthenticated && !isMaster && isActionable) {
     buttonLabel = 'MEMBER ACCESS REQUIRED';
     buttonIcon = '🔒';
     buttonStyle = 'bg-cyan-950/70 text-cyan-300 border-cyan-500/40 hover:border-cyan-400 cursor-pointer shadow-[0_0_12px_rgba(34,211,238,0.2)]';
@@ -53,12 +85,18 @@ export const CurrentAiDecision: React.FC = () => {
     buttonStyle = 'bg-gray-900/80 text-gray-500 border-white/10 cursor-not-allowed opacity-80';
     buttonTitle = 'Execution locked: market session is closed';
     supportingText = 'Market closed • Revalidates at next open';
+  } else if (hasHardVeto) {
+    buttonLabel = 'EXECUTION VETOED';
+    buttonIcon = '⛔';
+    buttonStyle = 'bg-rose-950/40 text-rose-400/70 border-rose-500/20 cursor-not-allowed opacity-85';
+    buttonTitle = `Execution vetoed: ${decisionV2.hardVetoes[0].reason}`;
+    supportingText = `Hard Veto: ${decisionV2.hardVetoes[0].source} • ${decisionV2.hardVetoes[0].reason}`;
   } else if (actionability === 'ANALYSIS ONLY') {
     buttonLabel = 'ANALYSIS ONLY';
     buttonIcon = '🔒';
     buttonStyle = 'bg-cyan-950/40 text-cyan-400/70 border-cyan-500/20 cursor-not-allowed opacity-85';
-    buttonTitle = `Analysis only: Evidence Trust is ${assetProfile.evidenceTrust ?? 0}% (minimum 60% required)`;
-    supportingText = `Evidence Trust ${assetProfile.evidenceTrust ?? 0}% • 60% required`;
+    buttonTitle = `Analysis only: Evidence Completeness is ${decisionV2.evidenceCompleteness}% (minimum 60% required)`;
+    supportingText = `Evidence Completeness ${decisionV2.evidenceCompleteness}% • 60% required`;
   } else if (actionability === 'RESTRICTED') {
     buttonLabel = 'RESTRICTED';
     buttonIcon = '🔒';
@@ -80,7 +118,7 @@ export const CurrentAiDecision: React.FC = () => {
   }
 
   return (
-    <div className="ghost-glass-panel rounded-2xl p-2.5 sm:p-3 font-mono space-y-2 h-full flex flex-col justify-between">
+    <div className="ghost-glass-panel rounded-2xl p-2.5 sm:p-3 font-mono space-y-2 h-full flex flex-col justify-between overflow-y-auto scrollbar-thin">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
         <div className="flex items-center space-x-1.5">
@@ -110,7 +148,9 @@ export const CurrentAiDecision: React.FC = () => {
         <div className="flex items-center space-x-2.5">
           <div
             className={`w-10 h-10 rounded-full border-2 flex items-center justify-center ${
-              !assetProfile.tradeExecutable
+              isUnavailable
+                ? 'bg-rose-950/40 border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.3)]'
+                : !assetProfile.tradeExecutable || hasHardVeto
                 ? 'bg-amber-950/40 border-amber-500/50 shadow-[0_0_15px_rgba(251,191,36,0.3)]'
                 : isBuy
                 ? 'bg-emerald-500/20 border-[#10B981] shadow-[0_0_15px_rgba(16,185,129,0.5)]'
@@ -120,7 +160,17 @@ export const CurrentAiDecision: React.FC = () => {
             }`}
           >
             <svg
-              className={`w-5 h-5 ${!assetProfile.tradeExecutable ? 'text-amber-300' : isBuy ? 'text-[#34D399]' : isSell ? 'text-[#FB7185]' : 'text-[#FBBF24]'}`}
+              className={`w-5 h-5 ${
+                isUnavailable
+                  ? 'text-rose-400'
+                  : !assetProfile.tradeExecutable || hasHardVeto
+                  ? 'text-amber-300'
+                  : isBuy
+                  ? 'text-[#34D399]'
+                  : isSell
+                  ? 'text-[#FB7185]'
+                  : 'text-[#FBBF24]'
+              }`}
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -129,57 +179,96 @@ export const CurrentAiDecision: React.FC = () => {
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth="2.5"
-                d={!assetProfile.tradeExecutable ? 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' : isBuy ? 'M5 13l4 4L19 7' : isSell ? 'M19 14l-7 7m0 0l-7-7m7 7V3' : 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'}
+                d={
+                  isUnavailable
+                    ? 'M6 18L18 6M6 6l12 12'
+                    : !assetProfile.tradeExecutable || hasHardVeto
+                    ? 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z'
+                    : isBuy
+                    ? 'M5 13l4 4L19 7'
+                    : isSell
+                    ? 'M19 14l-7 7m0 0l-7-7m7 7V3'
+                    : 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'
+                }
               />
             </svg>
           </div>
           <div>
-            <div
-              className={`text-sm sm:text-base font-bold font-sans tracking-wide flex items-center space-x-2 ${
-                !assetProfile.tradeExecutable ? 'text-amber-300' : isBuy ? 'text-[#34D399]' : isSell ? 'text-[#FB7185]' : 'text-[#FBBF24]'
-              }`}
-            >
-              <span>{assetProfile.setupDirection}</span>
-              <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-black/50 text-gray-400 border border-white/10 uppercase">
-                INTELLIGENCE ONLY • NOT AN ORDER
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span
+                className={`px-1.5 py-0.5 rounded text-[8.5px] font-mono font-black border uppercase tracking-wider ${
+                  decisionV2.maturity === 'VALIDATED_SETUP'
+                    ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/50'
+                    : decisionV2.maturity === 'SETUP_FORMING'
+                    ? 'bg-cyan-950/70 text-cyan-300 border-cyan-500/50'
+                    : decisionV2.maturity === 'WATCH'
+                    ? 'bg-indigo-950/70 text-indigo-300 border-indigo-500/50'
+                    : decisionV2.maturity === 'UNAVAILABLE'
+                    ? 'bg-rose-950/70 text-rose-300 border-rose-500/50'
+                    : decisionV2.maturity === 'INVALIDATED'
+                    ? 'bg-rose-950/70 text-rose-300 border-rose-500/50'
+                    : decisionV2.maturity === 'DATA_LIMITED'
+                    ? 'bg-amber-950/70 text-amber-300 border-amber-500/50'
+                    : 'bg-slate-900/70 text-slate-300 border-white/20'
+                }`}
+              >
+                {decisionV2.maturity}
+              </span>
+              <span
+                className={`text-xs sm:text-sm font-bold font-sans tracking-wide ${
+                  decisionV2.bias === 'BULLISH'
+                    ? 'text-[#34D399]'
+                    : decisionV2.bias === 'BEARISH'
+                    ? 'text-[#FB7185]'
+                    : 'text-[#FBBF24]'
+                }`}
+              >
+                BIAS: {decisionV2.bias}
+              </span>
+              <span className="text-[7.5px] font-mono px-1 py-0.2 rounded bg-black/50 text-gray-400 border border-white/10 uppercase">
+                INTELLIGENCE ONLY
               </span>
             </div>
-            <div className="text-[9.5px] font-sans text-[#94A3B8] flex flex-wrap items-center gap-1.5 mt-0.5">
+            <div className="text-[9px] font-sans text-[#94A3B8] flex flex-wrap items-center gap-1 mt-0.5">
               <span>
-                Trust:{' '}
-                <strong className="text-cyan-300 font-mono font-bold">
-                  {assetProfile.confluence?.evidenceTrust ?? assetProfile.evidenceTrust ?? 0}%
-                </strong>
-              </span>
-              <span className="text-gray-600">&bull;</span>
-              <span>
-                Readiness:{' '}
+                Conf:{' '}
                 <strong className="text-purple-300 font-mono font-bold">
-                  {assetProfile.confluence?.dataReadiness ?? 'PARTIAL'}
+                  {decisionV2.confidence}%
                 </strong>
               </span>
               <span className="text-gray-600">&bull;</span>
               <span>
-                Agreement:{' '}
-                <strong className="text-white font-mono font-bold">
-                  {assetProfile.confluence?.agreementScore ?? 0}%
+                Completeness:{' '}
+                <strong className="text-cyan-300 font-mono font-bold">
+                  {decisionV2.evidenceCompleteness}%
                 </strong>
               </span>
               <span className="text-gray-600">&bull;</span>
-              <span className={`text-[8.5px] font-mono px-1.5 py-0.2 rounded border flex items-center space-x-1 ${
-                isExecutionReady && isActionable && !isMarketClosed
-                  ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30'
-                  : isActionable && !isMarketClosed
-                  ? 'bg-cyan-950/40 text-cyan-300 border-cyan-500/30'
-                  : 'bg-black/50 text-gray-400 border-white/10'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${
+              <span>
+                Domains:{' '}
+                <strong className="text-white font-mono font-bold">
+                  {decisionV2.independentDomainCount}
+                </strong>
+              </span>
+              <span className="text-gray-600">&bull;</span>
+              <span
+                className={`text-[8.5px] font-mono px-1 py-0.2 rounded border flex items-center space-x-1 ${
                   isExecutionReady && isActionable && !isMarketClosed
-                    ? 'bg-emerald-400 animate-pulse'
+                    ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30'
                     : isActionable && !isMarketClosed
-                    ? 'bg-cyan-400 animate-pulse'
-                    : 'bg-slate-500'
-                }`} />
+                    ? 'bg-cyan-950/40 text-cyan-300 border-cyan-500/30'
+                    : 'bg-black/50 text-gray-400 border-white/10'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isExecutionReady && isActionable && !isMarketClosed
+                      ? 'bg-emerald-400 animate-pulse'
+                      : isActionable && !isMarketClosed
+                      ? 'bg-cyan-400 animate-pulse'
+                      : 'bg-slate-500'
+                  }`}
+                />
                 <span>● {executionBadgeLabel}</span>
               </span>
             </div>
@@ -190,13 +279,108 @@ export const CurrentAiDecision: React.FC = () => {
         <div className="w-16 h-8">
           <svg className="w-full h-full" viewBox="0 0 60 25">
             <path
-              d={isBuy ? 'M 0 20 L 15 12 L 25 18 L 40 5 L 50 10 L 60 2' : 'M 0 5 L 15 10 L 25 6 L 40 18 L 50 15 L 60 23'}
+              d={
+                isBuy
+                  ? 'M 0 20 L 15 12 L 25 18 L 40 5 L 50 10 L 60 2'
+                  : 'M 0 5 L 15 10 L 25 6 L 40 18 L 50 15 L 60 23'
+              }
               fill="none"
-              stroke={!assetProfile.tradeExecutable ? '#FBBF24' : isBuy ? '#22D3EE' : '#FB7185'}
+              stroke={
+                isUnavailable
+                  ? '#F43F5E'
+                  : !assetProfile.tradeExecutable
+                  ? '#FBBF24'
+                  : isBuy
+                  ? '#22D3EE'
+                  : '#FB7185'
+              }
               strokeWidth="2"
               strokeLinecap="round"
             />
           </svg>
+        </div>
+      </div>
+
+      {/* Decision Engine V2 Explainability & Session Context */}
+      <div className="bg-black/50 p-2 rounded-xl border border-white/10 space-y-1 text-[8.5px] font-mono">
+        <div className="flex items-center justify-between border-b border-white/5 pb-1">
+          <span className="text-cyan-400 font-bold uppercase tracking-wider text-[8px] flex items-center space-x-1">
+            <span>🧠</span>
+            <span>CORTEX DECISION RATIONALE</span>
+          </span>
+          <div className="flex items-center space-x-1 text-[7.5px]">
+            <span className="text-gray-400">SESSION:</span>
+            <span
+              className={`px-1 py-0.2 rounded font-bold ${
+                decisionV2.marketAvailability === 'OPEN'
+                  ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
+                  : decisionV2.marketAvailability === 'CLOSED'
+                  ? 'bg-amber-950/60 text-amber-300 border border-amber-500/40'
+                  : 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
+              }`}
+            >
+              {decisionV2.marketAvailability}
+            </span>
+            <span className="text-gray-500">•</span>
+            <span className="text-gray-300">{decisionV2.sessionModel.replace(/_/g, ' ')}</span>
+            {decisionV2.is24x7 && (
+              <span className="px-1 py-0.2 rounded bg-purple-950/60 text-purple-300 border border-purple-500/40 font-bold ml-0.5">
+                24/7
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Vetoes alerts */}
+        {decisionV2.hardVetoes.length > 0 && (
+          <div className="p-1 rounded bg-rose-950/60 text-rose-300 border border-rose-500/40 text-[8px] flex items-center space-x-1">
+            <span className="font-bold">⛔ HARD VETO:</span>
+            <span className="truncate">
+              {decisionV2.hardVetoes[0].source} — {decisionV2.hardVetoes[0].reason}
+            </span>
+          </div>
+        )}
+        {decisionV2.softVetoes.length > 0 && decisionV2.hardVetoes.length === 0 && (
+          <div className="p-1 rounded bg-amber-950/60 text-amber-300 border border-amber-500/40 text-[8px] flex items-center space-x-1">
+            <span className="font-bold">⚠️ SOFT VETO:</span>
+            <span className="truncate">
+              {decisionV2.softVetoes[0].source} — {decisionV2.softVetoes[0].reason}
+            </span>
+          </div>
+        )}
+
+        {/* Explainability bullets */}
+        <div className="space-y-0.5 text-gray-300 text-[8px]">
+          {isUnavailable ? (
+            <div className="text-rose-400 font-bold">
+              MARKET DATA UNAVAILABLE: Instrument telemetry is not provided by active broker connection.
+            </div>
+          ) : (
+            <>
+              {decisionV2.blockingConditions.length > 0 && (
+                <div className="text-amber-300/90 truncate">
+                  <span className="font-semibold text-amber-400">Why Wait: </span>
+                  <span>{decisionV2.blockingConditions[0]}</span>
+                </div>
+              )}
+              {decisionV2.requirementsToAdvance.length > 0 && (
+                <div className="text-cyan-300/90 truncate">
+                  <span className="font-semibold text-cyan-400">To Advance: </span>
+                  <span>{decisionV2.requirementsToAdvance[0]}</span>
+                </div>
+              )}
+              {decisionV2.supportingDomains.length > 0 && (
+                <div className="text-gray-400 truncate">
+                  <span className="text-gray-500">Supporting: </span>
+                  <span>{decisionV2.supportingDomains.join(', ')}</span>
+                </div>
+              )}
+            </>
+          )}
+          <div className="flex items-center justify-between text-[7px] text-gray-500 pt-0.5 border-t border-white/5 font-mono">
+            <span className="truncate">Snapshot: {decisionV2.snapshotId}</span>
+            <span suppressHydrationWarning className="ml-1 shrink-0">{mounted ? `As of ${new Date(decisionV2.asOf).toLocaleTimeString()}` : ''}</span>
+          </div>
         </div>
       </div>
 
@@ -229,9 +413,17 @@ export const CurrentAiDecision: React.FC = () => {
         </div>
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Market State</span>
-          <span className={`font-mono font-bold ${assetProfile.tradeExecutable ? 'text-emerald-300' : 'text-rose-300'}`}>
-            {assetProfile.sessionState?.statusLabel || 'OPEN'}
-            {!assetProfile.tradeExecutable && assetProfile.sessionState?.nextOpenCountdown && (
+          <span
+            className={`font-mono font-bold ${
+              isUnavailable
+                ? 'text-rose-400'
+                : assetProfile.tradeExecutable
+                ? 'text-emerald-300'
+                : 'text-rose-300'
+            }`}
+          >
+            {isUnavailable ? 'UNAVAILABLE' : assetProfile.sessionState?.statusLabel || 'OPEN'}
+            {!isUnavailable && !assetProfile.tradeExecutable && assetProfile.sessionState?.nextOpenCountdown && (
               <span suppressHydrationWarning className="text-gray-400 font-normal ml-1">
                 {mounted ? `(${assetProfile.sessionState.nextOpenCountdown})` : ''}
               </span>
@@ -240,11 +432,20 @@ export const CurrentAiDecision: React.FC = () => {
         </div>
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Trust Gate</span>
-          <span className={`font-mono font-bold ${
-            assetProfile.actionabilityState === 'ACTIONABLE' ? 'text-emerald-400' :
-            assetProfile.actionabilityState === 'ANALYSIS ONLY' ? 'text-cyan-400' : 'text-amber-400'
-          }`}>
-            {assetProfile.actionabilityState || (assetProfile.tradeExecutable ? 'AVAILABLE' : 'LOCKED')}
+          <span
+            className={`font-mono font-bold ${
+              isUnavailable
+                ? 'text-rose-400'
+                : assetProfile.actionabilityState === 'ACTIONABLE'
+                ? 'text-emerald-400'
+                : assetProfile.actionabilityState === 'ANALYSIS ONLY'
+                ? 'text-cyan-400'
+                : 'text-amber-400'
+            }`}
+          >
+            {isUnavailable
+              ? 'UNAVAILABLE'
+              : assetProfile.actionabilityState || (assetProfile.tradeExecutable ? 'AVAILABLE' : 'LOCKED')}
           </span>
         </div>
       </div>

@@ -89,6 +89,7 @@ import { SetupLifecycleEngine } from '../trading/setup-lifecycle-engine';
 import { SetupLifecycleRecord } from '../trading/setup-lifecycle-types';
 import { FastOpportunityEngine } from '../radar/fast-opportunity-engine';
 import { DecisionEngineV2, DecisionIntelligenceV2 } from '../decision/decision-engine-v2';
+import { projectDecisionV2ForUi, DecisionV2UiProjection } from '../decision/decision-ui-projection';
 
 export type DirectionalBias = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 export type DecisionPosture = 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)' | 'ANALYSIS ONLY' | 'DATA LIMITED';
@@ -160,6 +161,7 @@ export interface AssetIntelligenceProfile {
   evidenceBundle?: any | null;
   // Phase: Decision Engine V2
   decisionIntelligenceV2?: DecisionIntelligenceV2;
+  decisionV2Projection?: DecisionV2UiProjection;
   // M15/M30 Opportunity Recovery & Decision Consistency Additions
   multiTimeframeContext?: MultiTimeframeContext | null;
   triggerEvidence?: CandleCloseTriggerEvidence | null;
@@ -856,55 +858,120 @@ export function generateAssetIntelligence(
           e.epochMs <= nowMs + 3600 * 1000
         );
 
+        // Mathematical spread expansion evaluation against baseline
+        const typicalSpread = marketDef?.typicalSpread;
+        const currentSpreadPrice = (liveAsset && typeof liveAsset.ask === 'number' && typeof liveAsset.bid === 'number' && Number.isFinite(liveAsset.ask) && Number.isFinite(liveAsset.bid))
+          ? Math.max(0, liveAsset.ask - liveAsset.bid)
+          : null;
+        const isZeroSpread = currentSpreadPrice === 0 || (liveAsset && liveAsset.spread === 0);
+
+        // Strict Spread Truth Rule:
+        // Mathematical spread widening is ONLY evidenced when:
+        // 1. Current spread is non-zero
+        // 2. Typical spread baseline is valid and non-zero (> 0)
+        // 3. Current spread exceeds typical spread by >= 2.5x
+        const isSpreadExpanded = !isZeroSpread &&
+          currentSpreadPrice !== null &&
+          typeof typicalSpread === 'number' &&
+          typicalSpread > 0 &&
+          currentSpreadPrice >= typicalSpread * 2.5;
+
+        const spreadEvidence = isZeroSpread
+          ? 'Spread: ZERO (0 pts / identical bid-ask — within normal bounds)'
+          : isSpreadExpanded
+            ? `Spread: EXPANDED (${currentSpreadPrice?.toFixed(marketDef?.decimalPrecision || 4)} vs typical ${typicalSpread?.toFixed(marketDef?.decimalPrecision || 4)})`
+            : `Spread: NORMAL (${currentSpreadPrice !== null ? currentSpreadPrice.toFixed(marketDef?.decimalPrecision || 4) : (liveAsset?.spread !== undefined ? `${liveAsset.spread} pts` : 'TELEMETRY_PENDING')})`;
+
         if (blueprint) {
+          const hasValidSl = Boolean(blueprint.sl && typeof blueprint.sl.price === 'number' && blueprint.sl.price > 0);
+
+          let bias: BiasType = 'NEUTRAL';
+          let status: AgentNodeStatus = 'ONLINE';
+          let keyRisk = 'None (SL armed within 0.50% equity cap)';
+          let lastOpinion = `Structural stop defined at ${blueprint.sl.price}. Risk policy cap is 0.50% equity. Position sizing remains pending validation.`;
+
+          if (highImpactNear) {
+            bias = 'RESTRICTED';
+            status = 'RESTRICTED';
+            keyRisk = `Imminent release ${highImpactNear.title}`;
+            lastOpinion = `Event Risk Lockout: High-impact release "${highImpactNear.title}" in ${Math.round((highImpactNear.epochMs - nowMs) / 60000)}m. Execution eligibility restricted.`;
+          } else if (isSpreadExpanded) {
+            bias = 'CAUTION';
+            status = 'CAUTION';
+            keyRisk = `Abnormal spread expansion (${currentSpreadPrice?.toFixed(marketDef?.decimalPrecision || 4)} vs typical ${typicalSpread?.toFixed(marketDef?.decimalPrecision || 4)})`;
+            lastOpinion = `Risk Guardian Caution: Spread widened to ${currentSpreadPrice?.toFixed(marketDef?.decimalPrecision || 4)} (typical ${typicalSpread?.toFixed(marketDef?.decimalPrecision || 4)}). Execution risk elevated.`;
+          } else if (!hasValidSl) {
+            bias = 'CAUTION';
+            status = 'CAUTION';
+            keyRisk = 'Invalid or missing structural stop loss';
+            lastOpinion = 'Risk Guardian Caution: Blueprint lacks verified structural stop loss.';
+          }
+
           return {
             ...base,
-            bias: highImpactNear ? 'RESTRICTED' : 'CAUTION',
+            bias,
             confidence: 85,
-            status: highImpactNear ? 'RESTRICTED' : 'ONLINE',
-            lastOpinion: highImpactNear
-              ? `Event Risk Lockout: High-impact release "${highImpactNear.title}" in ${Math.round((highImpactNear.epochMs - nowMs) / 60000)}m. Execution eligibility restricted.`
-              : `Structural stop defined at ${blueprint.sl.price}. Risk policy cap is 0.50% equity. Position sizing remains pending validation.`,
+            status,
+            lastOpinion,
             evidence: [
               `Structural SL: ${blueprint.sl.price}`,
               'Risk policy cap: 0.50% equity',
               'Position sizing: PENDING VALIDATION',
+              spreadEvidence,
               highImpactNear
                 ? `Event Risk: ${highImpactNear.title} (${highImpactNear.country}) — ${highImpactNear.scheduledAt}`
-                : 'Economic calendar telemetry unavailable'
+                : 'Economic calendar: NO HIGH-IMPACT EVENT LOCKOUT'
             ],
-            keyRisk: highImpactNear ? `Imminent release ${highImpactNear.title}` : 'Spread widening during volatility',
+            keyRisk,
             invalidation: 'N/A'
           };
         }
+
         if (hasCandles && marketStructure) {
+          let bias: BiasType = 'NEUTRAL';
+          let status: AgentNodeStatus = 'ONLINE';
+          let keyRisk = 'None (Awaiting blueprint validation)';
+          let lastOpinion = `Risk Guardian armed. Maximum risk policy cap is 0.50% equity. Position sizing and execution remain pending a validated blueprint.`;
+
+          if (highImpactNear) {
+            bias = 'RESTRICTED';
+            status = 'RESTRICTED';
+            keyRisk = `Imminent release ${highImpactNear.title}`;
+            lastOpinion = `Risk Guardian armed with event lockout: "${highImpactNear.title}" approaching. Execution eligibility restricted.`;
+          } else if (isSpreadExpanded) {
+            bias = 'CAUTION';
+            status = 'CAUTION';
+            keyRisk = `Abnormal spread expansion (${currentSpreadPrice?.toFixed(marketDef?.decimalPrecision || 4)} vs typical ${typicalSpread?.toFixed(marketDef?.decimalPrecision || 4)})`;
+            lastOpinion = `Risk Guardian Caution: Spread widened to ${currentSpreadPrice?.toFixed(marketDef?.decimalPrecision || 4)} (typical ${typicalSpread?.toFixed(marketDef?.decimalPrecision || 4)}).`;
+          }
+
           return {
             ...base,
-            bias: highImpactNear ? 'RESTRICTED' : 'NEUTRAL',
+            bias,
             confidence: 70,
-            status: highImpactNear ? 'RESTRICTED' : 'ONLINE',
-            lastOpinion: highImpactNear
-              ? `Risk Guardian armed with event lockout: "${highImpactNear.title}" approaching. Execution eligibility restricted.`
-              : `Risk Guardian armed. Maximum risk policy cap is 0.50% equity. Position sizing and execution remain pending a validated blueprint.`,
+            status,
+            lastOpinion,
             evidence: [
               'Mandatory SL policy: ARMED',
               'Risk policy cap: 0.50% equity',
               'Execution state: READ_ONLY / STANDBY',
+              spreadEvidence,
               highImpactNear
                 ? `Event Risk: ${highImpactNear.title} (${highImpactNear.country}) — ${highImpactNear.scheduledAt}`
-                : 'Economic calendar telemetry unavailable'
+                : 'Economic calendar: NO HIGH-IMPACT EVENT LOCKOUT'
             ],
-            keyRisk: highImpactNear ? `Imminent release ${highImpactNear.title}` : 'Slippage during news spikes',
+            keyRisk,
             invalidation: 'N/A'
           };
         }
+
         return {
           ...base,
           bias: 'CAUTION',
           confidence: 0,
           status: 'CAUTION',
           lastOpinion: `Risk Guardian armed. Execution locked until verified structure blueprint exists.`,
-          evidence: ['Blueprint: PENDING'],
+          evidence: ['Blueprint: PENDING', spreadEvidence],
           keyRisk: 'No SL available',
           invalidation: 'N/A'
         };
@@ -2620,5 +2687,6 @@ export function generateAssetIntelligence(
     evidenceBundle: evidenceBundle || null,
     // Phase: Decision Engine V2
     decisionIntelligenceV2: decisionV2Result,
+    decisionV2Projection: projectDecisionV2ForUi(decisionV2Result, normSymbol),
   };
 }

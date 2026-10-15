@@ -18,6 +18,7 @@ import { EvidenceClassification } from '../evidence/agent-evidence';
 import { FastOpportunityEngine, FastOpportunityEvaluation } from './fast-opportunity-engine';
 import { SetupLifecycleEngine } from '../trading/setup-lifecycle-engine';
 import { SetupLifecycleState } from '../trading/setup-lifecycle-types';
+import { DecisionV2UiProjection, projectDecisionV2ForUi } from '../decision/decision-ui-projection';
 
 export type RadarOpportunityState =
   | 'STRONG BUY OPPORTUNITY'
@@ -72,6 +73,7 @@ export interface RadarOpportunityItem {
   feedStatus?: string;
   isDataLimited?: boolean;
   setupLifecycleState?: SetupLifecycleState;
+  decisionV2?: DecisionV2UiProjection;
 }
 
 export interface AttentionQueueItem {
@@ -484,9 +486,15 @@ export function generateGlobalRadarIntelligence(
 
     const { score, setupQuality, tradeExecutable, marketState, state, riskLevel, timeframe, whyReasons } = calculateOpportunityScore(profile, liveAsset);
 
-    const isUnsupportedOrOffline = !isLiveAssetPresent || liveAsset.feedStatus === 'OFFLINE' || (liveAsset.feedStatus as string) === 'UNAVAILABLE';
+    const isUnsupportedOrOffline = sym === 'GER40' || !isLiveAssetPresent || liveAsset.feedStatus === 'OFFLINE' || (liveAsset.feedStatus as string) === 'UNAVAILABLE';
+    const decisionV2Ui = profile.decisionV2Projection || projectDecisionV2ForUi(profile.decisionIntelligenceV2, sym);
+    const hasHardVeto = Boolean(profile.decisionIntelligenceV2?.hardVetoes?.length || decisionV2Ui?.hasHardVeto);
+
     const effectiveState = isUnsupportedOrOffline ? 'UNAVAILABLE' : state;
-    const effectiveScore = isUnsupportedOrOffline ? 0 : score;
+    let effectiveScore = isUnsupportedOrOffline ? 0 : score;
+    if (hasHardVeto && effectiveScore > 15) {
+      effectiveScore = 15;
+    }
     const effectiveExecutable = isUnsupportedOrOffline ? false : tradeExecutable;
 
     return {
@@ -498,7 +506,7 @@ export function generateGlobalRadarIntelligence(
       change24h: liveAsset.change24h,
       state: effectiveState,
       opportunityScore: effectiveScore,
-      setupQuality: isUnsupportedOrOffline ? 0 : setupQuality,
+      setupQuality: isUnsupportedOrOffline ? 0 : (hasHardVeto && setupQuality > 15 ? 15 : setupQuality),
       tradeExecutable: effectiveExecutable,
       executabilityScore: effectiveExecutable ? 100 : 0,
       marketState: isUnsupportedOrOffline ? 'UNAVAILABLE' : marketState,
@@ -521,7 +529,8 @@ export function generateGlobalRadarIntelligence(
       verifiedAgentCount: isUnsupportedOrOffline ? 0 : profile.verifiedAgentCount,
       feedStatus: liveAsset.feedStatus,
       isDataLimited: isUnsupportedOrOffline || liveAsset.feedStatus === 'DATA LIMITED' || liveAsset.feedStatus === 'DEMO' || liveAsset.feedStatus === 'OFFLINE',
-      setupLifecycleState: profile.setupLifecycle?.state || (profile.blueprint ? 'ARMED' : 'FORMING')
+      setupLifecycleState: profile.setupLifecycle?.state || (profile.blueprint ? 'ARMED' : 'FORMING'),
+      decisionV2: decisionV2Ui
     };
   });
 
@@ -742,8 +751,13 @@ export async function evaluateLocalOpportunityRadar(
   provider?: any,
   currentTimeframe: string = 'H1'
 ): Promise<GlobalRadarIntelligence> {
-  const { getLocalMarketDataProvider } = require('../providers/local-market-data-provider');
-  const marketProvider = provider || getLocalMarketDataProvider();
+  let marketProvider = provider;
+  if (!marketProvider && typeof window === 'undefined') {
+    const getMod = () => '../providers/local-market-data-provider';
+    const dynReq = eval('require');
+    const { getLocalMarketDataProvider } = dynReq(getMod());
+    marketProvider = getLocalMarketDataProvider();
+  }
 
   // 1. Single-lifecycle retrieval of available symbols and latest quotes
   const [availableSymbols, latestQuotes] = await Promise.all([
@@ -850,6 +864,7 @@ export async function evaluateLocalOpportunityRadar(
       opp.feedStatus = 'OFFLINE';
       opp.regime = 'UNAVAILABLE — Broker Instrument Unavailable';
       opp.whyRankedReasons = ['Broker instrument unavailable in local MT5 / zero evidence'];
+      opp.decisionV2 = projectDecisionV2ForUi(null, opp.symbol);
     } else {
       const q = latestQuotes[opp.symbol];
       const c = multiAssetCandles[opp.symbol];
