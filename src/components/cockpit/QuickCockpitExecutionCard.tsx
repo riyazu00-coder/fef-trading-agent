@@ -62,9 +62,10 @@ export const QuickCockpitExecutionCard: React.FC = () => {
 
   // Live quotes
   const liveQuote = activeTelemetry?.quote || telemetry.allQuotes[activeSymbol];
-  const currentBid = liveQuote?.bid || activeAsset.price;
-  const currentAsk = liveQuote?.ask || (activeAsset.price + (liveQuote?.spread ? liveQuote.spread * pipSize : 2 * pipSize));
-  const spreadPips = liveQuote?.spread ?? ((currentAsk - currentBid) / pipSize);
+  const hasBrokerQuote = Boolean(isMt5Connected && liveQuote && liveQuote.bid > 0 && liveQuote.ask > 0);
+  const currentBid = hasBrokerQuote ? liveQuote!.bid : activeAsset.price;
+  const currentAsk = hasBrokerQuote ? liveQuote!.ask : activeAsset.price;
+  const spreadPips = hasBrokerQuote ? (liveQuote!.spread ?? ((currentAsk - currentBid) / pipSize)) : null;
 
   // Lot Sizing State
   const [lotSize, setLotSize] = useState<number>(0.10);
@@ -380,7 +381,7 @@ export const QuickCockpitExecutionCard: React.FC = () => {
         <div className="border-x border-white/5 flex flex-col justify-center">
           <span className="text-[9.5px] text-cyan-300 block uppercase font-sans">Spread</span>
           <span className="text-xs font-bold text-cyan-200">
-            {Number.isFinite(spreadPips) ? `${spreadPips.toFixed(1)} pips` : '0.0 pips'}
+            {spreadPips !== null && Number.isFinite(spreadPips) ? `${spreadPips.toFixed(1)} pips` : 'UNAVAILABLE'}
           </span>
         </div>
         <div>

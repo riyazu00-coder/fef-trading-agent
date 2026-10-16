@@ -34,8 +34,8 @@ export interface TimeframeEvidence {
   newestClosedBarTime: number | null;
   ageMs: number | null;
   candles: OHLCCandle[];
-  source: 'MT5_BROKER';
-  storage: 'LOCAL_SQLITE';
+  source: 'MT5_BROKER' | 'REFERENCE_MARKET';
+  storage: 'LOCAL_SQLITE' | 'MEMORY_CACHE';
   trend?: 'BULLISH' | 'BEARISH' | 'RANGING' | 'TRANSITIONAL' | 'UNKNOWN' | 'INSUFFICIENT_DATA';
   role: TimeframeRole;
 }
@@ -118,9 +118,9 @@ export interface CanonicalEvidenceBundle {
   };
 
   provenance: {
-    source: 'MT5_BROKER';
-    storage: 'LOCAL_SQLITE';
-    classification: 'LIVE_MT5' | 'UNAVAILABLE';
+    source: 'MT5_BROKER' | 'REFERENCE_MARKET';
+    storage: 'LOCAL_SQLITE' | 'MEMORY_CACHE';
+    classification: 'LIVE_MT5' | 'INDEPENDENT_VERIFIED' | 'INDEPENDENT_REFERENCE' | 'UNAVAILABLE';
     provider: string;
     isDerived: boolean;
   };

@@ -727,7 +727,10 @@ export class DecisionEngineV2 {
         effect: 'FORCE_WAIT'
       });
       blockingConditions.push(`Data Sentinel critical error: ${dataSentinelOverride.reason || 'Telemetry corruption'}`);
-    } else if (evidenceBundle.market.quoteFreshness === 'STALE' || evidenceBundle.market.quoteAgeMs > 60_000) {
+    } else if (
+      (evidenceBundle.provenance.source === 'MT5_BROKER' || evidenceBundle.provenance.classification === 'LIVE_MT5') &&
+      (evidenceBundle.market.quoteFreshness === 'STALE' || evidenceBundle.market.quoteAgeMs > 60_000)
+    ) {
       hardVetoes.push({
         type: 'HARD_VETO',
         source: 'DATA_SENTINEL',
@@ -736,6 +739,18 @@ export class DecisionEngineV2 {
         effect: 'FORCE_WAIT'
       });
       blockingConditions.push(`Stale quote age (${evidenceBundle.market.quoteAgeMs}ms) violates 60s freshness gate.`);
+    } else if (
+      evidenceBundle.provenance.source === 'REFERENCE_MARKET' &&
+      (evidenceBundle.market.quoteFreshness === 'UNAVAILABLE' || evidenceBundle.market.price <= 0)
+    ) {
+      hardVetoes.push({
+        type: 'HARD_VETO',
+        source: 'DATA_SENTINEL',
+        reason: `Reference market price is unavailable`,
+        severity: 'CRITICAL',
+        effect: 'FORCE_WAIT'
+      });
+      blockingConditions.push(`Reference market price is unavailable.`);
     }
 
     // 3. Market Session Check

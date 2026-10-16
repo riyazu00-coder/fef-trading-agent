@@ -459,6 +459,10 @@ export function generateAssetIntelligence(
     }
   }
 
+  // Truthfully infer from the current asset's verified runtime inputs without claiming global health
+  const isAssetMt5Live = effectiveCandleProvenance === 'LIVE_MT5' || liveAsset?.provider === 'MT5' || liveAsset?.source === 'MT5' || Boolean(liveAsset?.source && liveAsset.source.includes('MT5'));
+  const isReferencePrice = effectiveCandleProvenance === 'INDEPENDENT_VERIFIED' || effectiveCandleProvenance === 'INDEPENDENT_REFERENCE' || Boolean(liveAsset && liveAsset.price > 0 && liveAsset.feedStatus === 'LIVE');
+
   // 3. Trade Blueprint Synthesis from real structure with hysteresis & persistence
   let blueprint: TradeBlueprint | null = null;
   const blueprintCandleSource: BlueprintCandleSource = effectiveCandleProvenance === 'LIVE_MT5'
@@ -1426,7 +1430,7 @@ export function generateAssetIntelligence(
       }
 
       case 'ORDER_FLOW': {
-        if (orderFlowRecord) {
+        if (orderFlowRecord && (isExchangeVol || isAssetMt5Live)) {
           let flowBias: BiasType = 'NEUTRAL';
           let flowOpinion = '';
 
@@ -1472,13 +1476,15 @@ export function generateAssetIntelligence(
           bias: 'NEUTRAL',
           confidence: 0,
           status: 'DATA LIMITED',
-          lastOpinion: 'Awaiting verified candle stream to compute micro-momentum and order flow delta.',
-          evidence: ['Candle feed: PENDING'],
+          lastOpinion: isAssetMt5Live
+            ? 'Awaiting verified candle stream to compute micro-momentum and order flow delta.'
+            : 'Broker tick volume delta is unavailable without active MT5 broker feed.',
+          evidence: [isAssetMt5Live ? 'Candle feed: PENDING' : 'Broker Order Flow: UNAVAILABLE'],
           keyRisk: 'N/A',
           invalidation: 'N/A',
           requiredInputs: ['M1/M5 Verified Candles', 'Tick Volume Delta'],
           availableInputs: [],
-          missingInputs: ['M1/M5 Verified Candles'],
+          missingInputs: [isAssetMt5Live ? 'M1/M5 Verified Candles' : 'Broker Tick Volume Delta'],
           lastRun: new Date().toISOString(),
           freshness: 'OFFLINE',
         };
@@ -1855,15 +1861,13 @@ export function generateAssetIntelligence(
       instrument: normSymbol,
     };
   } else {
-    // Truthfully infer from the current asset's verified runtime inputs without claiming global health
-    const isAssetMt5Live = effectiveCandleProvenance === 'LIVE_MT5' || liveAsset?.provider === 'MT5' || liveAsset?.source === 'MT5';
     const activeProvList: string[] = [];
     const offlineProvList: string[] = [];
 
     if (isAssetMt5Live) {
       activeProvList.push('MT5');
-    } else if (effectiveCandleProvenance === 'INDEPENDENT_VERIFIED') {
-      activeProvList.push(effectiveCandleProvider);
+    } else if (isReferencePrice) {
+      activeProvList.push(effectiveCandleProvider || 'Reference Provider');
       offlineProvList.push('MT5');
     } else {
       offlineProvList.push('MT5');
@@ -1871,6 +1875,9 @@ export function generateAssetIntelligence(
 
     const rawSentinel = evaluateDataSentinelAgent({
       isMt5Online: isAssetMt5Live,
+      isReferenceLive: isReferencePrice,
+      priceAuthority: isAssetMt5Live ? 'MT5_BROKER' : (isReferencePrice ? 'REFERENCE_MARKET' : 'UNAVAILABLE'),
+      priceAuthorityStatus: isAssetMt5Live || isReferencePrice ? 'LIVE' : 'UNAVAILABLE',
       activeProviders: activeProvList,
       offlineProviders: offlineProvList,
       feedAgeMs: quoteTimestampMs ? Math.max(0, evalTimeMs - quoteTimestampMs) : 0,
@@ -1932,6 +1939,7 @@ export function generateAssetIntelligence(
     instrument: normSymbol,
     candles: hasCandles ? analysisCandles : undefined,
     marketStructure,
+    isBrokerConnected: isAssetMt5Live,
   });
 
   const cotPositioningSpecialist = evaluateCotPositioningAgent({
@@ -2207,7 +2215,7 @@ export function generateAssetIntelligence(
 
   const unverifiedDeps: string[] = [];
   if (!hasCandles) unverifiedDeps.push('Verified OHLC Candles');
-  if (!feeds?.sentinel) unverifiedDeps.push('Broker Socket Live Feed');
+  if (!feeds?.sentinel && !isAssetMt5Live && !isReferencePrice) unverifiedDeps.push('Broker Socket Live Feed');
   if (!cachedNews.length) unverifiedDeps.push('Live Newswire Feed');
   if (!cachedSentiment || cachedSentiment.status !== 'AVAILABLE') unverifiedDeps.push('Live Sentiment LSR Feed');
 
@@ -2292,21 +2300,25 @@ export function generateAssetIntelligence(
       bid: liveAsset?.bid ?? p,
       ask: liveAsset?.ask ?? p,
       mid: p,
-      spread: liveAsset?.spread ?? 0,
+      spread: isAssetMt5Live ? (liveAsset?.spread ?? 0) : 0,
       digits: 2,
       quoteTimestamp: evalTimeMs,
-      quoteAgeMs: 0,
-      quoteFreshness: 'FRESH',
+      quoteAgeMs: isAssetMt5Live && quoteTimestampMs ? Math.max(0, evalTimeMs - quoteTimestampMs) : 0,
+      quoteFreshness: isAssetMt5Live
+        ? ((evalTimeMs - (quoteTimestampMs || 0)) <= 30_000 ? 'FRESH' : 'STALE')
+        : (liveAsset && liveAsset.price > 0 ? 'FRESH' : 'UNAVAILABLE'),
       marketState: (sessionState.marketState === 'CLOSED' || sessionState.marketState === 'DAILY_BREAK') ? sessionState.marketState : 'OPEN',
       sessionState: { ...sessionState, tradeExecutable: false },
       tradeExecutable: false,
     },
     provenance: {
-      source: 'MT5_BROKER',
-      storage: 'LOCAL_SQLITE',
-      classification: normSymbol === 'GER40' ? 'UNAVAILABLE' : 'LIVE_MT5',
-      provider: 'MT5_LOCAL_CONNECTOR',
-      isDerived: false,
+      source: isAssetMt5Live ? 'MT5_BROKER' : 'REFERENCE_MARKET',
+      storage: isAssetMt5Live ? 'LOCAL_SQLITE' : 'MEMORY_CACHE',
+      classification: normSymbol === 'GER40'
+        ? 'UNAVAILABLE'
+        : (isAssetMt5Live ? 'LIVE_MT5' : (hasCandles ? 'INDEPENDENT_VERIFIED' : 'UNAVAILABLE')),
+      provider: isAssetMt5Live ? 'MT5_LOCAL_CONNECTOR' : (effectiveCandleProvider || 'REFERENCE_MARKET'),
+      isDerived: !isAssetMt5Live,
     },
     timeframes: {
       M15: { state: hasCandles ? 'AVAILABLE' : 'INSUFFICIENT_DATA', barCount: analysisCandles.length },

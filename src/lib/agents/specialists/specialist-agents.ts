@@ -519,8 +519,11 @@ export function evaluateDataSentinelAgent(inputs: {
   fredHealth?: { status?: string; consecutiveFailures?: number };
   mt5Health?: { isConnected?: boolean };
   priceAuthorityStatus?: string;
+  isReferenceLive?: boolean;
+  priceAuthority?: 'MT5_BROKER' | 'REFERENCE_MARKET' | 'UNAVAILABLE';
 }): UnifiedAgentResponse {
   const isMt5Online = Boolean(inputs?.isMt5Online ?? inputs?.mt5Health?.isConnected ?? false);
+  const isReferenceLive = Boolean(inputs?.isReferenceLive ?? (inputs?.priceAuthority === 'REFERENCE_MARKET' || inputs?.priceAuthorityStatus === 'LIVE'));
   const activeProviders = inputs?.activeProviders || [];
   const offlineProviders = [
     ...(inputs?.offlineProviders || []),
@@ -528,9 +531,12 @@ export function evaluateDataSentinelAgent(inputs: {
     ...(!isMt5Online ? ['MT5'] : []),
   ];
   const feedAgeMs = inputs?.feedAgeMs ?? 0;
-  const isDegraded = offlineProviders.length > 0 || !isMt5Online || inputs?.priceAuthorityStatus === 'ERROR';
+  // A broker being offline during reference market mode is NOT a sentinel error!
+  const hasValidPriceFeed = isMt5Online || isReferenceLive;
+  const isCorrupted = inputs?.priceAuthorityStatus === 'ERROR' || inputs?.fredHealth?.status === 'ERROR';
+  const isDegraded = !hasValidPriceFeed || isCorrupted;
   const isHealthy = !isDegraded;
-  const evidenceTrust = isHealthy ? 100 : 30;
+  const evidenceTrust = isHealthy ? (isMt5Online ? 100 : 85) : 30;
 
   return {
     agentId: 'DATA_SENTINEL',
@@ -539,35 +545,39 @@ export function evaluateDataSentinelAgent(inputs: {
     domainFamily: 'SYSTEM_INTEGRITY',
     instrument: 'XAUUSD',
     direction: 'NEUTRAL',
-    confidence: 95,
+    confidence: isHealthy ? 95 : 50,
     evidenceTrust,
     readiness: isHealthy ? 'READY' : 'DATA_LIMITED',
     primaryThesis: isHealthy
-      ? `All telemetry channels verified. MT5 broker socket online. Active providers: ${activeProviders.join(', ') || 'MT5, FRED'}.`
-      : `Data Sentinel Alert: Degraded telemetry. Offline feeds: ${offlineProviders.join(', ') || 'MT5 Offline'}.`,
+      ? (isMt5Online
+          ? `All telemetry channels verified. MT5 broker socket online. Active providers: ${activeProviders.join(', ') || 'MT5, FRED'}.`
+          : `Reference market integrity verified. Zero payload corruption across feeds. MT5 broker standby.`)
+      : `Data Sentinel Alert: Degraded telemetry. Offline feeds: ${offlineProviders.join(', ') || 'No valid price feed'}.`,
     evidence: [{
       id: 'sentinel-status',
       agentId: 'DATA_SENTINEL',
       domainFamily: 'SYSTEM_INTEGRITY',
       nature: 'DATA',
-      classification: isMt5Online ? 'LIVE_MT5' : 'UNAVAILABLE',
+      classification: isMt5Online ? 'LIVE_MT5' : isReferenceLive ? 'INDEPENDENT_VERIFIED' : 'UNAVAILABLE',
       polarity: 'NEUTRAL',
       strength: 1.0,
       confidence: 100,
-      claim: `Heartbeat age: ${Math.round(feedAgeMs)}ms. Broker telemetry verified without payload corruption.`,
-      source: 'DataHub Health Registry',
-      provider: 'FEF_SYSTEM',
+      claim: isMt5Online
+        ? `Heartbeat age: ${Math.round(feedAgeMs)}ms. Broker telemetry verified without payload corruption.`
+        : `Reference market feeds verified. Broker execution feed in standby.`,
+      source: isMt5Online ? 'DataHub Health Registry' : 'Reference Continuity Registry',
+      provider: isMt5Online ? 'FEF_SYSTEM' : 'FEF_REFERENCE_SENTINEL',
       observedAt: new Date().toISOString(),
       receivedAt: Date.now(),
       freshnessMs: feedAgeMs,
-      isStale: feedAgeMs > 60_000,
+      isStale: feedAgeMs > 60_000 && isMt5Online,
       instrument: 'GLOBAL',
     }],
     conflicts: [],
-    missingEvidence: offlineProviders,
+    missingEvidence: isMt5Online ? offlineProviders.filter(p => p !== 'MT5') : offlineProviders,
     invalidation: 'Feed latency > 250ms or unhandled socket termination',
-    keyRisk: 'Broker disconnection during active market hours',
-    provenanceBadge: isMt5Online ? 'LIVE' : 'UNAVAILABLE',
+    keyRisk: isMt5Online ? 'Broker disconnection during active market hours' : 'Reference market mode: broker execution unavailable',
+    provenanceBadge: isMt5Online ? 'LIVE' : isReferenceLive ? 'INDEPENDENT' : 'UNAVAILABLE',
     generatedAt: Date.now(),
   };
 }
@@ -1421,11 +1431,14 @@ export function evaluateOrderFlowDeltaAgent(inputs: {
   instrument?: string;
   candles?: OHLCCandle[];
   marketStructure?: any;
+  isBrokerConnected?: boolean;
 }): UnifiedAgentResponse {
   const instrument = (inputs.instrument || 'EURUSD').toUpperCase();
   const candles = inputs.candles;
+  const isBroker = inputs.isBrokerConnected ?? false;
+  const hasBrokerTicks = Boolean(isBroker && candles && candles.some(c => typeof c.tickVolume === 'number' && c.tickVolume > 0));
 
-  if (!candles || !Array.isArray(candles) || candles.length < 15) {
+  if (!candles || !Array.isArray(candles) || candles.length < 15 || !hasBrokerTicks) {
     return {
       agentId: 'ORDER_FLOW_DELTA_AGENT',
       agentName: 'Order Flow Delta Specialist',
@@ -1436,13 +1449,15 @@ export function evaluateOrderFlowDeltaAgent(inputs: {
       confidence: 0,
       evidenceTrust: 0,
       readiness: 'DATA_LIMITED',
-      primaryThesis: `Insufficient candles (< 15) to evaluate tick volume delta for ${instrument}.`,
+      primaryThesis: !hasBrokerTicks
+        ? `Broker tick volume delta is unavailable without active MT5 broker feed for ${instrument}.`
+        : `Insufficient candles (< 15) to evaluate tick volume delta for ${instrument}.`,
       evidence: [],
       conflicts: [],
       missingEvidence: ['Minimum 15 closed candles with broker tick volume required'],
       invalidation: 'Insufficient tick data',
       keyRisk: 'Unrecorded volume delta',
-      provenanceBadge: 'UNAVAILABLE',
+      provenanceBadge: 'DATA LIMITED',
       generatedAt: Date.now(),
     };
   }

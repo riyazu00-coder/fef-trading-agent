@@ -17,7 +17,7 @@ import { TradingViewWorkbenchModal } from '@/components/charts/TradingViewWorkbe
 
 export const MasterTopNav: React.FC = () => {
   const pathname = usePathname();
-  const { activeSymbol, activeAsset, assetProfile, allAssets, categoryFilter, setCategoryFilter } = useActiveAsset();
+  const { activeSymbol, activeAsset, assetProfile, allAssets, categoryFilter, setCategoryFilter, isReferenceLive } = useActiveAsset();
   const { telemetry, isMt5Connected } = useMT5Telemetry();
   const { licenseState } = useLicense();
   const { isAuthenticated, isMaster, member } = useMemberAuth();
@@ -341,38 +341,42 @@ export const MasterTopNav: React.FC = () => {
           )}
 
           {/* 2. Data Sentinel System Integrity Badge (Compact / tuck to 2xl so primary badges breathe) */}
-          <Link
-            href="/cockpit#sentinel-deck"
-            className={`hidden 2xl:inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl font-mono text-[9px] border whitespace-nowrap flex-shrink-0 cursor-pointer transition-all ${
-              assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
-                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:border-emerald-400'
-                : telemetry.connectionStatus === 'DEGRADED'
-                ? 'bg-amber-950/40 border-amber-500/40 text-amber-300 hover:border-amber-400'
-                : 'bg-black/40 border-white/10 text-gray-400 hover:border-cyan-400'
-            }`}
-            title={`Data Sentinel: System integrity auditor (${
-              assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected
-                ? 'Healthy Telemetry Stream'
-                : telemetry.connectionStatus === 'DEGRADED'
-                ? 'Degraded Latency'
-                : 'Data Limited'
-            }) • Click to inspect Sentinel Deck`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-              assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
-                ? 'bg-emerald-400 animate-pulse'
-                : telemetry.connectionStatus === 'DEGRADED'
-                ? 'bg-amber-400 animate-pulse'
-                : 'bg-slate-500'
-            }`} />
-            <span className="font-bold tracking-wider">
-              SENTINEL: {assetProfile.dataSentinel?.readiness === 'READY' && isMt5Connected && telemetry.connectionStatus !== 'DEGRADED'
-                ? 'HEALTHY'
-                : telemetry.connectionStatus === 'DEGRADED'
-                ? 'DEGRADED'
-                : 'LIMITED'}
-            </span>
-          </Link>
+          {(() => {
+            const isSentinelReady = assetProfile.dataSentinel?.readiness === 'READY' || assetProfile.dataSentinel?.readiness === 'PARTIAL';
+            const isSentinelHealthy = isSentinelReady && (isMt5Connected || isReferenceLive) && telemetry.connectionStatus !== 'DEGRADED';
+            const sentinelLabel = isSentinelHealthy ? 'HEALTHY' : telemetry.connectionStatus === 'DEGRADED' ? 'DEGRADED' : 'LIMITED';
+
+            return (
+              <Link
+                href="/cockpit#sentinel-deck"
+                className={`hidden 2xl:inline-flex items-center space-x-1 px-1.5 xl:px-2 py-1 rounded-xl font-mono text-[9px] border whitespace-nowrap flex-shrink-0 cursor-pointer transition-all ${
+                  isSentinelHealthy
+                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:border-emerald-400'
+                    : telemetry.connectionStatus === 'DEGRADED'
+                    ? 'bg-amber-950/40 border-amber-500/40 text-amber-300 hover:border-amber-400'
+                    : 'bg-black/40 border-white/10 text-gray-400 hover:border-cyan-400'
+                }`}
+                title={`Data Sentinel: System integrity auditor (${
+                  isSentinelHealthy
+                    ? (isMt5Connected ? 'Healthy Telemetry Stream' : 'Healthy Reference Stream')
+                    : telemetry.connectionStatus === 'DEGRADED'
+                    ? 'Degraded Latency'
+                    : 'Data Limited'
+                }) • Click to inspect Sentinel Deck`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  isSentinelHealthy
+                    ? 'bg-emerald-400 animate-pulse'
+                    : telemetry.connectionStatus === 'DEGRADED'
+                    ? 'bg-amber-400 animate-pulse'
+                    : 'bg-slate-500'
+                }`} />
+                <span className="font-bold tracking-wider">
+                  SENTINEL: {sentinelLabel}
+                </span>
+              </Link>
+            );
+          })()}
 
           {/* 3. Overall Data Readiness Badge */}
           <div

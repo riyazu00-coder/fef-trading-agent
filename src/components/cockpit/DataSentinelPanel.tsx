@@ -5,13 +5,15 @@ import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 
 export const DataSentinelPanel: React.FC = () => {
-  const { activeSymbol, assetProfile, liveFeeds } = useActiveAsset();
+  const { activeSymbol, assetProfile, liveFeeds, isReferenceLive } = useActiveAsset();
   const { isMt5Connected, telemetry } = useMT5Telemetry();
 
   const sentinel = assetProfile.dataSentinel || liveFeeds?.sentinel;
   const providers = liveFeeds?.providerHealth || [];
 
-  const isHealthy = isMt5Connected && (!providers.length || !providers.some((p) => p.status === 'OFFLINE'));
+  const isBrokerHealthy = isMt5Connected && (!providers.length || !providers.some((p) => p.status === 'OFFLINE'));
+  const isRefHealthy = Boolean(isReferenceLive && (!providers.length || !providers.some((p) => p.status === 'OFFLINE')));
+  const isHealthy = isBrokerHealthy || isRefHealthy;
   const statusLabel = isHealthy ? 'HEALTHY' : isMt5Connected ? 'DEGRADED' : 'DATA LIMITED';
 
   return (
@@ -48,7 +50,9 @@ export const DataSentinelPanel: React.FC = () => {
           </span>
           <p className="text-[10.5px] text-gray-200">
             {sentinel?.primaryThesis || (isHealthy
-              ? `All telemetry channels verified. Zero payload corruption across feeds for ${activeSymbol}.`
+              ? (isMt5Connected
+                  ? `All telemetry channels verified. Zero payload corruption across feeds for ${activeSymbol}.`
+                  : `Reference market integrity verified. Zero payload corruption across feeds for ${activeSymbol}. MT5 broker standby.`)
               : `Telemetry operating under constrained data mode. MT5 connection standby.`)}
           </p>
         </div>
