@@ -13,6 +13,7 @@ import {
 } from '@/lib/bridge/connectivity-policy';
 import { analyzeMarketStructure, MarketStructure } from '@/lib/market/market-structure-engine';
 import { evaluateCanonicalDailyStats } from '@/lib/price/canonical-daily-ohlc';
+import { getInstrumentParityProfile } from '@/lib/price/instrument-parity';
 
 export const MarketOverviewCard: React.FC = () => {
   const {
@@ -109,6 +110,8 @@ export const MarketOverviewCard: React.FC = () => {
   const priceDisplay = isForex
     ? `$${activeAsset.price.toFixed(4)}`
     : `$${activeAsset.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+
+  const parityProfile = useMemo(() => getInstrumentParityProfile(activeAsset?.symbol || ''), [activeAsset?.symbol]);
 
   // 1. Authoritative All-Asset Daily OHLC & Invariant Guard
   const d1Candles = useMemo(() => {
@@ -354,9 +357,19 @@ export const MarketOverviewCard: React.FC = () => {
         ) : (
           <div className="pt-1 space-y-1">
             <div className="flex items-center justify-between">
-              <span className="text-[8.5px] bg-cyan-950/40 text-cyan-300/90 border border-cyan-500/30 px-1.5 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                <span>INDEPENDENT REFERENCE FEED ({activeAsset.referenceProvider || activeAsset.provider || (activeAsset as any).source || 'Reference Market'})</span>
+              <span className={`text-[8.5px] px-1.5 py-0.5 rounded font-mono font-bold flex items-center space-x-1 ${
+                parityProfile.parityClassification === 'PROXY_ONLY'
+                  ? 'bg-amber-950/40 text-amber-300/90 border border-amber-500/30'
+                  : 'bg-cyan-950/40 text-cyan-300/90 border border-cyan-500/30'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  parityProfile.parityClassification === 'PROXY_ONLY' ? 'bg-amber-400' : 'bg-cyan-400'
+                } animate-pulse`} />
+                <span>
+                  {parityProfile.parityClassification === 'PROXY_ONLY'
+                    ? `REFERENCE PROXY (${activeAsset.referenceProvider || activeAsset.provider || (activeAsset as any).source || 'Proxy Market'})`
+                    : `INDEPENDENT REFERENCE FEED (${activeAsset.referenceProvider || activeAsset.provider || (activeAsset as any).source || 'Reference Market'})`}
+                </span>
               </span>
               <div className="text-right font-mono">
                 <div className="text-[7.5px] text-gray-400 font-bold uppercase tracking-wider">DAY OPEN</div>

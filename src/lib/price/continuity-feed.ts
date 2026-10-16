@@ -23,7 +23,9 @@ export type ContinuityState =
   | 'VERIFIED'
   | 'OFFLINE';
 
-export type ContinuityPriceAuthority = 'MT5_BROKER' | 'REFERENCE_MARKET' | 'REFERENCE' | 'UNAVAILABLE';
+import { getInstrumentParityProfile } from './instrument-parity';
+
+export type ContinuityPriceAuthority = 'MT5_BROKER' | 'REFERENCE_MARKET' | 'REFERENCE' | 'REFERENCE_PROXY' | 'UNAVAILABLE';
 
 export interface ContinuityFeedStatus {
   state: ContinuityState;
@@ -112,26 +114,35 @@ export function evaluateContinuityFeed(params: EvaluateContinuityParams): Contin
     };
   }
 
+  const parityProfile = getInstrumentParityProfile(symbol);
+
   // Case 2: Broker quote exists but is stale (>= 5000ms)
   if (hasBrokerQuote && !isBrokerFresh) {
-    if (hasReference && referencePrice) {
+    if (hasReference && referencePrice && parityProfile.parityClassification !== 'UNAVAILABLE') {
+      const isProxyOnly = parityProfile.parityClassification === 'PROXY_ONLY';
+      const authority: ContinuityPriceAuthority = isProxyOnly ? 'REFERENCE_PROXY' : 'REFERENCE_MARKET';
+      const label = isProxyOnly ? 'FAILOVER • REFERENCE PROXY' : 'FAILOVER ACTIVE • REFERENCE FEED';
+      const reason = isProxyOnly
+        ? `Broker quote stale (${Math.round((brokerAgeMs || 0) / 1000)}s old). Active proxy: ${parityProfile.contractIdentity}. Exact broker execution levels disabled.`
+        : `Broker quote stale (${Math.round((brokerAgeMs || 0) / 1000)}s old). Intelligence continuing from reference feed. Execution locked.`;
+
       return {
         state: 'FAILOVER_ACTIVE',
         symbol,
-        priceAuthority: 'REFERENCE_MARKET',
+        priceAuthority: authority,
         activePrice: referencePrice,
         bid: referencePrice,
         ask: referencePrice,
         spread: 0,
         provider: referenceProvider,
-        provenance: 'INDEPENDENT_REFERENCE_FEED',
+        provenance: isProxyOnly ? 'INDEPENDENT_PROXY_FEED' : 'INDEPENDENT_REFERENCE_FEED',
         brokerConnected: false,
         brokerQuoteAgeMs: brokerAgeMs,
         referenceQuoteAgeMs: 0,
         divergenceBps: null,
         executionLocked: true, // Strict fail-closed
-        statusLabel: 'FAILOVER ACTIVE • REFERENCE FEED',
-        reason: `Broker quote stale (${Math.round((brokerAgeMs || 0) / 1000)}s old). Intelligence continuing from reference feed. Execution locked.`,
+        statusLabel: label,
+        reason,
         updatedAt: now,
       };
     }
@@ -158,24 +169,31 @@ export function evaluateContinuityFeed(params: EvaluateContinuityParams): Contin
   }
 
   // Case 3: Broker completely disconnected, but independent reference is active
-  if (hasReference && referencePrice) {
+  if (hasReference && referencePrice && parityProfile.parityClassification !== 'UNAVAILABLE') {
+    const isProxyOnly = parityProfile.parityClassification === 'PROXY_ONLY';
+    const authority: ContinuityPriceAuthority = isProxyOnly ? 'REFERENCE_PROXY' : 'REFERENCE_MARKET';
+    const label = isProxyOnly ? 'REFERENCE PROXY • BROKER OFFLINE' : 'REFERENCE ACTIVE • BROKER OFFLINE';
+    const reason = isProxyOnly
+      ? `MT5 broker disconnected. Active proxy: ${parityProfile.contractIdentity}. Trend/structure active; exact execution levels disabled.`
+      : 'MT5 broker disconnected. Intelligence active from verified reference feed. Execution locked.';
+
     return {
       state: 'REFERENCE_ACTIVE',
       symbol,
-      priceAuthority: 'REFERENCE_MARKET',
+      priceAuthority: authority,
       activePrice: referencePrice,
       bid: referencePrice,
       ask: referencePrice,
       spread: 0,
       provider: referenceProvider,
-      provenance: 'INDEPENDENT_REFERENCE_FEED',
+      provenance: isProxyOnly ? 'INDEPENDENT_PROXY_FEED' : 'INDEPENDENT_REFERENCE_FEED',
       brokerConnected: false,
       brokerQuoteAgeMs: null,
       referenceQuoteAgeMs: 0,
       divergenceBps: null,
       executionLocked: true, // Strict fail-closed
-      statusLabel: 'REFERENCE ACTIVE • BROKER OFFLINE',
-      reason: 'MT5 broker disconnected. Intelligence active from verified reference feed. Execution locked.',
+      statusLabel: label,
+      reason,
       updatedAt: now,
     };
   }

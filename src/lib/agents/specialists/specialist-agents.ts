@@ -520,10 +520,10 @@ export function evaluateDataSentinelAgent(inputs: {
   mt5Health?: { isConnected?: boolean };
   priceAuthorityStatus?: string;
   isReferenceLive?: boolean;
-  priceAuthority?: 'MT5_BROKER' | 'REFERENCE_MARKET' | 'UNAVAILABLE';
+  priceAuthority?: 'MT5_BROKER' | 'REFERENCE_MARKET' | 'REFERENCE_PROXY' | 'UNAVAILABLE';
 }): UnifiedAgentResponse {
   const isMt5Online = Boolean(inputs?.isMt5Online ?? inputs?.mt5Health?.isConnected ?? false);
-  const isReferenceLive = Boolean(inputs?.isReferenceLive ?? (inputs?.priceAuthority === 'REFERENCE_MARKET' || inputs?.priceAuthorityStatus === 'LIVE'));
+  const isReferenceLive = Boolean(inputs?.isReferenceLive ?? (inputs?.priceAuthority === 'REFERENCE_MARKET' || inputs?.priceAuthority === 'REFERENCE_PROXY' || inputs?.priceAuthorityStatus === 'LIVE'));
   const activeProviders = inputs?.activeProviders || [];
   const offlineProviders = [
     ...(inputs?.offlineProviders || []),

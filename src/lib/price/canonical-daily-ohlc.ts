@@ -15,6 +15,8 @@
  *    Never manufacture, interpolate, or silently substitute daily broker OHLC.
  */
 
+import { getInstrumentParityProfile } from './instrument-parity';
+
 export interface DailyCandleBar {
   timestamp: number; // Bar open timestamp (ms)
   open: number;
@@ -346,6 +348,12 @@ export function evaluateCanonicalDailyStats(input: EvaluateDailyStatsInput): Eva
     ? (brokerQuote?.broker || 'MT5 Broker')
     : (d1Provider || referenceProvider || (isBrokerConnected ? brokerQuote?.broker : 'Reference Feed') || 'Reference Feed');
 
+  const parityProfile = getInstrumentParityProfile(symbol);
+  const isProxyOnly = parityProfile.parityClassification === 'PROXY_ONLY';
+  const statusLabel = (isBrokerConnected && d1Provenance === 'LIVE_MT5')
+    ? 'MT5 BROKER LIVE'
+    : (isProxyOnly ? 'REFERENCE PROXY' : 'VERIFIED REFERENCE');
+
   return {
     isVerified: true,
     provenance: resolvedProvenance,
@@ -359,6 +367,6 @@ export function evaluateCanonicalDailyStats(input: EvaluateDailyStatsInput): Eva
     isPositive,
     tradingDayTimestamp: candleTimestamp,
     candleAgeMs,
-    statusLabel: (isBrokerConnected && d1Provenance === 'LIVE_MT5') ? 'MT5 BROKER LIVE' : 'VERIFIED REFERENCE',
+    statusLabel,
   };
 }

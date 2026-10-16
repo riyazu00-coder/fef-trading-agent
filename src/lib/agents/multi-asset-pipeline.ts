@@ -33,6 +33,7 @@ import {
   EvidenceClassification
 } from '../evidence/agent-evidence';
 import { TIMEFRAME_INTERVAL_MS } from '../candles/candle-validator';
+import { getInstrumentParityProfile } from '../price/instrument-parity';
 import { analyzeMarketStructure, MarketStructure } from '../market/market-structure-engine';
 import {
   buildBuyBlueprint,
@@ -462,6 +463,8 @@ export function generateAssetIntelligence(
   // Truthfully infer from the current asset's verified runtime inputs without claiming global health
   const isAssetMt5Live = effectiveCandleProvenance === 'LIVE_MT5' || liveAsset?.provider === 'MT5' || liveAsset?.source === 'MT5' || Boolean(liveAsset?.source && liveAsset.source.includes('MT5'));
   const isReferencePrice = effectiveCandleProvenance === 'INDEPENDENT_VERIFIED' || effectiveCandleProvenance === 'INDEPENDENT_REFERENCE' || Boolean(liveAsset && liveAsset.price > 0 && liveAsset.feedStatus === 'LIVE');
+  const parityProfile = getInstrumentParityProfile(normSymbol);
+  const isExecutionLevelPermitted = isAssetMt5Live || parityProfile.allowedCapabilities.exactExecutionLevels;
 
   // 3. Trade Blueprint Synthesis from real structure with hysteresis & persistence
   let blueprint: TradeBlueprint | null = null;
@@ -567,7 +570,7 @@ export function generateAssetIntelligence(
 
   const isStructureValid = isMarketStructureCompatibleWithContext(marketStructure, normSymbol, structureTf, blueprintCandleSource);
 
-  if (isStructureValid && marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
+  if (isExecutionLevelPermitted && isStructureValid && marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
     let freshBlueprint: TradeBlueprint | null = null;
     const candidateDir = marketStructure.trend === 'BULLISH' ? 'BUY' : 'SELL';
 
@@ -786,6 +789,23 @@ export function generateAssetIntelligence(
         }
         if (hasCandles && marketStructure) {
           const trendBias: BiasType = marketStructure.trend === 'BULLISH' ? 'BULLISH' : marketStructure.trend === 'BEARISH' ? 'BEARISH' : 'NEUTRAL';
+          if (!isExecutionLevelPermitted) {
+            return {
+              ...base,
+              bias: trendBias,
+              confidence: 60,
+              status: 'ONLINE',
+              lastOpinion: `Directional structure active from reference proxy (${effectiveCandleProvider}). Exact execution levels disabled (PROXY_ONLY parity policy).`,
+              evidence: [
+                `Verified ${normTf} candles: ${marketStructure.candleCount} bars`,
+                `Structure state: ${marketStructure.trend}`,
+                `Parity classification: ${parityProfile.parityClassification}`,
+                'Exact execution levels: DISABLED (Prevents proxy price leak)'
+              ],
+              keyRisk: 'Proxy contract basis divergence against broker CFD',
+              invalidation: 'Break of structure on underlying reference index'
+            };
+          }
           return {
             ...base,
             bias: trendBias,
@@ -831,6 +851,23 @@ export function generateAssetIntelligence(
           };
         }
         if (hasCandles && marketStructure) {
+          if (!isExecutionLevelPermitted) {
+            return {
+              ...base,
+              bias: 'NEUTRAL',
+              confidence: 50,
+              status: 'ONLINE',
+              lastOpinion: `Opportunity surveillance active via reference proxy (${effectiveCandleProvider}). Exact R:R levels disabled under PROXY_ONLY parity policy.`,
+              evidence: [
+                `Verified ${normTf} candles: ${marketStructure.candleCount} bars`,
+                `Parity classification: ${parityProfile.parityClassification}`,
+                'Target criteria: Reference proxy structure surveillance',
+                'Execution levels: DISABLED'
+              ],
+              keyRisk: 'Risk/reward cannot be calculated against proxy price',
+              invalidation: 'N/A'
+            };
+          }
           return {
             ...base,
             bias: 'NEUTRAL',
@@ -1869,7 +1906,11 @@ export function generateAssetIntelligence(
   const rawSentinel = evaluateDataSentinelAgent({
     isMt5Online: isAssetMt5Live,
     isReferenceLive: isReferencePrice,
-    priceAuthority: isAssetMt5Live ? 'MT5_BROKER' : (isReferencePrice ? 'REFERENCE_MARKET' : 'UNAVAILABLE'),
+    priceAuthority: isAssetMt5Live
+      ? 'MT5_BROKER'
+      : (isReferencePrice
+          ? (parityProfile.parityClassification === 'PROXY_ONLY' ? 'REFERENCE_PROXY' : 'REFERENCE_MARKET')
+          : 'UNAVAILABLE'),
     priceAuthorityStatus: isAssetMt5Live || isReferencePrice ? 'LIVE' : 'UNAVAILABLE',
     activeProviders: activeProvList,
     offlineProviders: offlineProvList,
@@ -2304,7 +2345,9 @@ export function generateAssetIntelligence(
       tradeExecutable: false,
     },
     provenance: {
-      source: isAssetMt5Live ? 'MT5_BROKER' : 'REFERENCE_MARKET',
+      source: isAssetMt5Live
+        ? 'MT5_BROKER'
+        : (parityProfile.parityClassification === 'PROXY_ONLY' ? 'REFERENCE_PROXY' : 'REFERENCE_MARKET'),
       storage: isAssetMt5Live ? 'LOCAL_SQLITE' : 'MEMORY_CACHE',
       classification: normSymbol === 'GER40'
         ? 'UNAVAILABLE'

@@ -307,7 +307,8 @@ async function runPhase3Acceptance() {
         referencePrice: item.refPrice,
         referenceProvider: 'Verified Reference Provider',
       });
-      assert.strictEqual(feed.priceAuthority, 'REFERENCE_MARKET', `${item.sym} authority must be REFERENCE_MARKET`);
+      const expectedAuthority = item.sym === 'US100' ? 'REFERENCE_PROXY' : 'REFERENCE_MARKET';
+      assert.strictEqual(feed.priceAuthority, expectedAuthority, `${item.sym} authority must be ${expectedAuthority}`);
       assert.strictEqual(feed.activePrice, item.refPrice, `${item.sym} active price must match reference`);
       console.log(`  ✓ ${item.sym}: Price Authority = ${feed.priceAuthority} (${item.refPrice})`);
     }

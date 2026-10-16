@@ -206,8 +206,9 @@ async function runAcceptance() {
       assert.strictEqual(offline.state, 'OFFLINE', 'GER40 state must be OFFLINE');
       console.log(`  ✓ ${item.symbol}: Online Authority = ${online.priceAuthority} | Offline Authority = ${offline.priceAuthority} (FAILS CLOSED TRUTHFULLY)`);
     } else {
+      const expectedOffline = item.symbol === 'US100' ? 'REFERENCE_PROXY' : 'REFERENCE_MARKET';
       assert.strictEqual(online.priceAuthority, 'MT5_BROKER', `${item.symbol} online authority must be MT5_BROKER`);
-      assert.strictEqual(offline.priceAuthority, 'REFERENCE_MARKET', `${item.symbol} offline authority must be REFERENCE_MARKET`);
+      assert.strictEqual(offline.priceAuthority, expectedOffline, `${item.symbol} offline authority must be ${expectedOffline}`);
       console.log(`  ✓ ${item.symbol}: Online Authority = ${online.priceAuthority} | Offline Authority = ${offline.priceAuthority} (Seamless Fallback)`);
     }
   }
