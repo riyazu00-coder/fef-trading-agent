@@ -99,6 +99,7 @@ export interface LocalMarketDataProviderConfig {
 export class LocalMarketDataProvider {
   private repository: any;
   private ownRepo: boolean = false;
+  private _setupLifecycleRepo: any = null;
   private aliasToCanonicalMap: Map<string, string> = new Map();
 
   constructor(config?: LocalMarketDataProviderConfig) {
@@ -585,7 +586,7 @@ export class LocalMarketDataProvider {
     };
 
     const { generateAssetIntelligence } = require('../agents/multi-asset-pipeline');
-    return generateAssetIntelligence(
+    const profile = generateAssetIntelligence(
       canonical,
       liveAsset,
       timeframe,
@@ -596,9 +597,94 @@ export class LocalMarketDataProvider {
       undefined,
       evidenceBundle
     );
+
+    // Setup Lifecycle Persistence & Historical Outcome Evaluation
+    if (profile && profile.setupIntelligenceV3 && profile.setupIntelligenceV3.lifecycle !== 'NO_SETUP' && canonical !== 'GER40') {
+      try {
+        const setupRepo = this.getSetupLifecycleRepository();
+        if (setupRepo && setupRepo.isInitialized) {
+          setupRepo.recordObservation(
+            profile.setupIntelligenceV3,
+            quote.mid,
+            evidenceBundle?.snapshotId || `snap-${canonical}-${Date.now()}`
+          );
+
+          if (dominantCandles && dominantCandles.length > 0) {
+            const { SetupOutcomeEngine } = require('../setup/setup-outcome-engine');
+            SetupOutcomeEngine.evaluateAndUpdateRepository(
+              setupRepo,
+              profile.setupIntelligenceV3.setupId,
+              dominantCandles
+            );
+          }
+
+          const { SetupHistoricalAnalyticsEngine } = require('../setup/setup-historical-analytics');
+          const historyStats = SetupHistoricalAnalyticsEngine.computeAnalytics(setupRepo, { symbol: canonical });
+          const recent = setupRepo.getSetupsBySymbol(canonical, { limit: 5 }).map((s: any) => ({
+            setupId: s.setupId,
+            lifecycle: s.currentLifecycle,
+            direction: s.direction,
+            setupType: s.setupType,
+            initialRr: s.initialRr,
+            outcomeResolution: s.outcomeResolution,
+            mfeR: s.mfeR,
+            firstSeenAt: s.firstSeenAt,
+            resolvedAt: s.resolvedAt,
+          }));
+
+          const historyUi = {
+            sampleCount: historyStats.sampleCount,
+            statisticalReliability: historyStats.statisticalReliability,
+            totalSetups: historyStats.totalSetupsObserved,
+            validatedCount: historyStats.validatedCount,
+            validationRate: historyStats.validationRate,
+            targetReachRate: historyStats.target1ReachRate,
+            target1ReachRate: historyStats.target1ReachRate,
+            target2ReachRate: historyStats.target2ReachRate,
+            target3ReachRate: historyStats.target3ReachRate,
+            invalidationRate: historyStats.invalidationRate,
+            invalidationAfterTarget1Rate: historyStats.invalidationAfterTarget1Rate,
+            averageMfeR: historyStats.averageMfeR,
+            averageMaeR: historyStats.averageMaeR,
+            averageInitialRr: historyStats.averageInitialRr,
+            entryZoneTouchRate: historyStats.entryZoneTouchRate,
+            recentSetups: recent,
+          };
+
+          if (profile.setupIntelligenceV3Projection) {
+            profile.setupIntelligenceV3Projection.history = historyUi;
+          }
+        }
+      } catch {
+        // Observational persistence must never break live intelligence profile
+      }
+    }
+
+    return profile;
+  }
+
+  public getSetupLifecycleRepository(): any {
+    if (!this._setupLifecycleRepo) {
+      try {
+        const { LocalSetupLifecycleRepository } = require('../setup/setup-lifecycle-persistence');
+        this._setupLifecycleRepo = new LocalSetupLifecycleRepository({
+          db: this.repository?.db,
+          dbPath: this.repository?.dbPath,
+        });
+      } catch {
+        this._setupLifecycleRepo = null;
+      }
+    }
+    return this._setupLifecycleRepo;
   }
 
   public close() {
+    if (this._setupLifecycleRepo && this.ownRepo) {
+      try {
+        this._setupLifecycleRepo.close();
+      } catch {}
+      this._setupLifecycleRepo = null;
+    }
     if (this.ownRepo && this.repository) {
       try {
         this.repository.close();

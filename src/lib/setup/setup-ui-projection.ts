@@ -90,8 +90,39 @@ export interface SetupIntelligenceV3UiProjection {
   readiness: 'READY' | 'PARTIAL' | 'DATA_LIMITED' | 'UNAVAILABLE';
   dataQuality: 'HEALTHY' | 'STALE' | 'INSUFFICIENT_DATA' | 'UNAVAILABLE';
 
+  history?: SetupHistoricalIntelligenceUiProjection;
+
   tradeExecutable: false;
   executionMode: 'READ_ONLY';
+}
+
+export interface SetupHistoricalIntelligenceUiProjection {
+  sampleCount: number;
+  statisticalReliability: string;
+  totalSetups: number;
+  validatedCount: number;
+  validationRate: number; // 0-100%
+  targetReachRate: number; // 0-100%
+  target1ReachRate?: number;
+  target2ReachRate?: number;
+  target3ReachRate?: number;
+  invalidationRate: number; // 0-100%
+  invalidationAfterTarget1Rate?: number;
+  averageMfeR: number | null;
+  averageMaeR: number | null;
+  averageInitialRr: number | null;
+  entryZoneTouchRate: number;
+  recentSetups: Array<{
+    setupId: string;
+    lifecycle: string;
+    direction: string;
+    setupType: string;
+    initialRr: number | null;
+    outcomeResolution: string;
+    mfeR: number | null;
+    firstSeenAt: number;
+    resolvedAt: number | null;
+  }>;
 }
 
 /**
@@ -99,7 +130,8 @@ export interface SetupIntelligenceV3UiProjection {
  */
 export function projectSetupV3ForUi(
   setup?: SetupIntelligenceV3 | null,
-  symbol?: string
+  symbol?: string,
+  history?: SetupHistoricalIntelligenceUiProjection | null
 ): SetupIntelligenceV3UiProjection {
   const isUnavailable = !setup || setup.readiness === 'UNAVAILABLE' || symbol === 'GER40';
 
@@ -162,6 +194,7 @@ export function projectSetupV3ForUi(
       invalidationReason: null,
       readiness: 'UNAVAILABLE',
       dataQuality: 'UNAVAILABLE',
+      history: history || undefined,
       tradeExecutable: false,
       executionMode: 'READ_ONLY',
     };
@@ -198,6 +231,7 @@ export function projectSetupV3ForUi(
     invalidationReason: setup.invalidationReason,
     readiness: setup.readiness,
     dataQuality: setup.dataQuality,
+    history: history || undefined,
     tradeExecutable: false,
     executionMode: 'READ_ONLY',
   };

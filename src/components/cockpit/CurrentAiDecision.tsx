@@ -515,6 +515,109 @@ export const CurrentAiDecision: React.FC = () => {
         )}
       </div>
 
+      {/* Setup Lifecycle History & Outcomes V1 */}
+      <div className="bg-black/50 p-2 rounded-xl border border-white/10 space-y-1 text-[8.5px] font-mono">
+        <div className="flex items-center justify-between border-b border-white/5 pb-1">
+          <span className="text-cyan-400 font-bold uppercase tracking-wider text-[8px] flex items-center space-x-1">
+            <span>📊</span>
+            <span>SETUP LIFECYCLE HISTORY & OUTCOMES</span>
+          </span>
+          <div className="flex items-center space-x-1 text-[7.5px]">
+            {isUnavailable || activeSymbol === 'GER40' ? (
+              <span className="px-1 py-0.2 rounded font-bold bg-rose-950/60 text-rose-300 border border-rose-500/40">
+                UNAVAILABLE
+              </span>
+            ) : (
+              <span
+                className={`px-1 py-0.2 rounded font-bold ${
+                  setupV3.history && setupV3.history.statisticalReliability === 'HIGH'
+                    ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
+                    : setupV3.history && setupV3.history.statisticalReliability === 'MODERATE'
+                    ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-500/40'
+                    : 'bg-amber-950/60 text-amber-300 border border-amber-500/40'
+                }`}
+              >
+                {setupV3.history?.statisticalReliability || 'INSUFFICIENT_SAMPLE (n < 10)'}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {isUnavailable || activeSymbol === 'GER40' ? (
+          <div className="text-rose-400 font-bold text-[8px]">
+            HISTORICAL INTELLIGENCE UNAVAILABLE (GER40 fail-closed • no simulated history)
+          </div>
+        ) : !setupV3.history || setupV3.history.sampleCount === 0 ? (
+          <div className="text-gray-400 text-[8px] flex items-center justify-between">
+            <span>OBSERVATION SAMPLE: 0</span>
+            <span className="text-amber-400/80">Awaiting historical setup cycles</span>
+          </div>
+        ) : (
+          <div className="space-y-1 text-[8px]">
+            <div className="grid grid-cols-4 gap-1 bg-black/40 p-1 rounded border border-white/5">
+              <div>
+                <span className="text-gray-400 block text-[7px]">SAMPLE</span>
+                <span className="text-white font-bold">{setupV3.history.sampleCount}</span>
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[7px]">TP1 REACH</span>
+                <span className="text-emerald-300 font-bold">{setupV3.history.targetReachRate}%</span>
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[7px]">INVALIDATED</span>
+                <span className="text-rose-400 font-bold">{setupV3.history.invalidationRate}%</span>
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[7px]">AVG MFE / MAE</span>
+                <span className="text-cyan-300 font-bold">
+                  {setupV3.history.averageMfeR != null ? `+${setupV3.history.averageMfeR}R` : 'N/A'} / {setupV3.history.averageMaeR != null ? `-${setupV3.history.averageMaeR}R` : 'N/A'}
+                </span>
+              </div>
+            </div>
+
+            {setupV3.history.recentSetups && setupV3.history.recentSetups.length > 0 && (
+              <div className="space-y-0.5 pt-0.5 border-t border-white/5">
+                <span className="text-gray-400 text-[7px] uppercase font-bold">Recent Setup Resolutions:</span>
+                <div className="space-y-0.5">
+                  {setupV3.history.recentSetups.slice(0, 3).map((s) => (
+                    <div
+                      key={s.setupId}
+                      className="flex items-center justify-between text-[7px] bg-black/30 px-1 py-0.5 rounded border border-white/5"
+                    >
+                      <span className="text-gray-300 truncate font-mono max-w-[120px]">
+                        {s.direction} {s.setupType}
+                      </span>
+                      <span className="text-gray-400 font-mono">
+                        {s.initialRr != null ? `${s.initialRr}R` : 'N/A'}
+                      </span>
+                      <span
+                        className={`font-bold px-1 rounded ${
+                          s.outcomeResolution === 'TARGET_1_REACHED' ||
+                          s.outcomeResolution === 'TARGET_2_REACHED' ||
+                          s.outcomeResolution === 'TARGET_3_REACHED' ||
+                          s.outcomeResolution === 'COMPLETED'
+                            ? 'text-emerald-300 bg-emerald-950/40'
+                            : s.outcomeResolution === 'STOP_LEVEL_REACHED' ||
+                              s.outcomeResolution === 'STOP_REACHED' ||
+                              s.outcomeResolution === 'STOPPED_OUT' ||
+                              s.outcomeResolution === 'STRUCTURAL_INVALIDATION' ||
+                              s.outcomeResolution === 'INVALIDATED' ||
+                              s.outcomeResolution === 'INVALIDATED_PRE_TRIGGER'
+                            ? 'text-rose-400 bg-rose-950/40'
+                            : 'text-amber-300 bg-amber-950/40'
+                        }`}
+                      >
+                        {s.outcomeResolution}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Metric Parameter Table */}
       <div className="space-y-1 text-[9.5px] bg-black/40 p-2 rounded-xl border border-white/5 font-sans">
         <div className="flex items-center justify-between text-[#CBD5E1]">

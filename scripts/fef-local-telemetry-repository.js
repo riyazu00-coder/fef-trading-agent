@@ -191,7 +191,94 @@ class LocalTelemetryRepository {
         consecutive_errors INTEGER NOT NULL DEFAULT 0,
         updated_at INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS setup_identity (
+        setup_id TEXT PRIMARY KEY,
+        symbol TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        setup_type TEXT NOT NULL,
+        anchor_timestamp INTEGER NOT NULL,
+        first_seen_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        current_lifecycle TEXT NOT NULL,
+        terminal_state TEXT,
+        resolved_at INTEGER,
+        validated_at INTEGER,
+        invalidated_at INTEGER,
+        expired_at INTEGER,
+        invalidation_reason TEXT,
+        entry_zone_low REAL,
+        entry_zone_high REAL,
+        entry_midpoint REAL,
+        stop_loss REAL,
+        invalidation_price REAL,
+        target_1 REAL,
+        target_2 REAL,
+        target_3 REAL,
+        risk_distance REAL,
+        reward_distance REAL,
+        initial_rr REAL,
+        session_model TEXT,
+        regime TEXT,
+        entry_zone_touched INTEGER DEFAULT 0,
+        entry_zone_touched_at INTEGER,
+        trigger_confirmed_at INTEGER,
+        first_target_reached_at INTEGER,
+        target2_reached_at INTEGER,
+        target3_reached_at INTEGER,
+        stop_level_reached_at INTEGER,
+        mfe_price REAL,
+        mae_price REAL,
+        mfe_r REAL,
+        mae_r REAL,
+        outcome_resolution TEXT DEFAULT 'UNRESOLVED',
+        outcome_ambiguous INTEGER DEFAULT 0,
+        data_quality TEXT DEFAULT 'HEALTHY'
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_setup_symbol_lifecycle
+      ON setup_identity (symbol, current_lifecycle);
+
+      CREATE INDEX IF NOT EXISTS idx_setup_last_seen
+      ON setup_identity (last_seen_at DESC);
+
+      CREATE TABLE IF NOT EXISTS setup_lifecycle_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        setup_id TEXT NOT NULL,
+        snapshot_id TEXT NOT NULL,
+        observed_at INTEGER NOT NULL,
+        previous_lifecycle TEXT NOT NULL,
+        new_lifecycle TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        setup_type TEXT NOT NULL,
+        readiness TEXT NOT NULL,
+        current_price REAL NOT NULL,
+        entry_midpoint REAL,
+        stop_loss REAL,
+        invalidation_price REAL,
+        target_1 REAL,
+        risk_reward REAL,
+        confirmations_satisfied_count INTEGER NOT NULL,
+        confirmations_missing_count INTEGER NOT NULL,
+        confirmations_json TEXT,
+        session_model TEXT,
+        data_quality TEXT NOT NULL,
+        transition_cause TEXT NOT NULL,
+        FOREIGN KEY (setup_id) REFERENCES setup_identity(setup_id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_setup_events_lookup
+      ON setup_lifecycle_events (setup_id, observed_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_setup_events_observed
+      ON setup_lifecycle_events (observed_at DESC);
     `);
+
+    // Safe column migrations for existing databases
+    try { this.db.exec(`ALTER TABLE setup_identity ADD COLUMN target2_reached_at INTEGER;`); } catch {}
+    try { this.db.exec(`ALTER TABLE setup_identity ADD COLUMN target3_reached_at INTEGER;`); } catch {}
+    try { this.db.exec(`ALTER TABLE setup_identity ADD COLUMN stop_level_reached_at INTEGER;`); } catch {}
 
     // Record or update schema version
     const now = Date.now();

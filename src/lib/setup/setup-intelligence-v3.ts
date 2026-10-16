@@ -485,11 +485,11 @@ export class SetupIntelligenceEngineV3 {
     if (triggerEvidence) {
       const isConfirmed = Boolean(
         triggerEvidence.isConfirmed ||
-        triggerEvidence.state === 'CONFIRMED' ||
+        (triggerEvidence as any).state === 'CONFIRMED' ||
         (triggerEvidence as any).status === 'CONFIRMED'
       );
       const isFailed = Boolean(
-        triggerEvidence.state === 'FAILED' ||
+        (triggerEvidence as any).state === 'FAILED' ||
         (triggerEvidence as any).status === 'FAILED'
       );
       trigger = {
