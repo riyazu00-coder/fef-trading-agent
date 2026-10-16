@@ -89,8 +89,9 @@ export async function POST(req: NextRequest) {
       );
     }
   } catch (err: any) {
+    console.error('[INGRESS] consumeNonce failed:', err?.message || err);
     return NextResponse.json(
-      { success: false, error: { code: 'STORAGE_UNAVAILABLE', message: 'Persistent telemetry store unavailable' } },
+      { success: false, error: { code: 'STORAGE_UNAVAILABLE', message: `Persistent telemetry store unavailable: ${err?.message || err}` } },
       { status: 503 }
     );
   }
@@ -141,8 +142,9 @@ export async function POST(req: NextRequest) {
         break;
     }
   } catch (err: any) {
+    console.error('[INGRESS] save failed:', err?.message || err);
     return NextResponse.json(
-      { success: false, error: { code: 'PERSISTENCE_FAILED', message: 'Failed to write telemetry to storage' } },
+      { success: false, error: { code: 'PERSISTENCE_FAILED', message: `Failed to write telemetry to storage: ${err?.message || err}` } },
       { status: 503 }
     );
   }

@@ -59,8 +59,17 @@ export class TelemetryRepository {
     this.config = config;
   }
 
+  public getKvUrl(): string {
+    const raw = (this.kvUrl || process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/^["']|["']$/g, '');
+    return raw.replace(/\/pipeline\/?$/, '').replace(/\/$/, '');
+  }
+
+  public getKvToken(): string {
+    return (this.kvToken || process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+  }
+
   public isCloudStoreConfigured(): boolean {
-    return Boolean(this.kvUrl && this.kvToken);
+    return Boolean(this.getKvUrl() && this.getKvToken());
   }
 
   /**
@@ -74,12 +83,15 @@ export class TelemetryRepository {
       return this.execMemoryCommand(command);
     }
 
+    const kvUrl = this.getKvUrl();
+    const kvToken = this.getKvToken();
+
     // 1. Primary: Use /pipeline endpoint with 2D array format (universally supported by Upstash for all commands)
     try {
-      const res = await fetch(`${this.kvUrl}/pipeline`, {
+      const res = await fetch(`${kvUrl}/pipeline`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.kvToken}`,
+          Authorization: `Bearer ${kvToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify([command]),
@@ -107,10 +119,10 @@ export class TelemetryRepository {
     // 2. Direct fallback: Path-based REST for GET/MGET, or root POST with command array
     const cmdName = command[0]?.toUpperCase();
     if (cmdName === 'GET' && command[1]) {
-      const res = await fetch(`${this.kvUrl}/get/${encodeURIComponent(command[1])}`, {
+      const res = await fetch(`${kvUrl}/get/${encodeURIComponent(command[1])}`, {
         method: 'GET',
         headers: {
-          Authorization: `Bearer ${this.kvToken}`,
+          Authorization: `Bearer ${kvToken}`,
         },
       });
       if (!res.ok) {
@@ -122,10 +134,10 @@ export class TelemetryRepository {
     }
 
     // Mutating command direct fallback: POST to root
-    const res = await fetch(`${this.kvUrl}`, {
+    const res = await fetch(`${kvUrl}`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.kvToken}`,
+        Authorization: `Bearer ${kvToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(command),
@@ -154,10 +166,13 @@ export class TelemetryRepository {
     }
     if (commands.length === 0) return [];
 
-    const res = await fetch(`${this.kvUrl}/pipeline`, {
+    const kvUrl = this.getKvUrl();
+    const kvToken = this.getKvToken();
+
+    const res = await fetch(`${kvUrl}/pipeline`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.kvToken}`,
+        Authorization: `Bearer ${kvToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(commands),
