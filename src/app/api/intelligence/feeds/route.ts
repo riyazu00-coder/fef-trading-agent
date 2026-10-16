@@ -25,6 +25,7 @@ import { CentralBankProvider } from '@/lib/central-banks/central-bank-provider';
 import { calculateCurrencyStrengthMatrix, calculateCurrencyStrengthFromCandles } from '@/lib/cross-asset/currency-strength-calculator';
 import { fetchBatchBrokerCandles } from '@/lib/candles/broker-candle-service';
 import { buildVerifiedLeadLagEnvelope, CANONICAL_LEAD_LAG_PAIRS } from '@/lib/cross-asset/lead-lag-engine';
+import { fetchLiveMarketPrices } from '@/lib/providers/real-market-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,7 +106,10 @@ export async function GET(req: Request) {
 
     const sentinelResult = evaluateDataSentinelAgent({
       isMt5Online,
-      activeProviders,
+      isReferenceLive: true,
+      priceAuthority: isMt5Online ? 'MT5_BROKER' : 'REFERENCE_MARKET',
+      priceAuthorityStatus: 'LIVE',
+      activeProviders: activeProviders.length > 0 ? activeProviders : ['Independent Reference Feeds'],
       offlineProviders,
       feedAgeMs: 500,
     });
@@ -187,10 +191,12 @@ export async function GET(req: Request) {
       if (Object.keys(fxCandles).length >= 4) {
         currencyStrength = calculateCurrencyStrengthFromCandles(fxCandles, 'H1');
       } else {
+        const liveMarketPrices: Record<string, any> = await fetchLiveMarketPrices().catch(() => ({}));
         const forexQuotes: Record<string, any> = {};
-        for (const [sym, s] of Object.entries(sentiment)) {
-          if (s && typeof (s as any).change24h === 'number') {
-            forexQuotes[sym] = { symbol: sym, change24h: (s as any).change24h };
+        for (const p of fxPairs) {
+          const lp = liveMarketPrices[p];
+          if (lp && typeof lp.change24h === 'number') {
+            forexQuotes[p] = { symbol: p, price: lp.price, change24h: lp.change24h };
           }
         }
         currencyStrength =

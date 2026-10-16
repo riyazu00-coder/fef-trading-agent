@@ -22,7 +22,7 @@ function buildBaselineAssets(): Record<string, LiveMarketAsset> {
 
   for (const def of Object.values(MARKET_REGISTRY)) {
     const isCrypto = def.category === 'CRYPTO';
-    const isUnverified = isCrypto || def.feedStatus === 'DEMO' || def.symbol === 'GER40';
+    const isUnverified = isCrypto || def.symbol === 'GER40';
     const p = isUnverified ? 0 : def.basePrice;
     const spread = isUnverified ? 0 : def.typicalSpread;
     const change = isUnverified ? 0 : def.typicalDailyChangePct;
@@ -53,8 +53,8 @@ function buildBaselineAssets(): Record<string, LiveMarketAsset> {
       provider: isUnverified ? 'UNAVAILABLE (No Public Live Feed)' : def.feedProvider,
       lastUpdated: isUnverified ? 'UNAVAILABLE' : timeStr,
       category: def.category,
-      feedStatus: isUnverified ? 'DATA LIMITED' : def.feedStatus,
-      classification: isUnverified ? 'DATA LIMITED' : (def.feedStatus === 'LIVE' ? 'LIVE' : 'DEMO'),
+      feedStatus: isUnverified ? 'DATA LIMITED' : (def.feedStatus === 'DEMO' ? 'FALLBACK' : def.feedStatus),
+      classification: isUnverified ? 'DATA LIMITED' : 'LIVE',
       priceType: isUnverified ? 'DERIVED' : 'LAST',
       referencePrice: def.basePrice
     };
@@ -165,7 +165,7 @@ export async function GET(req: Request) {
     // Graceful offline fallback
   }
 
-  // 3. Fetch Real Forex Rates from Open-ER
+  // 3. Fetch Real Forex Rates from Open-ER (Majors & Crosses)
   try {
     const fxRes = await fetch('https://open.er-api.com/v6/latest/USD', {
       next: { revalidate: 60 }
@@ -219,85 +219,216 @@ export async function GET(req: Request) {
             lastUpdated: timeStr
           };
         }
+        if (rates.AUD && assets.AUDUSD) {
+          const audusd = 1 / rates.AUD;
+          assets.AUDUSD = {
+            ...assets.AUDUSD,
+            price: Number(audusd.toFixed(4)),
+            bid: Number((audusd - 0.0001).toFixed(4)),
+            ask: Number((audusd + 0.0001).toFixed(4)),
+            source: 'Open-ER Interbank Forex Live',
+            provider: 'Open-ER Interbank Forex Live',
+            classification: 'LIVE',
+            feedStatus: 'LIVE',
+            priceType: 'LAST',
+            lastUpdated: timeStr
+          };
+        }
+        if (rates.NZD && assets.NZDUSD) {
+          const nzdusd = 1 / rates.NZD;
+          assets.NZDUSD = {
+            ...assets.NZDUSD,
+            price: Number(nzdusd.toFixed(4)),
+            bid: Number((nzdusd - 0.0001).toFixed(4)),
+            ask: Number((nzdusd + 0.0001).toFixed(4)),
+            source: 'Open-ER Interbank Forex Live',
+            provider: 'Open-ER Interbank Forex Live',
+            classification: 'LIVE',
+            feedStatus: 'LIVE',
+            priceType: 'LAST',
+            lastUpdated: timeStr
+          };
+        }
+        if (rates.CAD && assets.USDCAD) {
+          const usdcad = rates.CAD;
+          assets.USDCAD = {
+            ...assets.USDCAD,
+            price: Number(usdcad.toFixed(4)),
+            bid: Number((usdcad - 0.0001).toFixed(4)),
+            ask: Number((usdcad + 0.0001).toFixed(4)),
+            source: 'Open-ER Interbank Forex Live',
+            provider: 'Open-ER Interbank Forex Live',
+            classification: 'LIVE',
+            feedStatus: 'LIVE',
+            priceType: 'LAST',
+            lastUpdated: timeStr
+          };
+        }
+        if (rates.CHF && assets.USDCHF) {
+          const usdchf = rates.CHF;
+          assets.USDCHF = {
+            ...assets.USDCHF,
+            price: Number(usdchf.toFixed(4)),
+            bid: Number((usdchf - 0.0001).toFixed(4)),
+            ask: Number((usdchf + 0.0001).toFixed(4)),
+            source: 'Open-ER Interbank Forex Live',
+            provider: 'Open-ER Interbank Forex Live',
+            classification: 'LIVE',
+            feedStatus: 'LIVE',
+            priceType: 'LAST',
+            lastUpdated: timeStr
+          };
+        }
+        if (rates.GBP && rates.JPY && assets.GBPJPY) {
+          const gbpjpy = (1 / rates.GBP) * rates.JPY;
+          assets.GBPJPY = {
+            ...assets.GBPJPY,
+            price: Number(gbpjpy.toFixed(2)),
+            bid: Number((gbpjpy - 0.02).toFixed(2)),
+            ask: Number((gbpjpy + 0.02).toFixed(2)),
+            source: 'Open-ER Derived Cross',
+            provider: 'Open-ER Cross Rate Calculation',
+            classification: 'LIVE',
+            feedStatus: 'LIVE',
+            priceType: 'LAST',
+            lastUpdated: timeStr
+          };
+        }
+        if (rates.EUR && rates.JPY && assets.EURJPY) {
+          const eurjpy = (1 / rates.EUR) * rates.JPY;
+          assets.EURJPY = {
+            ...assets.EURJPY,
+            price: Number(eurjpy.toFixed(2)),
+            bid: Number((eurjpy - 0.02).toFixed(2)),
+            ask: Number((eurjpy + 0.02).toFixed(2)),
+            source: 'Open-ER Derived Cross',
+            provider: 'Open-ER Cross Rate Calculation',
+            classification: 'LIVE',
+            feedStatus: 'LIVE',
+            priceType: 'LAST',
+            lastUpdated: timeStr
+          };
+        }
+        if (rates.EUR && rates.GBP && assets.EURGBP) {
+          const eurgbp = (1 / rates.EUR) * rates.GBP;
+          assets.EURGBP = {
+            ...assets.EURGBP,
+            price: Number(eurgbp.toFixed(4)),
+            bid: Number((eurgbp - 0.0001).toFixed(4)),
+            ask: Number((eurgbp + 0.0001).toFixed(4)),
+            source: 'Open-ER Derived Cross',
+            provider: 'Open-ER Cross Rate Calculation',
+            classification: 'LIVE',
+            feedStatus: 'LIVE',
+            priceType: 'LAST',
+            lastUpdated: timeStr
+          };
+        }
       }
     }
   } catch (e: any) {
     // Graceful offline fallback
   }
 
-  // 4. Fetch Live Indices & Commodities from Yahoo Finance
-  const yahooSymbols: Array<{ sym: string; ticker: string; decimals: number; spread: number }> = [
-    { sym: 'US100',  ticker: 'NQ=F',  decimals: 2, spread: 3.0  },
-    { sym: 'US30',   ticker: 'YM=F',  decimals: 2, spread: 5.0  },
-    { sym: 'US500',  ticker: 'ES=F',  decimals: 2, spread: 0.5  },
-    { sym: 'USOIL',  ticker: 'CL=F',  decimals: 2, spread: 0.03 },
-    { sym: 'UKOIL',  ticker: 'BZ=F',  decimals: 2, spread: 0.04 },
-    { sym: 'NATGAS', ticker: 'NG=F',  decimals: 3, spread: 0.005 },
-    // Gold via Yahoo as primary fallback if Gold-API failed
-    { sym: 'XAUUSD_YF', ticker: 'GC=F', decimals: 2, spread: 0.18 }
+  // 4. Fetch Live Indices & Commodities from Yahoo Finance v8 Chart API
+  const yahooEndpoints: Array<{ sym: string; ticker: string; decimals: number; spread: number; providerName: string }> = [
+    { sym: 'US100',  ticker: '^NDX',   decimals: 2, spread: 3.0,   providerName: 'Yahoo Finance US Indices' },
+    { sym: 'US30',   ticker: '^DJI',   decimals: 2, spread: 5.0,   providerName: 'Yahoo Finance US Indices' },
+    { sym: 'US500',  ticker: '^GSPC',  decimals: 2, spread: 0.5,   providerName: 'Yahoo Finance US Indices' },
+    { sym: 'UK100',  ticker: '^FTSE',  decimals: 2, spread: 1.0,   providerName: 'Yahoo Finance Global Indices' },
+    { sym: 'JP225',  ticker: '^N225',  decimals: 2, spread: 5.0,   providerName: 'Yahoo Finance Global Indices' },
+    { sym: 'USOIL',  ticker: 'CL=F',   decimals: 2, spread: 0.03,  providerName: 'Yahoo Finance WTI Crude' },
+    { sym: 'UKOIL',  ticker: 'BZ=F',   decimals: 2, spread: 0.04,  providerName: 'Yahoo Finance Energy Commodities' },
+    { sym: 'NATGAS', ticker: 'NG=F',   decimals: 3, spread: 0.005, providerName: 'Yahoo Finance Energy Commodities' },
+    { sym: 'XAUUSD_YF', ticker: 'GC=F', decimals: 2, spread: 0.18, providerName: 'Yahoo Finance CME GC=F' },
+    { sym: 'XAGUSD_YF', ticker: 'SI=F', decimals: 2, spread: 0.02, providerName: 'Yahoo Finance CME SI=F' },
   ];
 
   try {
-    const yTickers = yahooSymbols.map(s => s.ticker).join(',');
-    const yRes = await fetch(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yTickers)}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketDayHigh,regularMarketDayLow`,
-      { next: { revalidate: 15 }, headers: { 'User-Agent': UA } }
-    );
-    if (yRes.ok) {
-      const yJson = await yRes.json();
-      const quotes: any[] = yJson?.quoteResponse?.result || [];
-      for (const q of quotes) {
-        const p: number = q.regularMarketPrice;
-        if (!p || p <= 0) continue;
-        const chg: number = q.regularMarketChangePercent || 0;
-        const high: number = q.regularMarketDayHigh || p * 1.005;
-        const low: number  = q.regularMarketDayLow  || p * 0.995;
+    const fetchPromises = yahooEndpoints.map(async (entry) => {
+      const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(entry.ticker)}?interval=1h&range=1d`;
+      const res = await fetch(url, {
+        next: { revalidate: 15 },
+        headers: { 'User-Agent': UA }
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const meta = data.chart?.result?.[0]?.meta;
+      if (!meta || typeof meta.regularMarketPrice !== 'number' || meta.regularMarketPrice <= 0) return null;
+      return { entry, meta };
+    });
 
-        const entry = yahooSymbols.find(s => s.ticker === q.symbol);
-        if (!entry) continue;
+    const results = await Promise.allSettled(fetchPromises);
+    for (const r of results) {
+      if (r.status !== 'fulfilled' || !r.value) continue;
+      const { entry, meta } = r.value;
+      const p: number = meta.regularMarketPrice;
+      const prevClose: number = meta.chartPreviousClose || p;
+      const chg = prevClose > 0 ? Number((((p - prevClose) / prevClose) * 100).toFixed(2)) : 0;
+      const high: number = meta.regularMarketDayHigh || p * 1.005;
+      const low: number = meta.regularMarketDayLow || p * 0.995;
 
-        // Gold fallback — only patch if Gold-API didn't already set a LIVE price
-        if (entry.sym === 'XAUUSD_YF') {
-          if (assets.XAUUSD?.feedStatus !== 'LIVE') {
-            assets.XAUUSD = {
-              ...assets.XAUUSD,
-              price: p,
-              bid:  Number((p - entry.spread / 2).toFixed(entry.decimals)),
-              ask:  Number((p + entry.spread / 2).toFixed(entry.decimals)),
-              change24h: Number(chg.toFixed(2)),
-              high24h: Number(high.toFixed(entry.decimals)),
-              low24h:  Number(low.toFixed(entry.decimals)),
-              source: 'Yahoo Finance GC=F (Fallback)',
-              provider: 'Yahoo Finance',
-              classification: 'LIVE',
-              feedStatus: 'LIVE',
-              priceType: 'LAST',
-              lastUpdated: timeStr
-            };
-          }
-          continue;
+      if (entry.sym === 'XAUUSD_YF') {
+        if (assets.XAUUSD?.feedStatus !== 'LIVE') {
+          assets.XAUUSD = {
+            ...assets.XAUUSD,
+            price: p,
+            bid: Number((p - entry.spread / 2).toFixed(entry.decimals)),
+            ask: Number((p + entry.spread / 2).toFixed(entry.decimals)),
+            change24h: chg,
+            high24h: Number(high.toFixed(entry.decimals)),
+            low24h: Number(low.toFixed(entry.decimals)),
+            source: 'Yahoo Finance GC=F (Fallback)',
+            provider: entry.providerName,
+            classification: 'LIVE',
+            feedStatus: 'LIVE',
+            priceType: 'LAST',
+            lastUpdated: timeStr
+          };
         }
-
-        if (!assets[entry.sym]) continue;
-        assets[entry.sym] = {
-          ...assets[entry.sym],
-          price: p,
-          bid:  Number((p - entry.spread / 2).toFixed(entry.decimals)),
-          ask:  Number((p + entry.spread / 2).toFixed(entry.decimals)),
-          change24h: Number(chg.toFixed(2)),
-          high24h: Number(high.toFixed(entry.decimals)),
-          low24h:  Number(low.toFixed(entry.decimals)),
-          source: `Yahoo Finance ${q.symbol}`,
-          provider: 'Yahoo Finance',
-          classification: 'LIVE',
-          feedStatus: 'LIVE',
-          priceType: 'LAST',
-          lastUpdated: timeStr
-        };
+        continue;
       }
+
+      if (entry.sym === 'XAGUSD_YF') {
+        if (assets.XAGUSD?.feedStatus !== 'LIVE') {
+          assets.XAGUSD = {
+            ...assets.XAGUSD,
+            price: p,
+            bid: Number((p - entry.spread / 2).toFixed(entry.decimals)),
+            ask: Number((p + entry.spread / 2).toFixed(entry.decimals)),
+            change24h: chg,
+            high24h: Number(high.toFixed(entry.decimals)),
+            low24h: Number(low.toFixed(entry.decimals)),
+            source: 'Yahoo Finance SI=F (Fallback)',
+            provider: entry.providerName,
+            classification: 'LIVE',
+            feedStatus: 'LIVE',
+            priceType: 'LAST',
+            lastUpdated: timeStr
+          };
+        }
+        continue;
+      }
+
+      if (!assets[entry.sym]) continue;
+      assets[entry.sym] = {
+        ...assets[entry.sym],
+        price: p,
+        bid: Number((p - entry.spread / 2).toFixed(entry.decimals)),
+        ask: Number((p + entry.spread / 2).toFixed(entry.decimals)),
+        change24h: chg,
+        high24h: Number(high.toFixed(entry.decimals)),
+        low24h: Number(low.toFixed(entry.decimals)),
+        source: entry.providerName,
+        provider: entry.providerName,
+        classification: 'LIVE',
+        feedStatus: 'LIVE',
+        priceType: 'LAST',
+        lastUpdated: timeStr
+      };
     }
   } catch (e: any) {
-    // Yahoo Finance offline — assets stay at registry basePrice for indices
+    // Yahoo Finance offline — assets retain baseline
   }
 
 

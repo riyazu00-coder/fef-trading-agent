@@ -236,8 +236,9 @@ export function evaluateCanonicalDailyStats(input: EvaluateDailyStatsInput): Eva
 
   // 7. Canonical Source Rule & Provenance Coupling
   if (isBrokerConnected) {
-    // When MT5 broker live is displayed, the D1 candle MUST belong to the SAME broker provenance
-    if (d1Provenance && d1Provenance !== 'LIVE_MT5') {
+    // When MT5 broker live is displayed, if D1 candle comes from broker it MUST be LIVE_MT5.
+    // If broker does not provide D1 candles, independent verified reference OHLC is permitted without failing to DATA_LIMITED.
+    if (d1Provenance && d1Provenance !== 'LIVE_MT5' && d1Provenance !== 'INDEPENDENT_VERIFIED' && d1Provenance !== 'INDEPENDENT_REFERENCE') {
       return {
         isVerified: false,
         provenance: 'DATA_LIMITED',
@@ -337,13 +338,13 @@ export function evaluateCanonicalDailyStats(input: EvaluateDailyStatsInput): Eva
   const changePct = ((currentPrice - open) / open) * 100;
   const isPositive = change >= 0;
 
-  const resolvedProvenance: DailyStatsProvenance = isBrokerConnected
+  const resolvedProvenance: DailyStatsProvenance = (isBrokerConnected && d1Provenance === 'LIVE_MT5')
     ? 'LIVE_MT5'
     : (d1Provenance === 'INDEPENDENT_VERIFIED' ? 'INDEPENDENT_VERIFIED' : 'INDEPENDENT_REFERENCE');
 
-  const resolvedProvider = isBrokerConnected
-    ? (brokerQuote?.broker || d1Provider || 'MT5 Broker')
-    : (referenceProvider || d1Provider || 'Reference Feed');
+  const resolvedProvider = (isBrokerConnected && d1Provenance === 'LIVE_MT5')
+    ? (brokerQuote?.broker || 'MT5 Broker')
+    : (d1Provider || referenceProvider || (isBrokerConnected ? brokerQuote?.broker : 'Reference Feed') || 'Reference Feed');
 
   return {
     isVerified: true,
@@ -358,6 +359,6 @@ export function evaluateCanonicalDailyStats(input: EvaluateDailyStatsInput): Eva
     isPositive,
     tradingDayTimestamp: candleTimestamp,
     candleAgeMs,
-    statusLabel: isBrokerConnected ? 'MT5 BROKER LIVE' : 'VERIFIED REFERENCE',
+    statusLabel: (isBrokerConnected && d1Provenance === 'LIVE_MT5') ? 'MT5 BROKER LIVE' : 'VERIFIED REFERENCE',
   };
 }

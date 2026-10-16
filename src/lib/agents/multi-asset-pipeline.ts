@@ -1854,40 +1854,32 @@ export function generateAssetIntelligence(
     instrument: normSymbol,
   });
 
-  let dataSentinelSpecialist: UnifiedAgentResponse;
-  if (feeds?.sentinel) {
-    dataSentinelSpecialist = {
-      ...feeds.sentinel,
-      instrument: normSymbol,
-    };
+  const activeProvList: string[] = [];
+  const offlineProvList: string[] = [];
+
+  if (isAssetMt5Live) {
+    activeProvList.push('MT5');
+  } else if (isReferencePrice) {
+    activeProvList.push(effectiveCandleProvider || 'Reference Provider');
+    offlineProvList.push('MT5');
   } else {
-    const activeProvList: string[] = [];
-    const offlineProvList: string[] = [];
-
-    if (isAssetMt5Live) {
-      activeProvList.push('MT5');
-    } else if (isReferencePrice) {
-      activeProvList.push(effectiveCandleProvider || 'Reference Provider');
-      offlineProvList.push('MT5');
-    } else {
-      offlineProvList.push('MT5');
-    }
-
-    const rawSentinel = evaluateDataSentinelAgent({
-      isMt5Online: isAssetMt5Live,
-      isReferenceLive: isReferencePrice,
-      priceAuthority: isAssetMt5Live ? 'MT5_BROKER' : (isReferencePrice ? 'REFERENCE_MARKET' : 'UNAVAILABLE'),
-      priceAuthorityStatus: isAssetMt5Live || isReferencePrice ? 'LIVE' : 'UNAVAILABLE',
-      activeProviders: activeProvList,
-      offlineProviders: offlineProvList,
-      feedAgeMs: quoteTimestampMs ? Math.max(0, evalTimeMs - quoteTimestampMs) : 0,
-    });
-
-    dataSentinelSpecialist = {
-      ...rawSentinel,
-      instrument: normSymbol,
-    };
+    offlineProvList.push('MT5');
   }
+
+  const rawSentinel = evaluateDataSentinelAgent({
+    isMt5Online: isAssetMt5Live,
+    isReferenceLive: isReferencePrice,
+    priceAuthority: isAssetMt5Live ? 'MT5_BROKER' : (isReferencePrice ? 'REFERENCE_MARKET' : 'UNAVAILABLE'),
+    priceAuthorityStatus: isAssetMt5Live || isReferencePrice ? 'LIVE' : 'UNAVAILABLE',
+    activeProviders: activeProvList,
+    offlineProviders: offlineProvList,
+    feedAgeMs: quoteTimestampMs ? Math.max(0, evalTimeMs - quoteTimestampMs) : 0,
+  });
+
+  const dataSentinelSpecialist: UnifiedAgentResponse = {
+    ...rawSentinel,
+    instrument: normSymbol,
+  };
 
   const quantSpecialist = evaluateQuantAgent({
     metrics: feeds?.quant?.metrics || undefined,

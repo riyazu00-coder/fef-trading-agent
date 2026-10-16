@@ -173,6 +173,13 @@ const YAHOO_SYMBOLS: Record<string, string> = {
   XAUUSD: 'GC=F',
   XAGUSD: 'SI=F',
 
+  // Crypto Fallback Proxies
+  BTCUSD: 'BTC-USD',
+  ETHUSD: 'ETH-USD',
+  SOLUSD: 'SOL-USD',
+  XRPUSD: 'XRP-USD',
+  BNBUSD: 'BNB-USD',
+
   // Macro & Yield Feeds
   TNX: '^TNX',
   DXY: 'DX-Y.NYB',
