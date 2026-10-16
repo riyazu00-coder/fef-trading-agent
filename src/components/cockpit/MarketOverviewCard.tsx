@@ -281,14 +281,14 @@ export const MarketOverviewCard: React.FC = () => {
                 title="Real-time data feed connectivity status"
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${isBrokerLive ? 'bg-cyan-400 animate-pulse' : 'bg-cyan-500'}`} />
-                <span>FEED: {isBrokerConnected ? 'LIVE' : 'REFERENCE'}</span>
+                <span>FEED: {isBrokerConnected ? 'LIVE' : (activeAsset.feedStatus === 'DATA LIMITED' || activeAsset.feedStatus === 'OFFLINE' ? 'DATA LIMITED' : 'REFERENCE')}</span>
               </span>
             </div>
             <p className="text-[9.5px] text-gray-400">{activeAsset.name}</p>
           </div>
 
           <div className="text-right text-[9px] text-gray-300 space-y-0.5 font-mono">
-            <div>Spread: <span className="text-cyan-300 font-bold">{isBrokerConnected && brokerCanonical && brokerCanonical.ask != null && brokerCanonical.bid != null ? `${brokerCanonical.spread} pts ($${(brokerCanonical.ask - brokerCanonical.bid).toFixed(brokerCanonical.digits)} USD)` : activeAsset.spread}</span></div>
+            <div>Spread: <span className="text-cyan-300 font-bold">{isBrokerConnected && brokerCanonical && brokerCanonical.ask != null && brokerCanonical.bid != null ? `${brokerCanonical.spread} pts ($${(brokerCanonical.ask - brokerCanonical.bid).toFixed(brokerCanonical.digits)} USD)` : 'UNAVAILABLE'}</span></div>
             <div>Day Open: <span className="text-white font-bold">{dailyStats.isVerified && dailyStats.open != null ? (isForex ? dailyStats.open.toFixed(4) : dailyStats.open.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })) : <span className="text-gray-500 font-bold" title={dailyStats.reason || dailyStats.statusLabel}>—</span>}</span></div>
             <div>Day High: <span className="text-white font-bold">{dailyStats.isVerified && dailyStats.high != null ? (isForex ? dailyStats.high.toFixed(4) : dailyStats.high.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })) : <span className="text-gray-500 font-bold" title={dailyStats.reason || dailyStats.statusLabel}>—</span>}</span></div>
             <div>Day Low: <span className="text-white font-bold">{dailyStats.isVerified && dailyStats.low != null ? (isForex ? dailyStats.low.toFixed(4) : dailyStats.low.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })) : <span className="text-gray-500 font-bold" title={dailyStats.reason || dailyStats.statusLabel}>—</span>}</span></div>
@@ -337,7 +337,7 @@ export const MarketOverviewCard: React.FC = () => {
             {crossFeed && crossFeed.status !== 'UNAVAILABLE' && (
               <div className="flex items-center justify-between text-[8px] border-t border-emerald-500/20 pt-1 text-gray-300">
                 <span className="text-gray-400">
-                  Ref Feed: <strong className="text-gray-200">${(activeAsset.referencePrice || activeAsset.price).toFixed(brokerCanonical.digits)}</strong> ({activeAsset.referenceProvider || 'TradingView Spot'})
+                  Ref Feed: <strong className="text-gray-200">${(activeAsset.referencePrice || activeAsset.price).toFixed(brokerCanonical.digits)}</strong> ({activeAsset.referenceProvider || activeAsset.provider || 'Independent Spot'})
                 </span>
                 <span className={`px-1.5 py-0.2 rounded font-bold ${
                   crossFeed.status === 'NORMAL_BASIS'
@@ -356,7 +356,7 @@ export const MarketOverviewCard: React.FC = () => {
             <div className="flex items-center justify-between">
               <span className="text-[8.5px] bg-cyan-950/40 text-cyan-300/90 border border-cyan-500/30 px-1.5 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                <span>TRADINGVIEW REALTIME FEED ({activeAsset.referenceProvider || 'TradingView Spot'})</span>
+                <span>INDEPENDENT REFERENCE FEED ({activeAsset.referenceProvider || activeAsset.provider || (activeAsset as any).source || 'Reference Market'})</span>
               </span>
               <div className="text-right font-mono">
                 <div className="text-[7.5px] text-gray-400 font-bold uppercase tracking-wider">DAY OPEN</div>
@@ -372,9 +372,9 @@ export const MarketOverviewCard: React.FC = () => {
 
             <div className="pt-0.5 flex items-baseline space-x-2">
               <span className="text-2xl font-black text-white tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
-                {priceDisplay}
+                {activeAsset.price > 0 ? priceDisplay : 'DATA LIMITED'}
               </span>
-              <span className="text-[9px] text-gray-400 font-mono">(INDICATIVE MID)</span>
+              <span className="text-[9px] text-gray-400 font-mono">{activeAsset.price > 0 ? '(INDICATIVE MID)' : '(NO LIVE TICKER)'}</span>
             </div>
           </div>
         )}

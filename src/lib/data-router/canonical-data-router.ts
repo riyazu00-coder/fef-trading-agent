@@ -88,7 +88,7 @@ export class CanonicalDataRouter {
       dataType: 'QUOTE',
       symbol,
       provider: continuity.provider,
-      sourceType: isBroker ? 'BROKER_DIRECT' : (continuity.priceAuthority === 'REFERENCE' ? 'PUBLIC_API' : 'NONE'),
+      sourceType: isBroker ? 'BROKER_DIRECT' : (continuity.priceAuthority === 'REFERENCE_MARKET' || continuity.priceAuthority === 'REFERENCE' ? 'PUBLIC_API' : 'NONE'),
       timestamp: continuity.updatedAt,
       freshnessMs: continuity.brokerQuoteAgeMs ?? 0,
       freshnessState: continuity.state === 'BROKER_STALE' ? 'STALE' : (continuity.state === 'OFFLINE' ? 'OFFLINE' : 'FRESH'),

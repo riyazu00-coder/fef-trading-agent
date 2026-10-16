@@ -22,17 +22,18 @@ function buildBaselineAssets(): Record<string, LiveMarketAsset> {
 
   for (const def of Object.values(MARKET_REGISTRY)) {
     const isCrypto = def.category === 'CRYPTO';
-    const p = isCrypto ? 0 : def.basePrice;
-    const spread = def.typicalSpread;
-    const change = isCrypto ? 0 : def.typicalDailyChangePct;
+    const isUnverified = isCrypto || def.feedStatus === 'DEMO' || def.symbol === 'GER40';
+    const p = isUnverified ? 0 : def.basePrice;
+    const spread = isUnverified ? 0 : def.typicalSpread;
+    const change = isUnverified ? 0 : def.typicalDailyChangePct;
     const isPos = change >= 0;
 
     map[def.symbol] = {
       symbol: def.symbol,
       name: def.displayName,
       price: p,
-      bid: isCrypto ? 0 : Number((p - spread / 2).toFixed(def.decimalPrecision)),
-      ask: isCrypto ? 0 : Number((p + spread / 2).toFixed(def.decimalPrecision)),
+      bid: isUnverified ? 0 : Number((p - spread / 2).toFixed(def.decimalPrecision)),
+      ask: isUnverified ? 0 : Number((p + spread / 2).toFixed(def.decimalPrecision)),
       spread: spread,
       change24h: change,
       high24h: 0,
@@ -48,13 +49,13 @@ function buildBaselineAssets(): Record<string, LiveMarketAsset> {
       sparkline: isPos
         ? '0,28 20,24 40,20 60,18 80,14 100,16 120,10 140,8'
         : '0,10 20,14 40,16 60,22 80,25 100,28 120,32 140,34',
-      source: isCrypto ? 'None' : def.feedProvider,
-      provider: isCrypto ? 'None' : def.feedProvider,
-      lastUpdated: isCrypto ? 'Pending Feed' : timeStr,
+      source: isUnverified ? 'UNAVAILABLE' : def.feedProvider,
+      provider: isUnverified ? 'UNAVAILABLE (No Public Live Feed)' : def.feedProvider,
+      lastUpdated: isUnverified ? 'UNAVAILABLE' : timeStr,
       category: def.category,
-      feedStatus: isCrypto ? 'DATA LIMITED' : def.feedStatus,
-      classification: isCrypto ? 'DATA LIMITED' : (def.feedStatus === 'LIVE' ? 'LIVE' : 'DEMO'),
-      priceType: isCrypto ? 'DERIVED' : 'LAST',
+      feedStatus: isUnverified ? 'DATA LIMITED' : def.feedStatus,
+      classification: isUnverified ? 'DATA LIMITED' : (def.feedStatus === 'LIVE' ? 'LIVE' : 'DEMO'),
+      priceType: isUnverified ? 'DERIVED' : 'LAST',
       referencePrice: def.basePrice
     };
   }

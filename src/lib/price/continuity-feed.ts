@@ -23,10 +23,12 @@ export type ContinuityState =
   | 'VERIFIED'
   | 'OFFLINE';
 
+export type ContinuityPriceAuthority = 'MT5_BROKER' | 'REFERENCE_MARKET' | 'REFERENCE' | 'UNAVAILABLE';
+
 export interface ContinuityFeedStatus {
   state: ContinuityState;
   symbol: string;
-  priceAuthority: 'MT5_BROKER' | 'REFERENCE' | 'UNAVAILABLE';
+  priceAuthority: ContinuityPriceAuthority;
   activePrice: number;
   bid: number;
   ask: number;
@@ -116,7 +118,7 @@ export function evaluateContinuityFeed(params: EvaluateContinuityParams): Contin
       return {
         state: 'FAILOVER_ACTIVE',
         symbol,
-        priceAuthority: 'REFERENCE',
+        priceAuthority: 'REFERENCE_MARKET',
         activePrice: referencePrice,
         bid: referencePrice,
         ask: referencePrice,
@@ -160,7 +162,7 @@ export function evaluateContinuityFeed(params: EvaluateContinuityParams): Contin
     return {
       state: 'REFERENCE_ACTIVE',
       symbol,
-      priceAuthority: 'REFERENCE',
+      priceAuthority: 'REFERENCE_MARKET',
       activePrice: referencePrice,
       bid: referencePrice,
       ask: referencePrice,

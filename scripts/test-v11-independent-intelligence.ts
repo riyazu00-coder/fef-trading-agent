@@ -84,7 +84,7 @@ async function runTests() {
     referencePrice: 4294.50,
   });
   assert(feed2.state === 'FAILOVER_ACTIVE', 'Stale broker quote triggers FAILOVER_ACTIVE');
-  assert(feed2.priceAuthority === 'REFERENCE', 'Price authority falls back to REFERENCE');
+  assert(feed2.priceAuthority === 'REFERENCE' || feed2.priceAuthority === 'REFERENCE_MARKET', 'Price authority falls back to REFERENCE / REFERENCE_MARKET');
   assert(feed2.executionLocked === true, 'Execution strictly LOCKED on failover');
   assert(feed2.activePrice === 4294.50, 'Active price is reference feed value');
 
@@ -96,7 +96,7 @@ async function runTests() {
   });
   assert(feed3.state === 'REFERENCE_ACTIVE', 'Disconnected broker enters REFERENCE_ACTIVE');
   assert(feed3.executionLocked === true, 'Execution strictly LOCKED when broker disconnected');
-  assert(feed3.priceAuthority === 'REFERENCE', 'Price authority remains REFERENCE');
+  assert(feed3.priceAuthority === 'REFERENCE' || feed3.priceAuthority === 'REFERENCE_MARKET', 'Price authority remains REFERENCE / REFERENCE_MARKET');
 
   // [TEST 3: Canonical Data Router Provenance]
   console.log('\n[TEST 3: CANONICAL DATA ROUTER PROVENANCE]');
@@ -245,7 +245,7 @@ async function runTests() {
   });
   assert(disconnectedFeed.state === 'REFERENCE_ACTIVE', 'Disconnected broker enters REFERENCE_ACTIVE');
   assert(disconnectedFeed.executionLocked === true, 'Execution strictly LOCKED when MT5 disconnected');
-  assert(disconnectedFeed.priceAuthority === 'REFERENCE', 'Price authority falls back to REFERENCE');
+  assert(disconnectedFeed.priceAuthority === 'REFERENCE' || disconnectedFeed.priceAuthority === 'REFERENCE_MARKET', 'Price authority falls back to REFERENCE / REFERENCE_MARKET');
 
   // Technical intelligence continues using independent OHLC even when broker disconnected
   const btcIndependentDisconnected = generateAssetIntelligence('BTCUSD', {
