@@ -10,8 +10,27 @@
  */
 
 const http = require('http');
+const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
+
+// Load .env.local if present
+const envLocalPath = path.resolve(__dirname, '../.env.local');
+if (fs.existsSync(envLocalPath)) {
+  const content = fs.readFileSync(envLocalPath, 'utf8');
+  content.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+      const idx = trimmed.indexOf('=');
+      const key = trimmed.slice(0, idx).trim();
+      const val = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, '');
+      if (!process.env[key]) {
+        process.env[key] = val;
+      }
+    }
+  });
+}
 
 const PORT = parseInt(process.env.PORT || process.env.RELAY_PORT || '5557', 10);
 const HOST = process.env.RELAY_HOST || '0.0.0.0';
@@ -36,6 +55,9 @@ function checkRateLimit(ip, limit = 30, windowMs = 60000) {
 const registeredDevices = new Map(); // deviceId -> RegisteredDevice
 const telemetrySnapshots = new Map(); // deviceId -> RemoteTelemetrySnapshot
 const activeSockets = new Map(); // deviceId -> WebSocket
+// NOTE [PHASE 2A LIMITATION & PHASE 2B REQUIREMENT]:
+// processedRequestIds and executionWaiters are in-memory sets/maps.
+// Persistent idempotency is mandatory before remote broker execution activation.
 const processedRequestIds = new Set(); // requestId -> idempotency history
 const processedApprovalIds = new Set(); // approvalId -> duplicate approval history
 const executionWaiters = new Map(); // requestId -> { resolve, timer }
@@ -44,8 +66,10 @@ const executionWaiters = new Map(); // requestId -> { resolve, timer }
 const candleSnapshots = new Map();
 
 const TIMEFRAME_DURATION_MS = {
+  M1: 1 * 60 * 1000,
   M5: 5 * 60 * 1000,
   M15: 15 * 60 * 1000,
+  M30: 30 * 60 * 1000,
   H1: 60 * 60 * 1000,
   H4: 4 * 60 * 60 * 1000,
   D1: 24 * 60 * 60 * 1000,
@@ -72,9 +96,9 @@ function hashAuthToken(token, salt = 'fef-device-salt-v1') {
 }
 
 // Pre-seed authorized device from environment variables if present
-const ENV_DEVICE_ID = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
+const ENV_DEVICE_ID = process.env.FEF_REMOTE_DEVICE_ID || process.env.FEF_TELEMETRY_DEVICE_ID || 'fef-connector-primary-01';
 const ENV_KEY_ID = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';
-const ENV_DEVICE_SECRET = (process.env.FEF_REMOTE_DEVICE_SECRET || '').trim();
+const ENV_DEVICE_SECRET = (process.env.FEF_REMOTE_DEVICE_SECRET || process.env.FEF_TELEMETRY_DEVICE_SECRET || '').trim();
 
 if (ENV_DEVICE_ID && ENV_DEVICE_SECRET) {
   registeredDevices.set(ENV_DEVICE_ID, {
@@ -271,11 +295,30 @@ const server = http.createServer(async (req, res) => {
 
     const now = Date.now();
     const isSocketOpen = activeSockets.has(deviceId);
-    const heartbeatAgeMs = device.lastSeen ? now - device.lastSeen : null;
-    const isFresh = isSocketOpen && heartbeatAgeMs !== null && heartbeatAgeMs < MAX_HEARTBEAT_AGE_MS;
+    const connectorHeartbeatAgeMs = device.lastSeen ? now - device.lastSeen : null;
+    const terminalHeartbeatAgeMs =
+      telemetry && Number.isFinite(telemetry.heartbeatAgeMs)
+        ? telemetry.heartbeatAgeMs
+        : null;
 
+    const isConnectorFresh =
+      isSocketOpen &&
+      connectorHeartbeatAgeMs !== null &&
+      connectorHeartbeatAgeMs >= 0 &&
+      connectorHeartbeatAgeMs < MAX_HEARTBEAT_AGE_MS;
+
+    const isTerminalFresh =
+      Boolean(telemetry) &&
+      telemetry.bridgeConnected === true &&
+      telemetry.terminalConnected === true &&
+      terminalHeartbeatAgeMs !== null &&
+      terminalHeartbeatAgeMs >= 0 &&
+      terminalHeartbeatAgeMs < MAX_HEARTBEAT_AGE_MS &&
+      telemetry.isStale !== true;
+
+    const isFresh = isConnectorFresh && isTerminalFresh;
     const connectionState = isFresh ? 'ONLINE' : (isSocketOpen ? 'STALE' : 'OFFLINE');
-    const priceAuthority = isFresh && telemetry?.terminalConnected ? 'MT5_BROKER' : 'REFERENCE';
+    const priceAuthority = isFresh ? 'MT5_BROKER' : 'REFERENCE';
 
     return sendJson(res, 200, {
       success: true,
@@ -293,7 +336,7 @@ const server = http.createServer(async (req, res) => {
       tradeMode: telemetry?.tradeMode || device.tradeMode,
       operatingMode: telemetry?.operatingMode || device.operatingMode,
       terminalConnected: telemetry ? telemetry.terminalConnected : false,
-      heartbeatAgeMs,
+      heartbeatAgeMs: terminalHeartbeatAgeMs,
       priceAuthority,
       isExecutable: false, // Phase 2B is TELEMETRY ONLY
       activePositionsCount: telemetry ? telemetry.positions.length : 0,
@@ -318,8 +361,28 @@ const server = http.createServer(async (req, res) => {
 
     const now = Date.now();
     const isSocketOpen = activeSockets.has(deviceId);
-    const heartbeatAgeMs = device.lastSeen ? now - device.lastSeen : null;
-    const isFresh = isSocketOpen && heartbeatAgeMs !== null && heartbeatAgeMs < MAX_HEARTBEAT_AGE_MS;
+    const connectorHeartbeatAgeMs = device.lastSeen ? now - device.lastSeen : null;
+    const terminalHeartbeatAgeMs =
+      telemetry && Number.isFinite(telemetry.heartbeatAgeMs)
+        ? telemetry.heartbeatAgeMs
+        : null;
+
+    const isConnectorFresh =
+      isSocketOpen &&
+      connectorHeartbeatAgeMs !== null &&
+      connectorHeartbeatAgeMs >= 0 &&
+      connectorHeartbeatAgeMs < MAX_HEARTBEAT_AGE_MS;
+
+    const isTerminalFresh =
+      Boolean(telemetry) &&
+      telemetry.bridgeConnected === true &&
+      telemetry.terminalConnected === true &&
+      terminalHeartbeatAgeMs !== null &&
+      terminalHeartbeatAgeMs >= 0 &&
+      terminalHeartbeatAgeMs < MAX_HEARTBEAT_AGE_MS &&
+      telemetry.isStale !== true;
+
+    const isFresh = isConnectorFresh && isTerminalFresh;
 
     // Sanitized telemetry response (Zero secrets, zero token hashes)
     return sendJson(res, 200, {
@@ -328,19 +391,20 @@ const server = http.createServer(async (req, res) => {
       publicDeviceId: device.publicDeviceId,
       connected: isFresh,
       connectionState: isFresh ? 'ONLINE' : (isSocketOpen ? 'STALE' : 'OFFLINE'),
-      priceAuthority: isFresh && telemetry?.terminalConnected ? 'MT5_BROKER' : 'REFERENCE',
+      priceAuthority: isFresh ? 'MT5_BROKER' : 'REFERENCE',
       broker: telemetry?.broker || device.broker,
       server: telemetry?.server || device.server,
       maskedAccount: telemetry?.maskedAccount || device.maskedAccount,
       tradeMode: telemetry?.tradeMode || device.tradeMode,
       operatingMode: telemetry?.operatingMode || device.operatingMode,
       terminalConnected: telemetry ? telemetry.terminalConnected : false,
-      heartbeatAgeMs,
+      heartbeatAgeMs: terminalHeartbeatAgeMs,
       quotes: telemetry ? telemetry.quotes : {},
       symbolSpecs: telemetry ? telemetry.symbolSpecs : {},
       positions: telemetry ? telemetry.positions : [],
       pendingOrders: telemetry ? telemetry.pendingOrders : [],
       sessions: telemetry ? (telemetry.sessions || {}) : {},
+      assetDiagnostics: telemetry ? (telemetry.assetDiagnostics || {}) : {},
       timestamp: now,
     });
   }
@@ -405,6 +469,83 @@ const server = http.createServer(async (req, res) => {
       isStale: !isFresh,
       candles: entry.candles,
     });
+  }
+
+  // POST /device/:id/probe (Phase 2A Non-Executing Secure Transport Probe)
+  const probeMatch = pathname.match(/^\/device\/([^\/]+)\/probe$/);
+  if (req.method === 'POST' && probeMatch) {
+    const deviceId = probeMatch[1];
+    const device = registeredDevices.get(deviceId);
+
+    if (!device) {
+      return sendJson(res, 404, {
+        success: false,
+        error: { code: 'DEVICE_NOT_FOUND', message: `Device '${deviceId}' is not registered.` }
+      }, allowedOrigin);
+    }
+
+    const ws = activeSockets.get(deviceId);
+    if (!ws || ws.readyState !== 1) {
+      return sendJson(res, 503, {
+        success: false,
+        error: { code: 'CONNECTOR_OFFLINE', message: `Device '${deviceId}' connector is not connected to relay.` }
+      }, allowedOrigin);
+    }
+
+    try {
+      const body = await readJsonBody(req);
+
+      if (!body.requestId || !body.commandType || body.commandType !== 'TRANSPORT_PROBE') {
+        return sendJson(res, 400, {
+          success: false,
+          error: { code: 'INVALID_PROBE_SCHEMA', message: 'requestId and commandType === TRANSPORT_PROBE are mandatory.' }
+        }, allowedOrigin);
+      }
+
+      const now = Date.now();
+      if (body.expiresAt && body.expiresAt <= now) {
+        return sendJson(res, 400, {
+          success: false,
+          error: { code: 'COMMAND_EXPIRED', message: `Probe expired: cutoff was ${body.expiresAt}, current time is ${now}.` }
+        }, allowedOrigin);
+      }
+
+      if (processedRequestIds.has(body.requestId)) {
+        return sendJson(res, 409, {
+          success: false,
+          error: { code: 'DUPLICATE_COMMAND_ID', message: `Probe request ID '${body.requestId}' has already been processed.` }
+        }, allowedOrigin);
+      }
+      processedRequestIds.add(body.requestId);
+
+      const ackPromise = new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          executionWaiters.delete(body.requestId);
+          resolve({
+            success: false,
+            requestId: body.requestId,
+            status: 'TIMEOUT',
+            error: { code: 'PROBE_TIMEOUT', message: 'Timed out waiting for local connector probe ACK.' },
+            timestamp: Date.now(),
+          });
+        }, 10000);
+
+        executionWaiters.set(body.requestId, { resolve, timer });
+      });
+
+      ws.send(JSON.stringify({
+        type: 'TRANSPORT_PROBE',
+        command: body,
+      }));
+
+      const result = await ackPromise;
+      return sendJson(res, result.success ? 200 : 400, result, allowedOrigin);
+    } catch (err) {
+      return sendJson(res, 500, {
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: err.message || 'Probe dispatch error.' }
+      }, allowedOrigin);
+    }
   }
 
   // POST /device/:id/execute (Phase 2C Controlled Remote DEMO Execution)
@@ -676,25 +817,38 @@ wss.on('connection', (ws, req) => {
       if (snapshot.tradeMode) device.tradeMode = snapshot.tradeMode === 'REAL' ? 'REAL' : 'DEMO';
       device.operatingMode = 'READ_ONLY'; // Always enforce READ_ONLY on remote control plane
 
+      const terminalConnected = Boolean(snapshot.terminalConnected);
+      const bridgeConnected = Boolean(snapshot.bridgeConnected);
+      const rawHeartbeatAgeMs = Number(snapshot.heartbeatAgeMs);
+      const heartbeatAgeMs =
+        Number.isFinite(rawHeartbeatAgeMs) && rawHeartbeatAgeMs >= 0
+          ? rawHeartbeatAgeMs
+          : Number.POSITIVE_INFINITY;
+      const terminalFresh =
+        terminalConnected &&
+        bridgeConnected &&
+        heartbeatAgeMs < MAX_HEARTBEAT_AGE_MS;
+
       telemetrySnapshots.set(authenticatedDeviceId, {
         deviceId: authenticatedDeviceId,
         publicDeviceId: device.publicDeviceId,
-        terminalConnected: Boolean(snapshot.terminalConnected),
-        bridgeConnected: Boolean(snapshot.bridgeConnected),
-        heartbeatAgeMs: Number(snapshot.heartbeatAgeMs || 0),
+        terminalConnected,
+        bridgeConnected,
+        heartbeatAgeMs,
         broker: device.broker,
         server: device.server,
         maskedAccount: device.maskedAccount,
         tradeMode: device.tradeMode,
         operatingMode: 'READ_ONLY',
-        priceAuthority: 'MT5_BROKER',
+        priceAuthority: terminalFresh ? 'MT5_BROKER' : 'REFERENCE',
         quotes: (snapshot.quotes && typeof snapshot.quotes === 'object') ? snapshot.quotes : {},
         symbolSpecs: (snapshot.symbolSpecs && typeof snapshot.symbolSpecs === 'object') ? snapshot.symbolSpecs : {},
         positions: Array.isArray(snapshot.positions) ? snapshot.positions.slice(0, 100) : [],
         pendingOrders: Array.isArray(snapshot.pendingOrders) ? snapshot.pendingOrders.slice(0, 100) : [],
         sessions: (snapshot.sessions && typeof snapshot.sessions === 'object') ? snapshot.sessions : {},
+        assetDiagnostics: (snapshot.assetDiagnostics && typeof snapshot.assetDiagnostics === 'object') ? snapshot.assetDiagnostics : {},
         timestamp: Date.now(),
-        isStale: false,
+        isStale: !terminalFresh,
       });
 
       ws.send(JSON.stringify({ type: 'TELEMETRY_ACK', timestamp: Date.now() }));
@@ -708,13 +862,13 @@ wss.on('connection', (ws, req) => {
 
       const normSym = (symbol || '').toUpperCase().trim();
       const normTf = (timeframe || '').toUpperCase().trim();
-      const validTfs = ['M5', 'M15', 'H1', 'H4', 'D1'];
+      const validTfs = ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
       if (!normSym || !validTfs.includes(normTf) || !Array.isArray(candles) || candles.length === 0) {
         ws.send(JSON.stringify({
           type: 'CANDLES_REJECTED',
           code: 'INVALID_CANDLE_PAYLOAD',
-          message: 'Symbol, valid timeframe (M5, M15, H1, H4, D1), and non-empty candles array required.',
+          message: 'Symbol, valid timeframe (M5, M15, M30, H1, H4, D1), and non-empty candles array required.',
           symbol: normSym,
           timeframe: normTf,
         }));
@@ -852,25 +1006,21 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', () => {
+  const handleSocketTermination = () => {
     if (authenticatedDeviceId) {
-      const device = registeredDevices.get(authenticatedDeviceId);
-      if (device) {
-        device.connectionState = 'OFFLINE';
+      const currentWs = activeSockets.get(authenticatedDeviceId);
+      if (currentWs === ws) {
+        activeSockets.delete(authenticatedDeviceId);
+        const device = registeredDevices.get(authenticatedDeviceId);
+        if (device) {
+          device.connectionState = 'OFFLINE';
+        }
       }
-      activeSockets.delete(authenticatedDeviceId);
     }
-  });
+  };
 
-  ws.on('error', () => {
-    if (authenticatedDeviceId) {
-      const device = registeredDevices.get(authenticatedDeviceId);
-      if (device) {
-        device.connectionState = 'OFFLINE';
-      }
-      activeSockets.delete(authenticatedDeviceId);
-    }
-  });
+  ws.on('close', handleSocketTermination);
+  ws.on('error', handleSocketTermination);
 });
 
 if (require.main === module) {
@@ -896,4 +1046,5 @@ module.exports = {
   executionWaiters,
   hashAuthToken,
   isCandleFresh,
+  TIMEFRAME_DURATION_MS,
 };

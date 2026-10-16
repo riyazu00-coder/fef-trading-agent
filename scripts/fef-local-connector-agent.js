@@ -16,6 +16,7 @@ const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const WebSocket = require('ws');
 
 // Load .env.local if present
 const envLocalPath = path.resolve(__dirname, '../.env.local');
@@ -32,6 +33,91 @@ if (fs.existsSync(envLocalPath)) {
       }
     }
   });
+}
+
+// 3. Zero-Database Remote Relay configuration (RAM-Only Transport)
+const RELAY_URL = (process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557').trim();
+const REMOTE_DEVICE_ID = (process.env.FEF_REMOTE_DEVICE_ID || process.env.FEF_TELEMETRY_DEVICE_ID || 'fef-connector-primary-01').trim();
+const KEY_ID = (process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary').trim();
+const REMOTE_DEVICE_SECRET = (process.env.FEF_REMOTE_DEVICE_SECRET || process.env.FEF_TELEMETRY_DEVICE_SECRET || '').trim();
+
+let ws = null;
+let reconnectTimer = null;
+let reconnectDelayMs = 1000;
+let isConnectedToRelay = false;
+let lastRelayPushTime = 0;
+
+function toWebSocketUrl(httpUrl) {
+  const url = new URL(httpUrl);
+  const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${url.host}/connector`;
+}
+
+function connectToRelay() {
+  if (!REMOTE_DEVICE_SECRET) {
+    return;
+  }
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
+  const wsUrl = toWebSocketUrl(RELAY_URL);
+  try {
+    ws = new WebSocket(wsUrl);
+  } catch (err) {
+    scheduleReconnect();
+    return;
+  }
+
+  ws.on('open', () => {
+    reconnectDelayMs = 1000;
+    try {
+      ws.send(JSON.stringify({
+        type: 'AUTH',
+        deviceId: REMOTE_DEVICE_ID,
+        keyId: KEY_ID,
+        authToken: REMOTE_DEVICE_SECRET,
+      }));
+    } catch {}
+  });
+
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString('utf8'));
+      if (msg.type === 'AUTH_OK') {
+        isConnectedToRelay = true;
+        console.log(`✓ [CONNECTOR] Authenticated with Remote Relay (Device: ${msg.publicDeviceId || REMOTE_DEVICE_ID})`);
+        return;
+      }
+      if (msg.type === 'AUTH_FAILED') {
+        console.error(`✕ [CONNECTOR] Remote Relay authentication rejected: ${msg.message}`);
+        isConnectedToRelay = false;
+        try { ws.close(); } catch {}
+        return;
+      }
+      if (msg.type === 'TELEMETRY_ACK' || msg.type === 'CANDLES_ACK') {
+        return;
+      }
+    } catch {}
+  });
+
+  ws.on('error', () => {
+    isConnectedToRelay = false;
+  });
+
+  ws.on('close', () => {
+    isConnectedToRelay = false;
+    scheduleReconnect();
+  });
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    reconnectDelayMs = Math.min(reconnectDelayMs * 1.5, 15000);
+    connectToRelay();
+  }, reconnectDelayMs);
 }
 
 // Load device identity & secure token provisioning
@@ -442,9 +528,62 @@ async function pollAndPushTelemetry() {
     }
   }
 
-  // 6. Cloud Telemetry Push (Only if HYBRID or CLOUD mode)
-  if (TELEMETRY_STORAGE_MODE === 'LOCAL') {
-    // Zero outbound cloud requests, zero Upstash writes, completely decoupled
+  // 6. Outbound Zero-Database Remote Relay Push (RAM-Only Latest-State Transport)
+  // Decoupled from local SQLite persistence and cloud database storage.
+  if (isConnectedToRelay && ws && ws.readyState === WebSocket.OPEN) {
+    const nowMs = Date.now();
+    if (nowMs - lastRelayPushTime >= 2000) {
+      lastRelayPushTime = nowMs;
+      try {
+        const rawHeartbeatAge = typeof localStatus.heartbeatAgeMs === 'number' ? localStatus.heartbeatAgeMs : 0;
+        const snapshot = {
+          broker: localStatus.terminal?.broker || localStatus.account?.broker || 'UNKNOWN',
+          server: localStatus.terminal?.server || localStatus.account?.server || 'UNKNOWN',
+          maskedAccount: localStatus.account?.maskedLogin || '00***00',
+          tradeMode: localStatus.account?.tradeMode || 'DEMO',
+          operatingMode: 'READ_ONLY',
+          terminalConnected: isConnected,
+          bridgeConnected: true,
+          heartbeatAgeMs: rawHeartbeatAge,
+          quotes: localStatus.quotes || {},
+          symbolSpecs: localStatus.symbolSpecs || {},
+          positions: localStatus.positions || [],
+          pendingOrders: localStatus.pendingOrders || [],
+          sessions: localStatus.sessions || {},
+          assetDiagnostics: localStatus.assetDiagnostics || {},
+        };
+
+        ws.send(JSON.stringify({
+          type: 'TELEMETRY',
+          snapshot,
+        }));
+
+        if (candleSnapshots && candleSnapshots.length > 0) {
+          for (const cs of candleSnapshots) {
+            ws.send(JSON.stringify({
+              type: 'CANDLES_SNAPSHOT',
+              payload: {
+                symbol: cs.canonicalSymbol,
+                timeframe: cs.timeframe,
+                candles: cs.candles,
+                broker: localStatus.terminal?.broker || 'Exness Technologies Ltd',
+                server: localStatus.terminal?.server || 'Exness-MT5Trial16',
+                generatedAt: Date.now(),
+                sourceTimestamp: Date.now(),
+                schemaVersion: '1.0',
+              }
+            }));
+          }
+        }
+      } catch (wsErr) {
+        console.warn('[CONNECTOR] Outbound relay send notice:', wsErr.message);
+      }
+    }
+  }
+
+  // 7. Legacy Upstash Cloud Telemetry Ingress (Only if HYBRID/CLOUD mode and NOT using zero-database relay)
+  if (TELEMETRY_STORAGE_MODE === 'LOCAL' || isConnectedToRelay) {
+    // Zero outbound Upstash writes, completely decoupled
     return { success: true };
   }
 
@@ -526,11 +665,15 @@ async function pollAndPushTelemetry() {
 }
 
 function start() {
+  connectToRelay();
+
   console.log('================================================================');
   console.log('FEF TRADING SOLUTIONS: LOCAL OUTBOUND MT5 TELEMETRY CONNECTOR');
   console.log('================================================================');
   console.log(`- Local MT5 Bridge:     ${LOCAL_BRIDGE_URL}`);
   console.log(`- Storage Mode:         ${TELEMETRY_STORAGE_MODE}`);
+  console.log(`- Remote Relay URL:     ${RELAY_URL}`);
+  console.log(`- Remote Relay Auth:    ${REMOTE_DEVICE_SECRET ? 'CONFIGURED' : 'NOT_CONFIGURED (FAIL-CLOSED)'}`);
   if (TELEMETRY_STORAGE_MODE !== 'LOCAL') {
     console.log(`- Cloud Ingress Target: ${CLOUD_INGRESS_URL}`);
     console.log(
@@ -540,7 +683,7 @@ function start() {
     console.log(`- SQLite Database:      ${localRepo ? localRepo.dbPath : 'INITIALIZING'}`);
     console.log(`- Cloud Telemetry Sync: DISABLED (Zero external quota dependency)`);
   }
-  console.log(`- Device ID:            ${DEVICE_ID}`);
+  console.log(`- Device ID:            ${REMOTE_DEVICE_ID}`);
   console.log('- Mode:                 READ-ONLY TELEMETRY (Zero Execution Transport)');
   console.log('================================================================\n');
 

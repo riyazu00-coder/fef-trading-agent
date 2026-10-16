@@ -10,8 +10,27 @@
  */
 
 const http = require('http');
+const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
+
+// Load .env.local if present
+const envLocalPath = path.resolve(__dirname, '../.env.local');
+if (fs.existsSync(envLocalPath)) {
+  const content = fs.readFileSync(envLocalPath, 'utf8');
+  content.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+      const idx = trimmed.indexOf('=');
+      const key = trimmed.slice(0, idx).trim();
+      const val = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, '');
+      if (!process.env[key]) {
+        process.env[key] = val;
+      }
+    }
+  });
+}
 
 const PORT = parseInt(process.env.PORT || process.env.RELAY_PORT || '5557', 10);
 const HOST = process.env.RELAY_HOST || '0.0.0.0';
@@ -77,9 +96,9 @@ function hashAuthToken(token, salt = 'fef-device-salt-v1') {
 }
 
 // Pre-seed authorized device from environment variables if present
-const ENV_DEVICE_ID = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
+const ENV_DEVICE_ID = process.env.FEF_REMOTE_DEVICE_ID || process.env.FEF_TELEMETRY_DEVICE_ID || 'fef-connector-primary-01';
 const ENV_KEY_ID = process.env.FEF_REMOTE_KEY_ID || 'key-v1-primary';
-const ENV_DEVICE_SECRET = (process.env.FEF_REMOTE_DEVICE_SECRET || '').trim();
+const ENV_DEVICE_SECRET = (process.env.FEF_REMOTE_DEVICE_SECRET || process.env.FEF_TELEMETRY_DEVICE_SECRET || '').trim();
 
 if (ENV_DEVICE_ID && ENV_DEVICE_SECRET) {
   registeredDevices.set(ENV_DEVICE_ID, {

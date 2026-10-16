@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const relayUrl = process.env.FEF_REMOTE_RELAY_URL || 'http://127.0.0.1:5557';
-  const deviceId = process.env.FEF_REMOTE_DEVICE_ID || 'fef-connector-primary-01';
+  const deviceId = process.env.FEF_REMOTE_DEVICE_ID || process.env.FEF_TELEMETRY_DEVICE_ID || 'fef-connector-primary-01';
 
   try {
     const controller = new AbortController();

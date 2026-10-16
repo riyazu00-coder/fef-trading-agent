@@ -237,8 +237,8 @@ class ConnectivitySupervisor {
 
   async queryRemoteRelayHealth() {
     return new Promise((resolve) => {
-      const relayUrl = process.env.FEF_REMOTE_RELAY_URL || "https://fef-secure-mt5-relay-production.up.railway.app";
-      const deviceId = process.env.FEF_REMOTE_DEVICE_ID || "fef-connector-primary-01";
+      const relayUrl = process.env.FEF_REMOTE_RELAY_URL || "http://127.0.0.1:5557";
+      const deviceId = process.env.FEF_REMOTE_DEVICE_ID || process.env.FEF_TELEMETRY_DEVICE_ID || "fef-connector-primary-01";
       const url = relayUrl + "/device/" + deviceId + "/telemetry";
       const client = relayUrl.startsWith("https") ? https : http;
       const req = client.get(url, { timeout: 2500 }, (res) => {
