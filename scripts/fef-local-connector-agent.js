@@ -233,7 +233,7 @@ function postTelemetryOutbound(envelope) {
             }
             resolve({ success: true, statusCode: res.statusCode });
           } else {
-            console.warn(`[CONNECTOR] Cloud ingress returned HTTP ${res.statusCode} on ${envelope.type}: ${respData.slice(0, 100)}`);
+            console.warn(`[CONNECTOR] Cloud ingress returned HTTP ${res.statusCode} on ${envelope.type}: ${respData}`);
             resolve({ success: false, statusCode: res.statusCode, response: respData });
           }
         });
