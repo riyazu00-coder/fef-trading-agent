@@ -739,7 +739,7 @@ export const GlobalOpportunityRadar: React.FC = () => {
                             {item.state}
                           </span>
                           {item.decisionV2 && (
-                            <div className="flex items-center space-x-1">
+                            <div className="flex items-center space-x-1 flex-wrap gap-y-0.5">
                               <span className={`px-1 py-0.2 rounded text-[7.5px] font-bold ${
                                 item.decisionV2.maturity === 'VALIDATED_SETUP'
                                   ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
@@ -756,6 +756,19 @@ export const GlobalOpportunityRadar: React.FC = () => {
                               {item.decisionV2.hardVetoes.length > 0 && (
                                 <span className="px-1 py-0.2 rounded text-[7px] bg-rose-950/70 text-rose-300 border border-rose-500/40 font-bold" title={item.decisionV2.hardVetoes[0].reason}>
                                   VETO
+                                </span>
+                              )}
+                              {item.setupV3 && item.setupV3.lifecycle !== 'NO_SETUP' && (
+                                <span className={`px-1 py-0.2 rounded text-[7px] font-bold ${
+                                  item.setupV3.lifecycle === 'VALIDATED'
+                                    ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-500/40'
+                                    : item.setupV3.lifecycle === 'FORMING'
+                                    ? 'bg-cyan-950/70 text-cyan-300 border border-cyan-500/40'
+                                    : item.setupV3.lifecycle === 'WATCH'
+                                    ? 'bg-amber-950/70 text-amber-300 border border-amber-500/40'
+                                    : 'bg-black/60 text-gray-400 border border-white/10'
+                                }`} title={`Setup: ${item.setupV3.direction} ${item.setupV3.setupType} (${item.setupV3.riskReward?.formatted || 'No RR'})`}>
+                                  {item.setupV3.lifecycle} {item.setupV3.direction !== 'NONE' ? `• ${item.setupV3.direction}` : ''} {item.setupV3.riskReward ? `(${item.setupV3.riskReward.formatted})` : ''}
                                 </span>
                               )}
                             </div>

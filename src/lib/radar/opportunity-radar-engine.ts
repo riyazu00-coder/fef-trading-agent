@@ -19,6 +19,7 @@ import { FastOpportunityEngine, FastOpportunityEvaluation } from './fast-opportu
 import { SetupLifecycleEngine } from '../trading/setup-lifecycle-engine';
 import { SetupLifecycleState } from '../trading/setup-lifecycle-types';
 import { DecisionV2UiProjection, projectDecisionV2ForUi } from '../decision/decision-ui-projection';
+import { SetupIntelligenceV3UiProjection, projectSetupV3ForUi } from '../setup/setup-ui-projection';
 
 export type RadarOpportunityState =
   | 'STRONG BUY OPPORTUNITY'
@@ -74,6 +75,7 @@ export interface RadarOpportunityItem {
   isDataLimited?: boolean;
   setupLifecycleState?: SetupLifecycleState;
   decisionV2?: DecisionV2UiProjection;
+  setupV3?: SetupIntelligenceV3UiProjection;
 }
 
 export interface AttentionQueueItem {
@@ -488,6 +490,7 @@ export function generateGlobalRadarIntelligence(
 
     const isUnsupportedOrOffline = sym === 'GER40' || !isLiveAssetPresent || liveAsset.feedStatus === 'OFFLINE' || (liveAsset.feedStatus as string) === 'UNAVAILABLE';
     const decisionV2Ui = profile.decisionV2Projection || projectDecisionV2ForUi(profile.decisionIntelligenceV2, sym);
+    const setupV3Ui = profile.setupIntelligenceV3Projection || projectSetupV3ForUi(profile.setupIntelligenceV3, sym);
     const hasHardVeto = Boolean(profile.decisionIntelligenceV2?.hardVetoes?.length || decisionV2Ui?.hasHardVeto);
 
     const effectiveState = isUnsupportedOrOffline ? 'UNAVAILABLE' : state;
@@ -530,7 +533,8 @@ export function generateGlobalRadarIntelligence(
       feedStatus: liveAsset.feedStatus,
       isDataLimited: isUnsupportedOrOffline || liveAsset.feedStatus === 'DATA LIMITED' || liveAsset.feedStatus === 'DEMO' || liveAsset.feedStatus === 'OFFLINE',
       setupLifecycleState: profile.setupLifecycle?.state || (profile.blueprint ? 'ARMED' : 'FORMING'),
-      decisionV2: decisionV2Ui
+      decisionV2: decisionV2Ui,
+      setupV3: setupV3Ui
     };
   });
 
@@ -865,6 +869,7 @@ export async function evaluateLocalOpportunityRadar(
       opp.regime = 'UNAVAILABLE — Broker Instrument Unavailable';
       opp.whyRankedReasons = ['Broker instrument unavailable in local MT5 / zero evidence'];
       opp.decisionV2 = projectDecisionV2ForUi(null, opp.symbol);
+      opp.setupV3 = projectSetupV3ForUi(null, opp.symbol);
     } else {
       const q = latestQuotes[opp.symbol];
       const c = multiAssetCandles[opp.symbol];

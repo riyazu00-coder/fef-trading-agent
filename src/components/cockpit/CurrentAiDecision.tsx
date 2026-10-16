@@ -6,6 +6,7 @@ import { useActiveAsset } from '@/context/ActiveAssetContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { useMemberAuth } from '@/context/MemberAuthContext';
 import { projectDecisionV2ForUi, DecisionV2UiProjection } from '@/lib/decision/decision-ui-projection';
+import { projectSetupV3ForUi, SetupIntelligenceV3UiProjection } from '@/lib/setup/setup-ui-projection';
 
 export const CurrentAiDecision: React.FC = () => {
   const { activeSymbol, assetProfile } = useActiveAsset();
@@ -22,6 +23,11 @@ export const CurrentAiDecision: React.FC = () => {
   const decisionV2: DecisionV2UiProjection =
     assetProfile.decisionV2Projection ||
     projectDecisionV2ForUi(assetProfile.decisionIntelligenceV2, activeSymbol);
+
+  // Canonical Setup Intelligence V3 UI Projection
+  const setupV3: SetupIntelligenceV3UiProjection =
+    assetProfile.setupIntelligenceV3Projection ||
+    projectSetupV3ForUi(assetProfile.setupIntelligenceV3, activeSymbol);
 
   const isUnavailable = activeSymbol === 'GER40' || decisionV2.maturity === 'UNAVAILABLE';
   const hasHardVeto = Boolean(decisionV2.hardVetoes && decisionV2.hardVetoes.length > 0);
@@ -384,12 +390,139 @@ export const CurrentAiDecision: React.FC = () => {
         </div>
       </div>
 
+      {/* Setup Intelligence V3 Lifecycle & Geometry */}
+      <div className="bg-black/50 p-2 rounded-xl border border-white/10 space-y-1 text-[8.5px] font-mono">
+        <div className="flex items-center justify-between border-b border-white/5 pb-1">
+          <span className="text-cyan-400 font-bold uppercase tracking-wider text-[8px] flex items-center space-x-1">
+            <span>🎯</span>
+            <span>SETUP INTELLIGENCE V3</span>
+          </span>
+          <div className="flex items-center space-x-1 text-[7.5px]">
+            <span
+              className={`px-1 py-0.2 rounded font-bold ${
+                setupV3.lifecycle === 'VALIDATED'
+                  ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
+                  : setupV3.lifecycle === 'FORMING'
+                  ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-500/40'
+                  : setupV3.lifecycle === 'WATCH'
+                  ? 'bg-indigo-950/60 text-indigo-300 border border-indigo-500/40'
+                  : setupV3.lifecycle === 'INVALIDATED' || setupV3.lifecycle === 'EXPIRED'
+                  ? 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
+                  : 'bg-black/50 text-gray-400 border border-white/10'
+              }`}
+            >
+              {setupV3.lifecycle}
+            </span>
+            {setupV3.direction !== 'NONE' && (
+              <span
+                className={`px-1 py-0.2 rounded font-bold ${
+                  setupV3.direction === 'LONG'
+                    ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-500/40'
+                    : 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
+                }`}
+              >
+                {setupV3.direction}
+              </span>
+            )}
+            {setupV3.setupType !== 'UNCLASSIFIED' && (
+              <span className="text-gray-300 text-[7px]">{setupV3.setupType}</span>
+            )}
+          </div>
+        </div>
+
+        {activeSymbol === 'GER40' ? (
+          <div className="text-rose-400 font-bold text-[8px]">
+            SETUP INTELLIGENCE UNAVAILABLE (Telemetry offline or broker instrument unmapped)
+          </div>
+        ) : setupV3.lifecycle === 'NO_SETUP' || setupV3.lifecycle === 'OBSERVING' ? (
+          <div className="text-gray-400 text-[8px]">
+            NO STRUCTURED SETUP: {setupV3.thesis}
+          </div>
+        ) : (
+          <div className="space-y-1 text-[8px]">
+            <div className="text-gray-300">
+              <span className="font-semibold text-cyan-300">Thesis: </span>
+              <span>{setupV3.thesis}</span>
+            </div>
+
+            {setupV3.entryZone && (
+              <div className="grid grid-cols-2 gap-1 bg-black/40 p-1 rounded border border-white/5">
+                <div>
+                  <span className="text-gray-400">Entry Zone: </span>
+                  <span className="text-white font-bold">${setupV3.entryZone.low} - ${setupV3.entryZone.high}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Midpoint: </span>
+                  <span className="text-cyan-300 font-bold">${setupV3.entryZone.midpoint}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-1 bg-black/40 p-1 rounded border border-white/5">
+              <div>
+                <span className="text-gray-400">SL: </span>
+                <span className="text-rose-400 font-bold">
+                  {setupV3.stopLoss ? `$${setupV3.stopLoss.price}` : 'None'}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-400">Invalidation: </span>
+                <span className="text-amber-400 font-bold">
+                  {setupV3.invalidation ? `$${setupV3.invalidation.price}` : 'None'}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-400">R:R: </span>
+                <span className={`font-bold ${setupV3.riskReward?.meetsMinimumThreshold ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {setupV3.riskReward ? setupV3.riskReward.formatted : 'N/A'}
+                </span>
+              </div>
+            </div>
+
+            {setupV3.targets.length > 0 && (
+              <div className="flex items-center space-x-2 text-[7.5px] bg-black/40 p-1 rounded border border-white/5">
+                <span className="text-gray-400">Targets:</span>
+                {setupV3.targets.map((tgt) => (
+                  <span key={tgt.label} className="text-emerald-300 font-bold">
+                    {tgt.label}: ${tgt.price} ({tgt.riskReward}R)
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {setupV3.confirmationRequirements.length > 0 && (
+              <div className="space-y-0.5 pt-0.5 border-t border-white/5">
+                <span className="text-gray-400 text-[7px] uppercase font-bold">Confirmations Checklist:</span>
+                <div className="flex flex-wrap gap-1">
+                  {setupV3.confirmationRequirements.map((req) => (
+                    <span
+                      key={req.id}
+                      className={`px-1 py-0.2 rounded text-[7px] ${
+                        req.status === 'SATISFIED'
+                          ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
+                          : req.status === 'FAILED'
+                          ? 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
+                          : 'bg-amber-950/60 text-amber-300 border border-amber-500/40'
+                      }`}
+                    >
+                      {req.status === 'SATISFIED' ? '✓' : req.status === 'FAILED' ? '✗' : '○'} {req.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Metric Parameter Table */}
       <div className="space-y-1 text-[9.5px] bg-black/40 p-2 rounded-xl border border-white/5 font-sans">
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Entry Zone</span>
           <span className="text-[#F8FAFC] font-mono font-bold">
-            {assetProfile.entryZone && Array.isArray(assetProfile.entryZone)
+            {setupV3.entryZone
+              ? `$${setupV3.entryZone.low} - $${setupV3.entryZone.high}`
+              : assetProfile.entryZone && Array.isArray(assetProfile.entryZone)
               ? `$${assetProfile.entryZone[0]} - $${assetProfile.entryZone[1]}`
               : 'Awaiting Structure'}
           </span>
@@ -397,19 +530,28 @@ export const CurrentAiDecision: React.FC = () => {
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Stop Loss</span>
           <span className="text-[#FB7185] font-mono font-bold">
-            {assetProfile.stopLoss != null ? `$${assetProfile.stopLoss}` : 'Mandatory (Pending)'}
+            {setupV3.stopLoss != null
+              ? `$${setupV3.stopLoss.price}`
+              : assetProfile.stopLoss != null
+              ? `$${assetProfile.stopLoss}`
+              : 'Mandatory (Pending)'}
           </span>
         </div>
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Targets</span>
           <span className="text-[#34D399] font-mono font-bold">
-            {assetProfile.tp1 != null ? `TP1 $${assetProfile.tp1}` : 'TP1: Mandatory'}
-            {assetProfile.tp2 != null ? ` • TP2 $${assetProfile.tp2}` : ''}
+            {setupV3.targets.length > 0
+              ? setupV3.targets.map(t => `${t.label} $${t.price}`).join(' • ')
+              : assetProfile.tp1 != null
+              ? `TP1 $${assetProfile.tp1}${assetProfile.tp2 != null ? ` • TP2 $${assetProfile.tp2}` : ''}`
+              : 'TP1: Mandatory'}
           </span>
         </div>
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">R:R Potential</span>
-          <span className="text-[#22D3EE] font-mono font-bold">{assetProfile.rr}</span>
+          <span className="text-[#22D3EE] font-mono font-bold">
+            {setupV3.riskReward ? setupV3.riskReward.formatted : assetProfile.rr}
+          </span>
         </div>
         <div className="flex items-center justify-between text-[#CBD5E1]">
           <span className="text-[#94A3B8]">Market State</span>

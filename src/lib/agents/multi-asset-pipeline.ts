@@ -90,6 +90,8 @@ import { SetupLifecycleRecord } from '../trading/setup-lifecycle-types';
 import { FastOpportunityEngine } from '../radar/fast-opportunity-engine';
 import { DecisionEngineV2, DecisionIntelligenceV2 } from '../decision/decision-engine-v2';
 import { projectDecisionV2ForUi, DecisionV2UiProjection } from '../decision/decision-ui-projection';
+import { SetupIntelligenceV3, SetupIntelligenceEngineV3 } from '../setup/setup-intelligence-v3';
+import { SetupIntelligenceV3UiProjection, projectSetupV3ForUi } from '../setup/setup-ui-projection';
 
 export type DirectionalBias = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 export type DecisionPosture = 'WATCH FOR BUY' | 'WATCH FOR SELL' | 'WAIT' | 'NO TRADE' | 'BUY OPPORTUNITY' | 'SELL OPPORTUNITY' | 'MONITOR NEXT OPEN' | 'PRE-OPEN WATCH' | 'REVALIDATING...' | 'WAIT (MARKET CLOSED)' | 'ANALYSIS ONLY' | 'DATA LIMITED';
@@ -162,6 +164,9 @@ export interface AssetIntelligenceProfile {
   // Phase: Decision Engine V2
   decisionIntelligenceV2?: DecisionIntelligenceV2;
   decisionV2Projection?: DecisionV2UiProjection;
+  // Phase: Setup Intelligence V3
+  setupIntelligenceV3?: SetupIntelligenceV3;
+  setupIntelligenceV3Projection?: SetupIntelligenceV3UiProjection;
   // M15/M30 Opportunity Recovery & Decision Consistency Additions
   multiTimeframeContext?: MultiTimeframeContext | null;
   triggerEvidence?: CandleCloseTriggerEvidence | null;
@@ -2336,7 +2341,23 @@ export function generateAssetIntelligence(
       : undefined
   });
 
-  // 8b. Update Final Decision Agent from Confluence consensus and Decision V2
+  // 8b. Evaluate Setup Intelligence V3 (downstream of DecisionEngineV2, upstream of UI)
+  const currentPrice = p || (analysisCandles && analysisCandles.length > 0 ? analysisCandles[analysisCandles.length - 1].close : 0);
+  const setupV3Result = SetupIntelligenceEngineV3.evaluateSetup({
+    symbol: normSymbol,
+    currentPrice,
+    marketStructure,
+    candles: analysisCandles,
+    blueprint,
+    decisionV2: decisionV2Result,
+    triggerEvidence,
+    multiTimeframeContext,
+    liveAsset,
+    evidenceBundle: fallbackBundleForV2,
+    evaluationTime,
+  });
+
+  // 8c. Update Final Decision Agent from Confluence consensus, Decision V2, and Setup V3
   const finalAgent = assembledAgents.find((a) => a.type === 'FINAL_DECISION');
   if (finalAgent) {
     finalAgent.bias = effectiveSetupDirection.includes('BUY')
@@ -2373,6 +2394,7 @@ export function generateAssetIntelligence(
       `Presentation Posture: ${confluenceResult.presentationPosture}`,
       `Confluence Score: ${confluenceResult.confidence}% (Trust: ${confluenceResult.evidenceTrust}%)`,
       `Decision V2 Confidence: ${decisionV2Result.confidence}% (Independent Domains: ${decisionV2Result.independentDomainCount})`,
+      `Setup Intelligence V3: ${setupV3Result.lifecycle} (${setupV3Result.direction} ${setupV3Result.setupType} - R:R ${setupV3Result.riskReward ? setupV3Result.riskReward.formatted : 'N/A'})`,
       `Conflict Score: ${confluenceResult.conflictScore}% (${confluenceResult.criticalConflicts.length} conflicts)`,
       `Agent Swarm Breakdown: ${readyAgentCount} Ready / ${partialAgentCount} Partial / ${staleAgentCount} Stale / ${dataLimitedAgentCount} Data-Limited / ${unavailableAgentCount} Unavailable / ${notApplicableAgentCount} N/A (Total ${upstreamAgentCount} Upstream + 1 Synthesizer = ${registeredAgentCount} Agents)`,
       `Evidence Completeness: ${evidenceBundle?.completeness?.overallCompleteness ?? Math.round(trustedEvidenceRatio * 100)}%`,
@@ -2688,5 +2710,8 @@ export function generateAssetIntelligence(
     // Phase: Decision Engine V2
     decisionIntelligenceV2: decisionV2Result,
     decisionV2Projection: projectDecisionV2ForUi(decisionV2Result, normSymbol),
+    // Phase: Setup Intelligence V3
+    setupIntelligenceV3: setupV3Result,
+    setupIntelligenceV3Projection: projectSetupV3ForUi(setupV3Result, normSymbol),
   };
 }
