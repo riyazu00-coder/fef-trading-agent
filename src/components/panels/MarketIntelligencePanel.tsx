@@ -21,10 +21,10 @@ export const MarketIntelligencePanel: React.FC<MarketIntelligencePanelProps> = (
   const currentAsset = liveAssets[selectedSymbol] || {
     symbol: selectedSymbol,
     name: 'Active Instrument',
-    price: 4349.70,
+    price: 4160.00,
     spread: 0.16,
     change24h: -0.85,
-    source: 'Broker Live'
+    source: 'Reference Fallback'
   };
 
   const macroAssetKeys = ['XAUUSD', 'XAGUSD', 'USOIL', 'EURUSD', 'USDJPY', 'BTCUSD'].filter(

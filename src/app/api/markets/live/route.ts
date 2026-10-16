@@ -49,12 +49,12 @@ function buildBaselineAssets(): Record<string, LiveMarketAsset> {
       sparkline: isPos
         ? '0,28 20,24 40,20 60,18 80,14 100,16 120,10 140,8'
         : '0,10 20,14 40,16 60,22 80,25 100,28 120,32 140,34',
-      source: isUnverified ? 'UNAVAILABLE' : def.feedProvider,
+      source: isUnverified ? 'UNAVAILABLE' : 'Awaiting Live Feed',
       provider: isUnverified ? 'UNAVAILABLE (No Public Live Feed)' : def.feedProvider,
       lastUpdated: isUnverified ? 'UNAVAILABLE' : timeStr,
       category: def.category,
-      feedStatus: isUnverified ? 'DATA LIMITED' : (def.feedStatus === 'DEMO' ? 'FALLBACK' : def.feedStatus),
-      classification: isUnverified ? 'DATA LIMITED' : 'LIVE',
+      feedStatus: isUnverified ? 'DATA LIMITED' : 'FALLBACK',
+      classification: isUnverified ? 'DATA LIMITED' : 'STATIC_REFERENCE',
       priceType: isUnverified ? 'DERIVED' : 'LAST',
       referencePrice: def.basePrice
     };
@@ -130,6 +130,33 @@ export async function GET(req: Request) {
         priceType: 'LAST',
         lastUpdated: timeStr
       };
+    }
+
+    if (!assets.XAUUSD || assets.XAUUSD.feedStatus !== 'LIVE') {
+      try {
+        const paxgRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=PAXGUSDT', {
+          next: { revalidate: 4 },
+          headers: { 'User-Agent': UA }
+        });
+        if (paxgRes.ok) {
+          const paxg = await paxgRes.json();
+          const p = parseFloat(paxg.lastPrice);
+          if (!isNaN(p) && p > 0) {
+            assets.XAUUSD = {
+              ...assets.XAUUSD,
+              price: p,
+              bid: Number((p - 0.09).toFixed(2)),
+              ask: Number((p + 0.09).toFixed(2)),
+              source: 'Binance PAXG Spot Fallback',
+              provider: 'Binance Public Spot',
+              classification: 'LIVE FALLBACK',
+              feedStatus: 'LIVE',
+              priceType: 'LAST',
+              lastUpdated: timeStr
+            };
+          }
+        }
+      } catch {}
     }
   } catch (e: any) {
     // Graceful offline fallback

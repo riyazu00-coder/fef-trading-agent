@@ -58,7 +58,7 @@ export async function processChartAnalysis(req: ChartAnalysisRequest): Promise<C
   const liveAsset = INITIAL_LIVE_ASSETS[normSymbol] || {
     symbol: normSymbol,
     name: `${normSymbol} Spot`,
-    price: normSymbol === 'XAUUSD' ? 4349.70 : normSymbol === 'EURUSD' ? 1.1601 : normSymbol === 'USOIL' ? 100.05 : 100.0,
+    price: normSymbol === 'XAUUSD' ? 4160.00 : normSymbol === 'EURUSD' ? 1.1601 : normSymbol === 'USOIL' ? 100.05 : 100.0,
     change24h: 0.5,
     spread: 0.2,
     high24h: 105.0,

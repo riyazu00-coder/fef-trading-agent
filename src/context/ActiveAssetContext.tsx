@@ -206,18 +206,31 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const validation = validateCandleSeries(data.candles, tf);
         if (validation.valid) {
           const prov = data.provenance as EvidenceClassification | undefined;
-          const acceptedProvenance: EvidenceClassification[] = ['LIVE_MT5', 'INDEPENDENT_VERIFIED', 'INDEPENDENT_REFERENCE'];
+          const acceptedProvenance: string[] = [
+            'LIVE_MT5',
+            'INDEPENDENT_VERIFIED',
+            'INDEPENDENT_REFERENCE',
+            'INDEPENDENT_VERIFIED_OHLC',
+            'INDEPENDENT_REFERENCE_OHLC',
+          ];
           if (prov && acceptedProvenance.includes(prov)) {
+            const normalizedProv: EvidenceClassification =
+              prov === 'INDEPENDENT_VERIFIED_OHLC' || prov === 'INDEPENDENT_VERIFIED'
+                ? 'INDEPENDENT_VERIFIED'
+                : prov === 'INDEPENDENT_REFERENCE_OHLC' || prov === 'INDEPENDENT_REFERENCE'
+                ? 'INDEPENDENT_REFERENCE'
+                : (prov as EvidenceClassification);
+
             const provName = prov === 'LIVE_MT5'
               ? data.broker || data.provider || 'Authenticated MT5 Broker'
-              : data.provider || 'Independent Verified Feed';
+              : data.provider || (normalizedProv === 'INDEPENDENT_REFERENCE' ? 'Independent Reference Proxy' : 'Independent Verified Feed');
 
             setCandlePayload({
               symbol: sym,
               timeframe: tf,
               candles: data.candles,
               bundle: (data.timeframes && typeof data.timeframes === 'object') ? data.timeframes : undefined,
-              provenance: prov,
+              provenance: normalizedProv,
               provider: provName,
               state: data.state === 'VERIFIED' ? 'VERIFIED' : (data.state as any) || 'VERIFIED',
               fetchedAt: Date.now()
@@ -227,7 +240,7 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const candleFeed = {
               candles: data.candles,
               bundle: data.timeframes,
-              provenance: prov,
+              provenance: normalizedProv,
               provider: provName
             };
             multiAssetCandleCacheRef.current[sym] = candleFeed;
@@ -297,13 +310,20 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const data = await res.json();
             if (data.success && Array.isArray(data.candles) && data.candles.length >= 10) {
               const prov = data.provenance as EvidenceClassification | undefined;
+              const normalizedProv: EvidenceClassification =
+                prov === 'INDEPENDENT_VERIFIED_OHLC' || prov === 'INDEPENDENT_VERIFIED'
+                  ? 'INDEPENDENT_VERIFIED'
+                  : prov === 'INDEPENDENT_REFERENCE_OHLC' || prov === 'INDEPENDENT_REFERENCE'
+                  ? 'INDEPENDENT_REFERENCE'
+                  : (prov as EvidenceClassification);
+
               const provName = prov === 'LIVE_MT5'
                 ? data.broker || data.provider || 'Authenticated MT5 Broker'
-                : data.provider || 'Verified Independent Feed';
+                : data.provider || (normalizedProv === 'INDEPENDENT_REFERENCE' ? 'Independent Reference Proxy' : 'Verified Independent Feed');
               const feedItem = {
                 candles: data.candles,
                 bundle: data.timeframes,
-                provenance: prov,
+                provenance: normalizedProv,
                 provider: provName
               };
               multiAssetCandleCacheRef.current[sym] = feedItem;

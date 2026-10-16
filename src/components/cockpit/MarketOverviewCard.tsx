@@ -164,11 +164,15 @@ export const MarketOverviewCard: React.FC = () => {
     if (!h4Candles || !Array.isArray(h4Candles) || h4Candles.length < 10) {
       return null;
     }
-    const source = activeAsset.provider === 'MT5' || (activeAsset as any).source === 'LIVE_MT5'
+    const isMt5Source = activeAsset.provider === 'MT5' || (activeAsset as any).source === 'LIVE_MT5' || candleProvenance === 'LIVE_MT5';
+    const isRefProxy = candleProvenance === 'INDEPENDENT_REFERENCE' || candleProvenance === 'INDEPENDENT_REFERENCE_OHLC' || parityProfile.isProxy;
+    const source = isMt5Source
       ? 'MT5_BROKER_OHLC'
+      : isRefProxy
+      ? 'INDEPENDENT_REFERENCE_OHLC'
       : 'INDEPENDENT_VERIFIED_OHLC';
     return analyzeMarketStructure(h4Candles, activeAsset.symbol, 'H4', source);
-  }, [h4Candles, activeAsset.symbol, activeAsset.provider, (activeAsset as any).source]);
+  }, [h4Candles, activeAsset.symbol, activeAsset.provider, (activeAsset as any).source, candleProvenance, parityProfile.isProxy]);
 
   const activeTrendMode: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'DATA LIMITED' = useMemo(() => {
     if (!h4MarketStructure || h4MarketStructure.trend === 'INSUFFICIENT_DATA') {

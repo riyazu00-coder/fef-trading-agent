@@ -23,6 +23,8 @@ export type EvidenceClassification =
   | 'LIVE_MT5'            // Measured directly via verified local MT5 WebRequest/HTTP telemetry
   | 'INDEPENDENT_VERIFIED' // Measured directly via verified independent public market feed (Binance spot, Yahoo FX/Indices)
   | 'INDEPENDENT_REFERENCE'// Reference/proxy market feed (e.g. PAXG proxy for gold, CME futures proxy) — strictly non-executable
+  | 'INDEPENDENT_VERIFIED_OHLC' // Verified independent public candlestick data
+  | 'INDEPENDENT_REFERENCE_OHLC' // Verified independent reference/proxy candlestick data
   | 'DERIVED_FROM_VERIFIED'// Mathematically computed from verified independent OHLC or telemetry
   | 'BROKER_TICK_VOLUME_PROXY' // Measured via broker CFD tick volume rather than centralized exchange volume
   | 'LIVE_EXTERNAL'       // Measured via connected public market API (Gold-API, Binance, open.er-api)
@@ -79,6 +81,8 @@ export const FRESHNESS_POLICIES: Record<EvidenceClassification, number> = {
   LIVE_MT5: 60_000,              // 60 seconds for broker telemetry
   INDEPENDENT_VERIFIED: 120_000, // 2 minutes for verified independent public market feeds
   INDEPENDENT_REFERENCE: 300_000,// 5 minutes for reference/proxy feeds (PAXG, CME Futures)
+  INDEPENDENT_VERIFIED_OHLC: 120_000, // 2 minutes for verified independent OHLC
+  INDEPENDENT_REFERENCE_OHLC: 300_000, // 5 minutes for reference/proxy OHLC
   DERIVED_FROM_VERIFIED: 300_000,// 5 minutes for mathematical analysis derived from verified OHLC
   BROKER_TICK_VOLUME_PROXY: 300_000, // 5 minutes for broker tick volume proxy analysis
   LIVE_EXTERNAL: 120_000,         // 2 minutes for public price feeds

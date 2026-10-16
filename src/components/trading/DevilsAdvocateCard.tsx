@@ -11,7 +11,7 @@ interface DevilsAdvocateCardProps {
 
 export function DevilsAdvocateCard({
   symbol = 'XAUUSD',
-  currentPrice = 4349.70,
+  currentPrice = 4160.00,
   bias = 'BULLISH',
   glassIntensity = 'GHOST_GLASS'
 }: DevilsAdvocateCardProps) {

@@ -87,12 +87,12 @@ function buildInitialLiveAssets(): Record<string, LiveMarketAsset> {
       sparkline: isPos
         ? '0,28 20,24 40,20 60,18 80,14 100,16 120,10 140,8'
         : '0,10 20,14 40,16 60,22 80,25 100,28 120,32 140,34',
-      source: isUnverified ? 'UNAVAILABLE' : def.feedProvider,
+      source: isUnverified ? 'UNAVAILABLE' : 'Awaiting Live Feed',
       provider: isUnverified ? 'UNAVAILABLE (No Public Live Feed)' : def.feedProvider,
-      lastUpdated: isUnverified ? 'UNAVAILABLE' : 'Live',
+      lastUpdated: isUnverified ? 'UNAVAILABLE' : 'Awaiting Live Feed',
       category: def.category,
-      feedStatus: isUnverified ? 'DATA LIMITED' : (def.feedStatus === 'DEMO' ? 'FALLBACK' : def.feedStatus),
-      classification: isUnverified ? 'DATA LIMITED' : 'LIVE',
+      feedStatus: isUnverified ? 'DATA LIMITED' : 'FALLBACK',
+      classification: isUnverified ? 'DATA LIMITED' : 'STATIC_REFERENCE',
       priceType: isUnverified ? 'DERIVED' : 'LAST',
       referencePrice: def.basePrice
     };
