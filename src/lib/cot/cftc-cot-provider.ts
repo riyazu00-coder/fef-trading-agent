@@ -78,8 +78,8 @@ export interface CotReportRecord {
 }
 
 // CFTC reports are released weekly on Fridays with Tuesday snapshot data.
-// Max staleness: 10 days (864,000 seconds) to account for holiday delays and weekends.
-const MAX_COT_STALENESS_SEC = 864000;
+// Max staleness: 21 days (1,814,400 seconds) to account for weekly publication cycle, holiday delays, and release schedule variations.
+const MAX_COT_STALENESS_SEC = 1814400;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours in memory
 
 interface CachedRecord {

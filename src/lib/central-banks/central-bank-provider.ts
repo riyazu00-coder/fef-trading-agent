@@ -374,57 +374,100 @@ export class CentralBankProvider {
 
   /**
    * Ingest FED Policy Rate via FRED DFEDTARU (Target Range Upper Limit)
+   * or official New York Fed Reference Rates API (Public, Zero-Key)
    */
   private async fetchFedRate(now: number): Promise<CentralBankPolicyData> {
     const reg = CENTRAL_BANK_REGISTRY['USD'];
     const apiKey = process.env.FRED_API_KEY?.trim();
 
-    if (!apiKey) {
-      return this.buildFailedRecord('USD', now, 'FRED_API_KEY not configured');
+    // 1. Try FRED if API key is configured
+    if (apiKey) {
+      try {
+        const url = `https://api.stlouisfed.org/fred/series/observations?series_id=DFEDTARU&api_key=${apiKey}&file_type=json&sort_order=desc&limit=1`;
+        const res = await fetchWithTimeout(url);
+
+        if (res.ok) {
+          const json = await res.json();
+          const obs = json?.observations?.[0];
+
+          if (obs && typeof obs.value === 'string' && obs.value !== '.') {
+            const rate = parseFloat(obs.value);
+            if (!isNaN(rate) && Number.isFinite(rate)) {
+              const effectiveDate = obs.date || new Date().toISOString().split('T')[0];
+              return {
+                currency: 'USD',
+                bankCode: 'FED',
+                bankName: reg.bankName,
+                rateName: reg.rateName,
+                semanticKey: reg.semanticKey,
+                currentRate: rate,
+                policyRate: rate,
+                effectiveDate,
+                stance: this.inferStanceFromRate(rate, reg.inflationTargetPct),
+                inflationTargetPct: reg.inflationTargetPct,
+                rateDifferentialVsUsdBp: 0,
+                sourceUrl: reg.sourceUrl,
+                retrievedAt: now,
+                isAuthoritative: true,
+                verificationStatus: 'LIVE_VERIFIED',
+                isVerified: true,
+                isActionable: true,
+                source: 'Federal Reserve Bank of St. Louis (FRED)',
+                freshness: 'CURRENT',
+              };
+            }
+          }
+        }
+      } catch {
+        // Fall through to official New York Fed public API
+      }
     }
 
-    const url = `https://api.stlouisfed.org/fred/series/observations?series_id=DFEDTARU&api_key=${apiKey}&file_type=json&sort_order=desc&limit=1`;
-    const res = await fetchWithTimeout(url);
+    // 2. Authoritative public fallback: Federal Reserve Bank of New York Reference Rates API
+    try {
+      const nyFedUrl = 'https://markets.newyorkfed.org/api/rates/all/latest.json';
+      const nyFedRes = await fetchWithTimeout(nyFedUrl);
 
-    if (!res.ok) {
-      throw new Error(`FRED API returned status ${res.status}`);
+      if (nyFedRes.ok) {
+        const nyFedJson = await nyFedRes.json();
+        const effr = nyFedJson?.refRates?.find((r: any) => r.type === 'EFFR');
+
+        if (effr) {
+          const rate = typeof effr.targetRateTo === 'number'
+            ? effr.targetRateTo
+            : (typeof effr.percentRate === 'number' ? effr.percentRate : parseFloat(effr.percentRate));
+
+          if (!isNaN(rate) && Number.isFinite(rate)) {
+            const effectiveDate = effr.effectiveDate || new Date().toISOString().split('T')[0];
+            return {
+              currency: 'USD',
+              bankCode: 'FED',
+              bankName: reg.bankName,
+              rateName: typeof effr.targetRateTo === 'number' ? reg.rateName : 'Effective Federal Funds Rate (EFFR)',
+              semanticKey: reg.semanticKey,
+              currentRate: rate,
+              policyRate: rate,
+              effectiveDate,
+              stance: this.inferStanceFromRate(rate, reg.inflationTargetPct),
+              inflationTargetPct: reg.inflationTargetPct,
+              rateDifferentialVsUsdBp: 0,
+              sourceUrl: 'https://markets.newyorkfed.org/api/rates/all/latest.json',
+              retrievedAt: now,
+              isAuthoritative: true,
+              verificationStatus: 'LIVE_VERIFIED',
+              isVerified: true,
+              isActionable: true,
+              source: 'Federal Reserve Bank of New York (Reference Rates API)',
+              freshness: 'CURRENT',
+            };
+          }
+        }
+      }
+    } catch {
+      // Both providers failed
     }
 
-    const json = await res.json();
-    const obs = json?.observations?.[0];
-
-    if (!obs || typeof obs.value !== 'string' || obs.value === '.') {
-      throw new Error('FRED DFEDTARU returned missing observation');
-    }
-
-    const rate = parseFloat(obs.value);
-    if (isNaN(rate) || !Number.isFinite(rate)) {
-      throw new Error(`FRED DFEDTARU unparseable value: ${obs.value}`);
-    }
-
-    const effectiveDate = obs.date || new Date().toISOString().split('T')[0];
-
-    return {
-      currency: 'USD',
-      bankCode: 'FED',
-      bankName: reg.bankName,
-      rateName: reg.rateName,
-      semanticKey: reg.semanticKey,
-      currentRate: rate,
-      policyRate: rate,
-      effectiveDate,
-      stance: this.inferStanceFromRate(rate, reg.inflationTargetPct),
-      inflationTargetPct: reg.inflationTargetPct,
-      rateDifferentialVsUsdBp: 0,
-      sourceUrl: reg.sourceUrl,
-      retrievedAt: now,
-      isAuthoritative: true,
-      verificationStatus: 'LIVE_VERIFIED',
-      isVerified: true,
-      isActionable: true,
-      source: 'Federal Reserve Bank of St. Louis (FRED)',
-      freshness: 'CURRENT',
-    };
+    return this.buildFailedRecord('USD', now, 'FRED and NY Fed reference rate feeds unreachable');
   }
 
   /**

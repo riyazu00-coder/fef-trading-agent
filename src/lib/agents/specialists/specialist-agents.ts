@@ -1714,8 +1714,8 @@ export function evaluateCentralBankPolicyAgent(inputs: {
   // Check if instrument is a currency pair or single-jurisdiction asset
   const isForexPair = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'NZDUSD', 'USDCAD', 'USDCHF'].includes(instrument);
 
-  if (!isForexPair && instrument !== 'XAUUSD' && instrument !== 'XAGUSD') {
-    // Non-forex instruments (US100, USOIL, BTCUSD) are single-currency or macro assets, not sovereign carry pairs
+  if (!isForexPair) {
+    // Non-forex instruments (XAUUSD, XAGUSD, US100, USOIL, BTCUSD) are single-currency or macro assets, not sovereign carry pairs
     const usdEntry = envelope?.payload?.['USD'];
     const isUsdVerified = usdEntry && usdEntry.isVerified && typeof usdEntry.currentRate === 'number';
     return {

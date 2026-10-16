@@ -26,6 +26,7 @@ import { calculateCurrencyStrengthMatrix, calculateCurrencyStrengthFromCandles }
 import { fetchBatchBrokerCandles } from '@/lib/candles/broker-candle-service';
 import { buildVerifiedLeadLagEnvelope, CANONICAL_LEAD_LAG_PAIRS } from '@/lib/cross-asset/lead-lag-engine';
 import { fetchLiveMarketPrices } from '@/lib/providers/real-market-api';
+import { getVerifiedCandles } from '@/lib/candles/independent-candle-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -140,13 +141,30 @@ export async function GET(req: Request) {
       regimeResult = null;
     }
 
+    // Helper: obtain broker candles if available, or fall back seamlessly to verified independent reference candles
+    const getCandlesForSymbol = async (sym: string, minCount: number = 15): Promise<any[]> => {
+      const brokerCandles = brokerCandlesSnapshot[sym]?.payload?.candles;
+      if (Array.isArray(brokerCandles) && brokerCandles.length >= minCount) {
+        return brokerCandles;
+      }
+      try {
+        const ref = await getVerifiedCandles(sym, 'H1', Math.max(minCount, 25));
+        if (ref.success && Array.isArray(ref.candles) && ref.candles.length >= minCount) {
+          return ref.candles;
+        }
+      } catch {}
+      return [];
+    };
+
     // 3. Deterministic Cross-Asset Matrix for XAUUSD from Verified Candles
     let crossAssetResult: CrossAssetMatrix | null = null;
     try {
-      const goldCandles = brokerCandlesSnapshot['XAUUSD']?.payload?.candles || [];
-      const silverCandles = brokerCandlesSnapshot['XAGUSD']?.payload?.candles || [];
-      const oilCandles = brokerCandlesSnapshot['USOIL']?.payload?.candles || [];
-      const equityCandles = brokerCandlesSnapshot['US100']?.payload?.candles || [];
+      const [goldCandles, silverCandles, oilCandles, equityCandles] = await Promise.all([
+        getCandlesForSymbol('XAUUSD', 15),
+        getCandlesForSymbol('XAGUSD', 15),
+        getCandlesForSymbol('USOIL', 15),
+        getCandlesForSymbol('US100', 15),
+      ]);
 
       if (goldCandles.length >= 15) {
         const matrixEnv = buildCrossAssetMatrixFromCandles(
@@ -167,10 +185,10 @@ export async function GET(req: Request) {
     // 4. Quant Foundation & Historical Analogue Evaluation
     let quantResult: { metrics: QuantMetricsResult; analogue: HistoricalAnalogueResult } | null = null;
     try {
-      const targetCandles = brokerCandlesSnapshot[targetSymbol]?.payload?.candles || [];
+      const targetCandles = await getCandlesForSymbol(targetSymbol, 15);
       if (targetCandles.length >= 15) {
         const metrics = calculateQuantMetrics(targetCandles);
-        const analogue = matchHistoricalAnalogues(targetCandles);
+        const analogue = matchHistoricalAnalogues(targetCandles as any);
         quantResult = { metrics, analogue };
       }
     } catch {
@@ -181,11 +199,11 @@ export async function GET(req: Request) {
     let currencyStrength: any = null;
     try {
       const fxPairs = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'NZDUSD', 'USDCAD', 'USDCHF'];
+      const fxCandleResults = await Promise.all(fxPairs.map((p) => getCandlesForSymbol(p, 2)));
       const fxCandles: Record<string, any[]> = {};
-      for (const p of fxPairs) {
-        const c = brokerCandlesSnapshot[p]?.payload?.candles;
-        if (Array.isArray(c) && c.length >= 2) {
-          fxCandles[p] = c;
+      for (let i = 0; i < fxPairs.length; i++) {
+        if (fxCandleResults[i].length >= 2) {
+          fxCandles[fxPairs[i]] = fxCandleResults[i];
         }
       }
       if (Object.keys(fxCandles).length >= 4) {
@@ -211,8 +229,10 @@ export async function GET(req: Request) {
     try {
       const pair = CANONICAL_LEAD_LAG_PAIRS[targetSymbol];
       if (pair) {
-        const leadCandles = brokerCandlesSnapshot[pair.leader]?.payload?.candles || [];
-        const follCandles = brokerCandlesSnapshot[pair.follower]?.payload?.candles || [];
+        const [leadCandles, follCandles] = await Promise.all([
+          getCandlesForSymbol(pair.leader, 20),
+          getCandlesForSymbol(pair.follower, 20),
+        ]);
         if (leadCandles.length >= 20 && follCandles.length >= 20) {
           leadLagResult = buildVerifiedLeadLagEnvelope(leadCandles, follCandles, pair.leader, pair.follower, 'H1');
         }
