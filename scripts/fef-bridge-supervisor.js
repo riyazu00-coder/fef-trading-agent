@@ -43,7 +43,8 @@ const ALLOWED_ENV_KEYS = new Set([
   'FEF_REMOTE_RELAY_URL',
   'FEF_REMOTE_DEVICE_ID',
   'FEF_REMOTE_KEY_ID',
-  'FEF_REMOTE_DEVICE_SECRET'
+  'FEF_REMOTE_DEVICE_SECRET',
+  'FEF_TELEMETRY_STORAGE_MODE'
 ]);
 
 // Safe OS/Node runtime variables that are strictly non-credential
@@ -108,7 +109,8 @@ function buildConnectorChildEnv(sourceEnv = process.env, bridgeUrl = LOCAL_BRIDG
     'FEF_REMOTE_RELAY_URL',
     'FEF_REMOTE_DEVICE_ID',
     'FEF_REMOTE_KEY_ID',
-    'FEF_REMOTE_DEVICE_SECRET'
+    'FEF_REMOTE_DEVICE_SECRET',
+    'FEF_TELEMETRY_STORAGE_MODE'
   ];
   for (const key of connectorKeys) {
     if (sourceEnv[key] && sourceEnv[key].trim() !== '') {

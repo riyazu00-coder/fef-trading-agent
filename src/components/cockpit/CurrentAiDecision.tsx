@@ -384,7 +384,7 @@ export const CurrentAiDecision: React.FC = () => {
             </>
           )}
           <div className="flex items-center justify-between text-[7px] text-gray-500 pt-0.5 border-t border-white/5 font-mono">
-            <span className="truncate">Snapshot: {decisionV2.snapshotId}</span>
+            <span className="truncate">Snapshot: {mounted ? decisionV2.snapshotId : '--'}</span>
             <span suppressHydrationWarning className="ml-1 shrink-0">{mounted ? `As of ${new Date(decisionV2.asOf).toLocaleTimeString()}` : ''}</span>
           </div>
         </div>

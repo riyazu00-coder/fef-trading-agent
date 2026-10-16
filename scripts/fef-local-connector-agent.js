@@ -80,6 +80,11 @@ if (localRepo) {
   } catch {}
 }
 
+let lastCloudHeartbeatTime = 0;
+let lastCloudAccountTime = 0;
+let lastCloudCandleTime = 0;
+let lastPushedAccountJson = '';
+
 // Canonical assets supported by MT5 bridge
 const CANONICAL_SYMBOLS = [
   'XAUUSD', 'XAGUSD',
@@ -443,55 +448,78 @@ async function pollAndPushTelemetry() {
     return { success: true };
   }
 
+  const nowMs = Date.now();
+  // Bound cloud push rate: push live quotes & heartbeat at most once every 4000ms
+  // Easily satisfies the 10s fresh threshold while eliminating write amplification
+  const shouldPushCloudQuotes = (nowMs - lastCloudHeartbeatTime >= 4000);
+  if (!shouldPushCloudQuotes) {
+    return { success: true };
+  }
+  lastCloudHeartbeatTime = nowMs;
+
   // Outbound HTTPS push to cloud ingress (CLOUD or HYBRID mode)
-  const heartbeatEnvelope = {
-    version: 1,
-    deviceId: DEVICE_ID,
-    type: 'HEARTBEAT',
-    capturedAt: nowIso,
-    sequence: ++sequenceCounter,
-    payload: heartbeatPayload,
-  };
-  const hbRes = await postTelemetryOutbound(heartbeatEnvelope);
-  if (!hbRes || !hbRes.success) {
-    return hbRes || { success: false };
-  }
-  if (!isConnected) return { success: true };
-
-  if (accountPayload) {
-    const accountEnvelope = {
+  try {
+    const heartbeatEnvelope = {
       version: 1,
       deviceId: DEVICE_ID,
-      type: 'ACCOUNT_STATUS',
+      type: 'HEARTBEAT',
       capturedAt: nowIso,
       sequence: ++sequenceCounter,
-      payload: accountPayload,
+      payload: heartbeatPayload,
     };
-    await postTelemetryOutbound(accountEnvelope);
-  }
+    const hbRes = await postTelemetryOutbound(heartbeatEnvelope);
+    if (!hbRes || !hbRes.success) {
+      return hbRes || { success: false };
+    }
+    if (!isConnected) return { success: true };
 
-  if (quotesList.length > 0) {
-    const quoteEnvelope = {
-      version: 1,
-      deviceId: DEVICE_ID,
-      type: 'QUOTE_SNAPSHOT',
-      capturedAt: nowIso,
-      sequence: ++sequenceCounter,
-      payload: { quotes: quotesList },
-    };
-    await postTelemetryOutbound(quoteEnvelope);
-  }
+    const currentAccountJson = accountPayload ? JSON.stringify(accountPayload) : '';
+    const shouldPushAccount = accountPayload && (currentAccountJson !== lastPushedAccountJson || nowMs - lastCloudAccountTime >= 30000);
+    if (shouldPushAccount) {
+      const accountEnvelope = {
+        version: 1,
+        deviceId: DEVICE_ID,
+        type: 'ACCOUNT_STATUS',
+        capturedAt: nowIso,
+        sequence: ++sequenceCounter,
+        payload: accountPayload,
+      };
+      await postTelemetryOutbound(accountEnvelope);
+      lastCloudAccountTime = nowMs;
+      lastPushedAccountJson = currentAccountJson;
+    }
 
-  for (const cs of candleSnapshots) {
-    const candleEnvelope = {
-      version: 1,
-      deviceId: DEVICE_ID,
-      type: 'CANDLE_SNAPSHOT',
-      capturedAt: new Date().toISOString(),
-      sequence: ++sequenceCounter,
-      payload: cs,
-    };
-    await postTelemetryOutbound(candleEnvelope);
+    if (quotesList.length > 0) {
+      const quoteEnvelope = {
+        version: 1,
+        deviceId: DEVICE_ID,
+        type: 'QUOTE_SNAPSHOT',
+        capturedAt: nowIso,
+        sequence: ++sequenceCounter,
+        payload: { quotes: quotesList },
+      };
+      await postTelemetryOutbound(quoteEnvelope);
+    }
+
+    // Closed candles: only push on initial bootstrap or every 5 minutes (300_000ms)
+    const shouldPushCandles = candleSnapshots.length > 0 && (lastCloudCandleTime === 0 || nowMs - lastCloudCandleTime >= 300000);
+    if (shouldPushCandles) {
+      for (const cs of candleSnapshots) {
+        const candleEnvelope = {
+          version: 1,
+          deviceId: DEVICE_ID,
+          type: 'CANDLE_SNAPSHOT',
+          capturedAt: new Date().toISOString(),
+          sequence: ++sequenceCounter,
+          payload: cs,
+        };
+        await postTelemetryOutbound(candleEnvelope);
+      }
+      lastCloudCandleTime = nowMs;
+    }
+  } catch (cloudErr) {
+    // Cloud network/quota error must NEVER interrupt local operation
+    console.warn('[CONNECTOR] Cloud telemetry outbound push notice:', cloudErr?.message);
   }
 
   return { success: true };

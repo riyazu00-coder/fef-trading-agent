@@ -53,8 +53,9 @@ export class TelemetryRepository {
     kvToken?: string,
     config: TelemetryConfig = DEFAULT_TELEMETRY_CONFIG
   ) {
-    this.kvUrl = (kvUrl || process.env.KV_REST_API_URL || '').replace(/\/$/, '');
-    this.kvToken = (kvToken || process.env.KV_REST_API_TOKEN || '').trim();
+    const rawUrl = (kvUrl || process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/^["']|["']$/g, '');
+    this.kvUrl = rawUrl.replace(/\/pipeline\/?$/, '').replace(/\/$/, '');
+    this.kvToken = (kvToken || process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim().replace(/^["']|["']$/g, '');
     this.config = config;
   }
 
@@ -63,13 +64,64 @@ export class TelemetryRepository {
   }
 
   /**
-   * Execute raw Upstash Redis command via REST API
+   * Execute raw Upstash Redis command via REST API.
+   * Uses /pipeline endpoint with 2D array [command] for universal command compatibility
+   * (works identically for read commands like GET/MGET and mutating commands like SET NX EX),
+   * falling back to path-based REST syntax (e.g. /get/key) if pipeline is rejected.
    */
   private async execRedisCommand(command: string[]): Promise<any> {
     if (!this.isCloudStoreConfigured()) {
       return this.execMemoryCommand(command);
     }
 
+    // 1. Primary: Use /pipeline endpoint with 2D array format (universally supported by Upstash for all commands)
+    try {
+      const res = await fetch(`${this.kvUrl}/pipeline`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.kvToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify([command]),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          if (data[0].error) {
+            throw new Error(`Upstash Redis error: ${data[0].error}`);
+          }
+          return data[0].result;
+        }
+      } else {
+        const errBody = await res.text().catch(() => '');
+        // If pipeline returned 400 or other client error, log and attempt direct fallback below
+        console.warn(`[TelemetryRepository] Upstash /pipeline status ${res.status}: ${errBody}`);
+      }
+    } catch (pipelineErr: any) {
+      if (pipelineErr.message?.startsWith('Upstash Redis error:')) {
+        throw pipelineErr;
+      }
+    }
+
+    // 2. Direct fallback: Path-based REST for GET/MGET, or root POST with command array
+    const cmdName = command[0]?.toUpperCase();
+    if (cmdName === 'GET' && command[1]) {
+      const res = await fetch(`${this.kvUrl}/get/${encodeURIComponent(command[1])}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${this.kvToken}`,
+        },
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Upstash Redis HTTP error: ${res.status} ${res.statusText}${errText ? ` - ${errText}` : ''}`);
+      }
+      const data = await res.json();
+      return data.result;
+    }
+
+    // Mutating command direct fallback: POST to root
     const res = await fetch(`${this.kvUrl}`, {
       method: 'POST',
       headers: {
@@ -80,7 +132,8 @@ export class TelemetryRepository {
     });
 
     if (!res.ok) {
-      throw new Error(`Upstash Redis HTTP error: ${res.status} ${res.statusText}`);
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Upstash Redis HTTP error: ${res.status} ${res.statusText}${errText ? ` - ${errText}` : ''}`);
     }
 
     const data = await res.json();
@@ -89,6 +142,43 @@ export class TelemetryRepository {
     }
 
     return data.result;
+  }
+
+  /**
+   * Execute multiple commands in a single atomic HTTP roundtrip via /pipeline.
+   * Radically reduces network latency and quota consumption.
+   */
+  public async execRedisPipeline(commands: string[][]): Promise<any[]> {
+    if (!this.isCloudStoreConfigured()) {
+      return commands.map((cmd) => this.execMemoryCommand(cmd));
+    }
+    if (commands.length === 0) return [];
+
+    const res = await fetch(`${this.kvUrl}/pipeline`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.kvToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(commands),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Upstash Redis Pipeline HTTP error: ${res.status} ${res.statusText}${errText ? ` - ${errText}` : ''}`);
+    }
+
+    const data = await res.json();
+    if (!Array.isArray(data)) {
+      throw new Error('Upstash Redis Pipeline error: Expected array response');
+    }
+
+    return data.map((item, idx) => {
+      if (item.error) {
+        throw new Error(`Upstash Redis Pipeline command ${idx} error: ${item.error}`);
+      }
+      return item.result;
+    });
   }
 
   /**
@@ -264,8 +354,9 @@ export class TelemetryRepository {
     quotes: QuoteItem[]
   ): Promise<void> {
     const receivedAt = new Date().toISOString();
+    const commands: string[][] = [];
 
-    // Persist individual quote records
+    // Build quote record commands
     for (const q of quotes) {
       const key = `cortex:telemetry:v1:quote:${q.symbol}`;
       const record: StoredRecord<QuoteItem> = {
@@ -275,20 +366,30 @@ export class TelemetryRepository {
         receivedAt,
         sequence,
       };
-      await this.execRedisCommand(['SET', key, JSON.stringify(record), 'EX', String(this.config.quoteTtlSec)]);
+      commands.push(['SET', key, JSON.stringify(record), 'EX', String(this.config.quoteTtlSec)]);
     }
 
     // Persist a quote-symbol index so getLatestQuotes() can enumerate without KEYS/SCAN.
     // TTL matches quoteTtlSec — the index is invalidated at the same time as quote data.
     if (quotes.length > 0) {
       const symbols = quotes.map((q) => q.symbol);
-      await this.execRedisCommand([
+      commands.push([
         'SET',
         TelemetryRepository.QUOTE_INDEX_KEY,
         JSON.stringify(symbols),
         'EX',
         String(this.config.quoteTtlSec),
       ]);
+    }
+
+    if (commands.length > 0) {
+      if (this.isCloudStoreConfigured()) {
+        await this.execRedisPipeline(commands);
+      } else {
+        for (const cmd of commands) {
+          this.execMemoryCommand(cmd);
+        }
+      }
     }
   }
 
