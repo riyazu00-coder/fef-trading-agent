@@ -33,7 +33,7 @@ export default function CommunityPage() {
       title: 'Continuous Swarm Updates',
       icon: '🧠',
       badge: 'INTELLIGENCE EVOLUTION',
-      description: 'Ongoing algorithmic updates across the 15 Core Council and 17 Institutional Quant Specialist agents.',
+      description: 'Ongoing algorithmic updates across the 14 Core Council, 17 Institutional Quant Specialist, and 1 Final Decision synthesis agents.',
     },
     {
       title: 'Quantitative Community',

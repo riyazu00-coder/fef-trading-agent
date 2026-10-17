@@ -193,7 +193,7 @@ export const CentralIntelligenceHub: React.FC = () => {
     [specCentralBank]
   );
 
-  // Council agents: 0..6 (Left 7), 7..13 (Right 7), 14 (Center 15th: FINAL_DECISION in Core)
+  // 14 Council agents: 0..6 (Left 7), 7..13 (Right 7), Center Synthesizer: FINAL_DECISION in Core
   const leftCouncilAgents = useMemo(() => assetProfile.agents.slice(0, 7), [assetProfile.agents]);
   const rightCouncilAgents = useMemo(() => assetProfile.agents.slice(7, 14), [assetProfile.agents]);
 
@@ -401,13 +401,13 @@ export const CentralIntelligenceHub: React.FC = () => {
               )}
             </div>
             <p className="text-[8.5px] text-[#94A3B8] font-sans flex items-center space-x-1.5 flex-wrap">
-              <span>21-Node Orbital Swarm (15 Council &bull; 6 Specialists) &bull;</span>
+              <span>21-Node Orbital Swarm (14 Council &bull; 6 Specialists &bull; 1 Final Decision Core) &bull;</span>
               <Link
                 href="/agents"
                 className="text-cyan-400 hover:text-cyan-200 underline font-mono text-[8px] font-bold"
                 title="View full 32-Agent Directory"
               >
-                32 REGISTERED AGENTS (15 Council + 17 Specialists) &rarr;
+                32 REGISTERED AGENTS (14 Council + 17 Specialists + 1 Final Decision) &rarr;
               </Link>
             </p>
           </div>

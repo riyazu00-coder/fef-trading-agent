@@ -501,7 +501,7 @@ export default function HowToUsePage() {
                 <span className="text-[10px] font-mono text-gray-500">#agents</span>
               </div>
               <p className="text-xs text-gray-300 leading-relaxed">
-                Comprises <strong>15 Core Council Agents</strong> (Macro, Wyckoff, SMC, Risk Guardian, etc.) and <strong>17 Institutional Quant Specialists</strong> (Order Flow Delta, COT, Anchored VWAP, Currency Strength, Central Bank Policy, etc.). Agents debate on a shared blackboard; <code className="text-cyan-300">FINAL_DECISION</code> is the synthesis authority.
+                Comprises <strong>14 Core Council Agents</strong> (Macro, Wyckoff, SMC, Risk Guardian, etc.), <strong>17 Institutional Quant Specialists</strong> (Order Flow Delta, COT, Anchored VWAP, Currency Strength, Central Bank Policy, etc.), and <strong>1 Final Decision Synthesis Engine</strong> (32 total canonical agents). Agents debate on a shared blackboard; <code className="text-cyan-300">FINAL_DECISION</code> is the synthesis authority.
               </p>
             </div>
 

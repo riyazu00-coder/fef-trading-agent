@@ -156,7 +156,7 @@ export default function ChartAnalyzerPage() {
       '3. Identifying BOS & CHOCH pivots...',
       '4. Mapping Fair Value Gaps & Order Blocks...',
       '5. Cross-checking live market quotes...',
-      '6. Consulting 15-Agent Consensus Council...'
+      '6. Consulting 14-Agent Consensus Council & Final Decision Synthesizer...'
     ];
 
     let sIdx = 0;

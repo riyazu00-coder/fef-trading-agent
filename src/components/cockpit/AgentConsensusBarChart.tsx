@@ -7,7 +7,10 @@ export const AgentConsensusBarChart: React.FC = () => {
   const { assetProfile } = useActiveAsset();
   const [viewMode, setViewMode] = useState<'COUNCIL' | 'SPECIALISTS'>('COUNCIL');
 
-  const councilAgents = assetProfile?.agents || [];
+  const councilAgents = useMemo(
+    () => (assetProfile?.agents || []).filter((a) => a.type !== 'FINAL_DECISION'),
+    [assetProfile?.agents]
+  );
   const specialistAgents = assetProfile?.specialistAgents || [];
 
   const councilLabelMap: Record<string, string> = {
@@ -25,7 +28,6 @@ export const AgentConsensusBarChart: React.FC = () => {
     KILLZONE: 'Zone',
     LIQUIDITY_MAP: 'Liq',
     RISK_GUARDIAN: 'Risk',
-    FINAL_DECISION: 'Final',
   };
 
   const councilBars = useMemo(() => {
@@ -112,7 +114,7 @@ export const AgentConsensusBarChart: React.FC = () => {
           </h3>
         </div>
 
-        {/* Segmented Selector: Core Council (15) vs Quant Specialists (17) */}
+        {/* Segmented Selector: Core Council (14) vs Quant Specialists (17) */}
         <div className="flex items-center gap-1 bg-black/60 p-0.5 rounded-lg border border-white/10 text-[8px] font-bold">
           <button
             onClick={() => setViewMode('COUNCIL')}
@@ -168,7 +170,7 @@ export const AgentConsensusBarChart: React.FC = () => {
             <span>{viewMode === 'COUNCIL' ? 'COUNCIL DOMAIN STANCE' : 'QUANT SPECIALIST VOTES'}</span>
           </span>
           <span className="text-[7.5px] text-cyan-400 font-mono">
-            {viewMode === 'COUNCIL' ? `${councilAgents.length} Council Members` : `${specialistAgents.length} Specialists`} &bull; 100% Grounded
+            {viewMode === 'COUNCIL' ? `${councilAgents.length} Council Members` : `${specialistAgents.length} Specialists`} &bull; 1 Final Decision Synthesizer &bull; 100% Grounded
           </span>
         </div>
 

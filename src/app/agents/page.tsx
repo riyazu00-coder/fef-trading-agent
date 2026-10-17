@@ -55,7 +55,7 @@ export default function AgentsDirectoryPage() {
     }
   };
 
-  // Group assignment for the 15 Canonical Council Agents
+  // Group assignment for the 14 Canonical Council Agents
   const getCouncilGroup = (type: string): AgentGroupCategory => {
     switch (type) {
       case 'TECHNICAL':
@@ -104,8 +104,9 @@ export default function AgentsDirectoryPage() {
     }
   };
 
-  // 1. Map 15 Canonical Council Agents
-  const councilAgents: ExtendedAgent[] = assetProfile.agents.map((ag, idx) => {
+  // 1. Map 14 Canonical Council Agents (Excluding FINAL_DECISION synthesizer)
+  const councilVotingAgents = assetProfile.agents.filter((a) => a.type !== 'FINAL_DECISION');
+  const councilAgents: ExtendedAgent[] = councilVotingAgents.map((ag, idx) => {
     const engineModel = getCouncilEngineModel(ag.type);
     return {
       ...ag,
@@ -124,6 +125,32 @@ export default function AgentsDirectoryPage() {
       conflictsWith: ag.bias === 'BULLISH' ? ['Macro Agent (Hawkish Fed)', 'Risk Guardian'] : ['Technical Agent', 'Opportunity Hunter'],
     };
   });
+
+  // 1b. Map 1 Downstream Final Decision Synthesizer
+  const finalDecisionRaw = assetProfile.agents.find((a) => a.type === 'FINAL_DECISION');
+  const finalDecisionAgent: ExtendedAgent = {
+    type: 'FINAL_DECISION' as any,
+    name: finalDecisionRaw?.name || 'Final Decision Agent',
+    role: finalDecisionRaw?.role || 'Swarm Consensus Engine',
+    bias: finalDecisionRaw?.bias || 'WAIT',
+    confidence: finalDecisionRaw?.confidence ?? assetProfile.confidence ?? 0,
+    status: (finalDecisionRaw?.status || 'ONLINE') as any,
+    lastOpinion: finalDecisionRaw?.lastOpinion || `Swarm consensus synthesis for ${activeSymbol}. Invalidation pegs established.`,
+    evidence: finalDecisionRaw?.evidence || [`Multi-agent confluence synthesis complete for ${activeSymbol}`],
+    keyRisk: finalDecisionRaw?.keyRisk || 'Uncorrelated volatility shock',
+    invalidation: finalDecisionRaw?.invalidation || assetProfile.invalidation || 'Structural invalidation',
+    id: 'synthesizer-final-decision',
+    group: 'CONTROL',
+    model: 'Swarm Confluence Consensus Engine',
+    weight: 3.5,
+    latencyMs: 8,
+    provenanceBadge: finalDecisionRaw?.provenanceBadge || 'INDEPENDENT',
+    evidenceTrustScore: finalDecisionRaw?.evidenceTrustScore ?? assetProfile.evidenceTrust ?? 85,
+    systemMandate: 'Final multi-agent confluence consensus and execution authorization authority. Synthesizes all 14 Council and 17 Specialist inputs on the shared blackboard into a definitive trade posture.',
+    telemetry: { memoryMb: 512, tokensPerSec: 120, sampleCount: 24000, uptime: '99.99%' },
+    availableInputs: finalDecisionRaw?.availableInputs || ['14 Council Votes', '17 Specialist Evidence Envelopes'],
+    missingInputs: finalDecisionRaw?.missingInputs || [],
+  };
 
   // 2. Map Official Specialist Agents from Foundation & Institutional Expansion (17 Total Specialists)
   const ratesSpec = assetProfile.specialistAgents?.find((a) => a.agentId === 'RATES_AGENT');
@@ -541,6 +568,7 @@ export default function AgentsDirectoryPage() {
   const fullCouncil: ExtendedAgent[] = [
     ...councilAgents,
     ...specialistAgentsList,
+    finalDecisionAgent,
   ];
 
   const filteredAgents = fullCouncil.filter((ag) => {
@@ -589,7 +617,7 @@ export default function AgentsDirectoryPage() {
                 )}
               </div>
               <p className="text-xs text-[#94A3B8] mt-1 font-sans">
-                Multi-Agent Cognitive Architecture &bull; {assetProfile.agents.length} Voting Council Members + {fullCouncil.length - assetProfile.agents.length} Specialist Observers ({fullCouncil.length} Total Swarm Agents) &bull; Setup Quality: <span className="font-mono text-cyan-300 font-bold">{assetProfile.setupQuality}/100</span>
+                Multi-Agent Cognitive Architecture &bull; {councilAgents.length} Council Members + {specialistAgentsList.length} Specialists + 1 Final Decision Synthesizer ({fullCouncil.length} Registered Agents) &bull; Setup Quality: <span className="font-mono text-cyan-300 font-bold">{assetProfile.setupQuality}/100</span>
                 {!assetProfile.tradeExecutable && (
                   <span suppressHydrationWarning className="text-rose-400 font-mono ml-2 font-bold">
                     [MARKET CLOSED — DELIBERATIONS REFERENCE ONLY • OPENS IN {assetProfile.sessionState?.nextOpenCountdown || 'SCHEDULED'}]

@@ -156,7 +156,7 @@ export default function AboutPage() {
               <strong className="text-cyan-300">Central Synthesis Engine:</strong> All 32 agents post structured observations, evidence provenance tags (<code className="text-cyan-300">DATA</code>, <code className="text-cyan-300">ANALYSIS</code>, <code className="text-cyan-300">INFERENCE</code>), and confidence scores to a shared memory blackboard. The <code className="text-cyan-300">FINAL_DECISION</code> engine synthesizes these inputs into a unified posture with explicit invalidation coordinates.
             </div>
             <div className="p-4 rounded-xl bg-[#081224] border border-emerald-500/20 text-xs font-mono text-gray-300 leading-relaxed">
-              <strong className="text-emerald-300">Registered vs Runtime State:</strong> While 32 distinct agents are registered across the CORTEX analytical pipeline (15 Council + 17 Specialists), individual nodes only contribute when their domain prerequisites and live data feeds are verified. Runtime states dynamically distinguish whether each agent is READY, CONTRIBUTING, DEGRADED, or DATA LIMITED.
+              <strong className="text-emerald-300">Registered vs Runtime State:</strong> While 32 distinct agents are registered across the CORTEX analytical pipeline (14 Council + 17 Specialists + 1 Final Decision Synthesizer), individual nodes only contribute when their domain prerequisites and live data feeds are verified. Runtime states dynamically distinguish whether each agent is READY, CONTRIBUTING, DEGRADED, or DATA LIMITED.
             </div>
           </div>
         </section>
