@@ -57,6 +57,16 @@ export const CFTC_CONTRACT_MAP: Record<string, CotContractMapping> = {
     cftcContractName: 'BITCOIN - CHICAGO MERCANTILE EXCHANGE',
     cortexSymbol: 'BTCUSD',
   },
+  US100: {
+    marketCode: '209742',
+    cftcContractName: 'NASDAQ MINI - CHICAGO MERCANTILE EXCHANGE',
+    cortexSymbol: 'US100',
+  },
+  US500: {
+    marketCode: '13874A',
+    cftcContractName: 'E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE',
+    cortexSymbol: 'US500',
+  },
 };
 
 export interface CotReportRecord {
