@@ -8,6 +8,12 @@ import { useMemberAuth } from '@/context/MemberAuthContext';
 import { SUPPORT_CONFIG, CORTEX_WHATSAPP_CONFIG } from '@/lib/config/support-config';
 import { getInstrumentContractSpec } from '@/lib/calculator/position-size-calculator';
 import { reanchorProtectionLevels } from '@/lib/execution/trade-protection-validator';
+import { dispatchUnifiedManualOrder } from '@/lib/execution/manual-order-client';
+import {
+  calculateAutomaticStopLoss,
+  AutomaticStopLossResult,
+  resolveAssetClass,
+} from '@/lib/execution/auto-stop-loss-policy';
 
 interface QuickScalpDockProps {
   className?: string;
@@ -35,10 +41,12 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Can the current user execute trades?
+  // DEMO ACCOUNT: Allowed when connected to verified MT5 demo
   // MASTER: Always authorized
   // MEMBER: Authenticated + Active License + Device Authorized 1/1
+  const isDemoAccount = telemetry.account?.tradeMode === 'DEMO';
   const canExecute = Boolean(
-    isMaster || (isAuthenticated && license?.status === 'ACTIVE' && isDeviceAuthorized)
+    isDemoAccount || isMaster || (isAuthenticated && license?.status === 'ACTIVE' && isDeviceAuthorized)
   );
 
   // Safety confirmation modal state
@@ -48,6 +56,7 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
     sl: number;
     tp: number;
     volume: number;
+    autoSl?: AutomaticStopLossResult;
   } | null>(null);
 
   const [isDispatching, setIsDispatching] = useState(false);
@@ -96,18 +105,30 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
     }
   }, [activeSymbol, assetProfile]);
 
-  // Compute calculated SL/TP prices based on direction
+  // Compute calculated SL/TP prices based on direction using Central Asset-Aware Auto SL Policy
   const calculateLevels = useCallback((dir: 'BUY' | 'SELL') => {
     const entryPrice = dir === 'BUY' ? currentAsk : currentBid;
+    const autoSl = calculateAutomaticStopLoss({
+      symbol: activeSymbol,
+      side: dir,
+      executionPrice: entryPrice,
+      brokerSpec: activeTelemetry?.spec,
+      verifiedVolatility: (assetProfile as any)?.volatilityContext?.atr ? { atr: (assetProfile as any).volatilityContext.atr } : undefined,
+    });
+
     if (useCustomPrice && customSlPrice > 0 && customTpPrice > 0) {
-      return { entryPrice, slPrice: customSlPrice, tpPrice: customTpPrice };
+      return { entryPrice, slPrice: customSlPrice, tpPrice: customTpPrice, autoSl };
     }
-    const slDist = slPips * pipSize;
-    const tpDist = tpPips * pipSize;
-    const slPrice = dir === 'BUY' ? Number((entryPrice - slDist).toFixed(precision)) : Number((entryPrice + slDist).toFixed(precision));
-    const tpPrice = dir === 'BUY' ? Number((entryPrice + tpDist).toFixed(precision)) : Number((entryPrice - tpDist).toFixed(precision));
-    return { entryPrice, slPrice, tpPrice };
-  }, [currentAsk, currentBid, useCustomPrice, customSlPrice, customTpPrice, slPips, tpPips, pipSize, precision]);
+
+    const slPrice = autoSl.stopLossPrice;
+    // Default TP target: 2.0x risk distance
+    const tpDist = autoSl.distancePrice * 2.0;
+    const tpPrice = dir === 'BUY'
+      ? Number((entryPrice + tpDist).toFixed(precision))
+      : Number((entryPrice - tpDist).toFixed(precision));
+
+    return { entryPrice, slPrice, tpPrice, autoSl };
+  }, [currentAsk, currentBid, useCustomPrice, customSlPrice, customTpPrice, activeSymbol, activeTelemetry?.spec, (assetProfile as any)?.volatilityContext, precision]);
 
   // Validation
   const validateLevels = useCallback((dir: 'BUY' | 'SELL', entry: number, sl: number, tp: number) => {
@@ -122,7 +143,6 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
     return { valid: true, error: null };
   }, []);
 
-
   // Open modal trigger — protected by member authorization gate
   const handleInitiateOrder = (dir: 'BUY' | 'SELL') => {
     // If user is not authorized for execution, intercept and show Member Access modal
@@ -131,7 +151,7 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
       return;
     }
 
-    const { entryPrice, slPrice, tpPrice } = calculateLevels(dir);
+    const { entryPrice, slPrice, tpPrice, autoSl } = calculateLevels(dir);
     const check = validateLevels(dir, entryPrice, slPrice, tpPrice);
     if (!check.valid) {
       setToast({
@@ -148,26 +168,37 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
       sl: slPrice,
       tp: tpPrice,
       volume: lotSize,
+      autoSl,
     });
   };
 
-  // Real-time dynamic pip re-anchoring for the confirmation modal
+  // Real-time dynamic re-anchoring for the confirmation modal
   const liveModalLevels = useMemo(() => {
     if (!pendingOrder) return null;
     const latestPrice = liveQuote
       ? (pendingOrder.direction === 'BUY' ? (liveQuote.ask || liveQuote.bid) : liveQuote.bid)
       : pendingOrder.price;
-    return reanchorProtectionLevels({
-      direction: pendingOrder.direction,
-      plannedEntry: pendingOrder.price,
-      freshEntry: latestPrice || pendingOrder.price,
-      sl: pendingOrder.sl,
-      tp1: pendingOrder.tp,
-      digits: precision,
-    });
-  }, [pendingOrder, liveQuote, precision]);
+    const freshEntry = latestPrice || pendingOrder.price;
 
-  // Direct dispatch to /api/bridge/mt5
+    const freshAutoSl = calculateAutomaticStopLoss({
+      symbol: activeSymbol,
+      side: pendingOrder.direction,
+      executionPrice: freshEntry,
+      brokerSpec: activeTelemetry?.spec,
+      verifiedVolatility: (assetProfile as any)?.volatilityContext?.atr ? { atr: (assetProfile as any).volatilityContext.atr } : undefined,
+    });
+
+    return {
+      entry: freshEntry,
+      sl: freshAutoSl.stopLossPrice,
+      tp1: pendingOrder.direction === 'BUY'
+        ? Number((freshEntry + freshAutoSl.distancePrice * 2.0).toFixed(precision))
+        : Number((freshEntry - freshAutoSl.distancePrice * 2.0).toFixed(precision)),
+      autoSl: freshAutoSl,
+    };
+  }, [pendingOrder, liveQuote, activeSymbol, activeTelemetry?.spec, (assetProfile as any)?.volatilityContext, precision]);
+
+  // Direct dispatch to unified execution client
   const handleConfirmDispatch = async () => {
     if (!pendingOrder) return;
     setIsDispatching(true);
@@ -191,43 +222,30 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
         digits: precision,
       });
 
-      const payload = {
-        action: 'PLACE_ORDER',
-        command: 'PLACE_ORDER',
+      const res = await dispatchUnifiedManualOrder({
         symbol: activeSymbol,
-        params: {
-          symbol: activeSymbol,
-          direction: pendingOrder.direction,
-          volume: pendingOrder.volume,
-          price: reanchored.entry,
-          sl: reanchored.sl,
-          tp1: reanchored.tp1,
-          plannedPrice: pendingOrder.price,
-          magic: 888123,
-          humanApproved: true,
-          tradeMode: 'DEMO',
-        },
-      };
-
-      const res = await fetch('/api/bridge/mt5', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        direction: pendingOrder.direction,
+        volume: pendingOrder.volume,
+        entryPrice: reanchored.entry,
+        sl: reanchored.sl,
+        tp1: reanchored.tp1,
+        plannedPrice: pendingOrder.price,
+        tradeMode: telemetry.account?.tradeMode || 'DEMO',
+        digits: precision,
+        comment: 'FEF TRADINGVIEW QUICK SCALP',
       });
 
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        const ticketNum = data.ticket || data.orderTicket || data.data?.ticket || 'TICKET-' + Date.now().toString().slice(-6);
+      if (res.success) {
+        const ticketNum = res.ticket || 'TICKET-' + Date.now().toString().slice(-6);
         setToast({
           type: 'success',
-          title: 'Order Executed on MT5',
-          message: `${pendingOrder.direction} ${pendingOrder.volume} ${activeSymbol} @ ${reanchored.entry.toFixed(precision)} (SL: ${reanchored.sl.toFixed(precision)}, TP: ${reanchored.tp1.toFixed(precision)})`,
+          title: 'Order Executed on MT5 Demo',
+          message: `${pendingOrder.direction} ${pendingOrder.volume} ${activeSymbol} @ ${res.fillPrice ?? reanchored.entry.toFixed(precision)} (Ticket #${ticketNum})`,
           ticket: ticketNum,
         });
         setPendingOrder(null);
       } else {
-        const errorMsg = data.error?.message || data.message || 'Order rejected by MT5 bridge or safety gate.';
+        const errorMsg = res.error?.message || 'Order rejected by MT5 bridge or safety gate.';
         setToast({
           type: 'error',
           title: 'Execution Rejected',
@@ -245,7 +263,7 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
     }
   };
 
-  const isExecutable = assetProfile?.tradeExecutable !== false;
+  const isExecutable = liveQuote?.freshness !== 'SESSION_CLOSED' && assetProfile?.sessionState?.marketState !== 'WEEKEND_CLOSED';
 
   return (
     <>
@@ -638,9 +656,12 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
                   <h4 className="text-sm font-black text-white uppercase tracking-wider">
                     Confirm Order Dispatch
                   </h4>
-                  <p className="text-[10px] text-cyan-300">
-                    Direct Live MT5 Bridge Execution Guard
-                  </p>
+                  <div className="flex items-center space-x-1.5 mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    <span className="text-[10px] text-amber-300 font-bold uppercase tracking-wider">
+                      DEMO EXECUTION ONLY
+                    </span>
+                  </div>
                 </div>
               </div>
               <span
@@ -681,22 +702,35 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
                   )}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Stop Loss (Re-anchored):</span>
-                <span className="text-rose-400 font-bold">
-                  {(liveModalLevels?.sl ?? pendingOrder.sl).toFixed(precision)}
-                  <span className="text-[10px] text-rose-300/80 font-normal ml-1">
-                    (-{(liveModalLevels ? liveModalLevels.slDistance / pipSize : slPips).toFixed(1)} pips)
+              {/* Dynamic Asset-Aware Auto Stop Loss Protection Card */}
+              <div className="p-2.5 rounded-xl bg-rose-950/30 border border-rose-500/40 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-[11px] pb-1 border-b border-rose-500/20">
+                  <div className="flex items-center space-x-1.5 text-rose-300 font-bold">
+                    <span>🛡️</span>
+                    <span>
+                      {(liveModalLevels?.autoSl || pendingOrder.autoSl)?.method === 'XAUUSD_FIXED_50_PIPS'
+                        ? 'AUTO SL: 50 PIPS'
+                        : `AUTO SL: ${(liveModalLevels?.autoSl || pendingOrder.autoSl)?.formattedDisplay || ''}`}
+                    </span>
+                  </div>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/60 font-mono text-cyan-300 font-bold">
+                    {(liveModalLevels?.autoSl || pendingOrder.autoSl)?.method === 'XAUUSD_FIXED_50_PIPS'
+                      ? 'MANDATORY 50 PIPS'
+                      : 'VOLATILITY ADAPTIVE'}
                   </span>
-                </span>
+                </div>
+                <div className="flex items-center justify-between pt-0.5">
+                  <span className="text-[10px] text-gray-400">SL PRICE:</span>
+                  <span className="text-sm font-black text-rose-400 font-mono">
+                    {(liveModalLevels?.sl ?? pendingOrder.sl).toFixed(precision)}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Take Profit 1 (Re-anchored):</span>
-                <span className="text-emerald-400 font-bold">
+
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-gray-400">Take Profit 1 (Target):</span>
+                <span className="text-emerald-400 font-bold font-mono">
                   {(liveModalLevels?.tp1 ?? pendingOrder.tp).toFixed(precision)}
-                  <span className="text-[10px] text-emerald-300/80 font-normal ml-1">
-                    (+{(liveModalLevels ? liveModalLevels.tp1Distance / pipSize : tpPips).toFixed(1)} pips)
-                  </span>
                 </span>
               </div>
             </div>
@@ -738,7 +772,7 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
                 ) : (
                   <>
                     <span>⚡</span>
-                    <span>CONFIRM &amp; DISPATCH ORDER</span>
+                    <span>CONFIRM DEMO ORDER</span>
                   </>
                 )}
               </button>

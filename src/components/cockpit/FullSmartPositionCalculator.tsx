@@ -12,7 +12,12 @@ import {
   getInstrumentContractSpec,
 } from '@/lib/calculator/position-size-calculator';
 import { reanchorProtectionLevels } from '@/lib/execution/trade-protection-validator';
+import { dispatchUnifiedManualOrder } from '@/lib/execution/manual-order-client';
 import { ChartAnalysisStorage } from '@/lib/chart-analysis/storage';
+import {
+  calculateAutomaticStopLoss,
+  AutomaticStopLossResult,
+} from '@/lib/execution/auto-stop-loss-policy';
 
 const STORAGE_KEY = 'fef_calc_preferences_v1';
 
@@ -162,14 +167,33 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
     const isSell = assetProfile.setupDirection.includes('SELL');
     setDirection(isSell ? 'SELL' : 'BUY');
 
-    if (assetProfile.entryZone && assetProfile.entryZone.length > 0) {
-      setEntryPrice(assetProfile.entryZone[0]);
-    } else {
-      setEntryPrice(activeAsset.price);
+    const currentPrice = (assetProfile.entryZone && assetProfile.entryZone.length > 0) ? assetProfile.entryZone[0] : activeAsset.price;
+    setEntryPrice(currentPrice);
+
+    const dir = isSell ? 'SELL' : 'BUY';
+    const autoSl = calculateAutomaticStopLoss({
+      symbol: activeSymbol,
+      side: dir,
+      executionPrice: currentPrice,
+      brokerSpec: activeTelemetry?.spec,
+      verifiedVolatility: (assetProfile as any)?.volatilityContext?.atr ? { atr: (assetProfile as any).volatilityContext.atr } : undefined,
+    });
+
+    if (activeSymbol.toUpperCase() === 'XAUUSD') {
+      // Gold mandatory 50-pip rule is strictly enforced
+      setStopLoss(autoSl.stopLossPrice);
+    } else if (assetProfile.stopLoss && assetProfile.stopLoss > 0) {
+      setStopLoss(assetProfile.stopLoss);
+    } else if (currentPrice > 0) {
+      setStopLoss(autoSl.stopLossPrice);
     }
 
-    if (assetProfile.stopLoss) setStopLoss(assetProfile.stopLoss);
-    if (assetProfile.tp1) setTp1(assetProfile.tp1);
+    if (assetProfile.tp1 && assetProfile.tp1 > 0) {
+      setTp1(assetProfile.tp1);
+    } else if (currentPrice > 0) {
+      setTp1(isSell ? Number((currentPrice - autoSl.distancePrice * 2.0).toFixed(autoSl.digits)) : Number((currentPrice + autoSl.distancePrice * 2.0).toFixed(autoSl.digits)));
+    }
+
     if (assetProfile.tp2) setTp2(assetProfile.tp2);
     if (assetProfile.tp3) setTp3(assetProfile.tp3);
   }, [activeSymbol, assetProfile, activeAsset.price]);
@@ -255,6 +279,20 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
     }
     return undefined;
   }, [specSource, activeTelemetry?.spec]);
+
+  // Check market freshness (permit human manual execution when market session is not closed)
+  const isMarketOpen = activeTelemetry?.quote?.freshness !== 'SESSION_CLOSED';
+
+  // Central Asset-Aware Auto SL evaluation
+  const autoSlDetails = useMemo(() => {
+    return calculateAutomaticStopLoss({
+      symbol,
+      side: direction,
+      executionPrice: entryPrice,
+      brokerSpec: activeTelemetry?.spec,
+      verifiedVolatility: (assetProfile as any)?.volatilityContext?.atr ? { atr: (assetProfile as any).volatilityContext.atr } : undefined,
+    });
+  }, [symbol, direction, entryPrice, activeTelemetry?.spec, (assetProfile as any)?.volatilityContext]);
 
   // Perform safe position calculation
   const calcResult: PositionSizeResult = useMemo(() => {
@@ -369,48 +407,32 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
       const accountTradeMode = telemetry.account?.tradeMode || 'DEMO';
       const isRealAccount = accountTradeMode === 'REAL';
 
-      const payload = {
-        action: 'PLACE_ORDER',
+      const res = await dispatchUnifiedManualOrder({
         symbol,
-        params: {
-          symbol,
-          direction,
-          volume: calcResult.safeLotSize,
-          price: reanchored.entry,
-          sl: reanchored.sl,
-          tp: reanchored.tp1 > 0 ? reanchored.tp1 : undefined,
-          tp1: reanchored.tp1 > 0 ? reanchored.tp1 : undefined,
-          takeProfit: reanchored.tp1 > 0 ? reanchored.tp1 : undefined,
-          tp2: reanchored.tp2 != null ? reanchored.tp2 : undefined,
-          tp3: reanchored.tp3 != null ? reanchored.tp3 : undefined,
-          plannedPrice: entryPrice,
-          magic: 888123,
-          humanApproved: true,
-          humanConfirmed: true,
-          tradeMode: accountTradeMode,
-          realConfirmed: isRealAccount ? realRiskAcknowledged : false,
-          realTradeAcknowledgement: isRealAccount ? realRiskAcknowledged : false,
-        },
-      };
-
-      const res = await fetch('/api/bridge/mt5', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        direction,
+        volume: calcResult.safeLotSize,
+        entryPrice: reanchored.entry,
+        sl: reanchored.sl,
+        tp1: reanchored.tp1 > 0 ? reanchored.tp1 : undefined,
+        tp2: reanchored.tp2 != null ? reanchored.tp2 : undefined,
+        tp3: reanchored.tp3 != null ? reanchored.tp3 : undefined,
+        plannedPrice: entryPrice,
+        tradeMode: accountTradeMode,
+        realConfirmed: isRealAccount ? realRiskAcknowledged : false,
+        digits: precision,
+        comment: 'FEF CORTEX COCKPIT MANUAL',
       });
 
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        const ticketNum = data.ticket || data.orderTicket || data.data?.ticket || 'TICKET-' + Date.now().toString().slice(-6);
+      if (res.success) {
+        const ticketNum = res.ticket || 'TICKET-' + Date.now().toString().slice(-6);
         setExecutionResult({
           success: true,
           ticket: ticketNum,
-          message: data.message || `Order successfully staged & executed via MT5 Bridge (${calcResult.safeLotSize.toFixed(2)} lots ${direction} ${symbol})`,
+          message: res.message || `Order successfully executed via MT5 Bridge (${calcResult.safeLotSize.toFixed(2)} lots ${direction} ${symbol})`,
         });
         setFlashNotice(`✓ Executed on MT5: ${symbol} ${direction} ${calcResult.safeLotSize.toFixed(2)} lots (#${ticketNum})`);
       } else {
-        const errorMsg = data.error?.message || data.message || 'Execution rejected by bridge or trade protection gate.';
+        const errorMsg = res.error?.message || 'Execution rejected by bridge or trade protection gate.';
         setExecutionResult({
           success: false,
           error: errorMsg,
@@ -1004,7 +1026,7 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
           ONE-CLICK SAFETY CONFIRMATION GUARD MODAL
          ========================================================================= */}
       {isConfirmModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4" role="dialog" aria-modal="true">
           <div className="bg-[#090D16] border border-cyan-500/40 rounded-2xl max-w-lg w-full p-4 sm:p-5 shadow-[0_0_40px_rgba(6,182,212,0.25)] space-y-4 font-mono relative animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
@@ -1067,9 +1089,14 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                   </span>
                 </div>
                 <div className="p-2 rounded-lg bg-black/40 border border-white/5">
-                  <span className="text-[9.5px] text-gray-400 block">Stop Loss (Re-anchored)</span>
+                  <span className="text-[9.5px] text-gray-400 block">
+                    {autoSlDetails?.method === 'XAUUSD_FIXED_50_PIPS' ? 'AUTO SL: 50 PIPS' : `AUTO SL: ${autoSlDetails?.formattedDisplay || ''}`}
+                  </span>
                   <span className="text-rose-400 font-bold">
                     {(modalReanchoredLevels?.sl ?? stopLoss).toFixed(precision)}
+                  </span>
+                  <span className="text-[8.5px] text-cyan-300 font-mono block mt-0.5">
+                    {autoSlDetails?.method === 'XAUUSD_FIXED_50_PIPS' ? 'MANDATORY 50 PIPS' : 'VOLATILITY ADAPTIVE'}
                   </span>
                 </div>
                 <div className="p-2 rounded-lg bg-black/40 border border-white/5">
@@ -1104,10 +1131,10 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                     <span>Valid Directional Geometry</span>
                   </div>
                   <div className="flex items-center space-x-1.5">
-                    <span className={assetProfile.tradeExecutable ? 'text-emerald-400' : 'text-amber-400'}>
-                      {assetProfile.tradeExecutable ? '✓' : '⚠️'}
+                    <span className={isMarketOpen ? 'text-emerald-400' : 'text-amber-400'}>
+                      {isMarketOpen ? '✓' : '⚠️'}
                     </span>
-                    <span>Session: {assetProfile.tradeExecutable ? 'ACTIVE & EXECUTABLE' : 'MARKET CLOSED'}</span>
+                    <span>Session: {isMarketOpen ? 'ACTIVE & EXECUTABLE' : 'MARKET CLOSED'}</span>
                   </div>
                 </div>
               </div>
@@ -1139,7 +1166,7 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                   <div className="flex items-center space-x-2 text-emerald-300">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                     <span className="font-bold uppercase tracking-wider font-sans">
-                      DEMO ACCOUNT ({telemetry.account?.maskedLogin || 'DEMO'})
+                      DEMO EXECUTION ONLY • {telemetry.account?.maskedLogin || 'DEMO'}
                     </span>
                   </div>
                   <span className="text-[10px] text-emerald-400/80 font-mono">
@@ -1207,14 +1234,14 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                     disabled={
                       isDispatching ||
                       !licenseState.valid ||
-                      !assetProfile.tradeExecutable ||
+                      !isMarketOpen ||
                       (telemetry.account?.tradeMode === 'REAL' && !realRiskAcknowledged) ||
                       (telemetry.account?.tradeMode !== 'DEMO' && telemetry.account?.tradeMode !== 'REAL')
                     }
                     className={`w-1/2 sm:w-auto px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-lg ${
                       isDispatching ||
                       !licenseState.valid ||
-                      !assetProfile.tradeExecutable ||
+                      !isMarketOpen ||
                       (telemetry.account?.tradeMode === 'REAL' && !realRiskAcknowledged) ||
                       (telemetry.account?.tradeMode !== 'DEMO' && telemetry.account?.tradeMode !== 'REAL')
                         ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-white/5 shadow-none'
@@ -1241,7 +1268,7 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                     ) : (
                       <>
                         <span>⚡</span>
-                        <span>CONFIRM DEMO TRADE</span>
+                        <span>CONFIRM DEMO ORDER</span>
                       </>
                     )}
                   </button>

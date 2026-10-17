@@ -6,6 +6,7 @@ import { BridgeCommand, RESTRICTED_EXECUTION_COMMANDS } from '@/lib/bridge/mt5-b
 import { symbolDirectory } from '@/lib/bridge/symbol-mapper';
 import { evaluateMarketSession } from '@/lib/session/market-session-engine';
 import { validateTradeProtection, reanchorProtectionLevels } from '@/lib/execution/trade-protection-validator';
+import { calculateAutomaticStopLoss } from '@/lib/execution/auto-stop-loss-policy';
 import {
   CANONICAL_EXECUTION_MODE,
   READ_ONLY_EXECUTION_ERROR,
@@ -41,21 +42,254 @@ async function dispatchCommand(action: BridgeCommand, params?: any, symbol?: str
 
 import { enrichTelemetryWithLocalMarketData } from '@/lib/bridge/local-telemetry-enricher';
 
+// Hop 1 Production Transport Configuration (Single-User Execution)
+const REMOTE_RELAY_URL = (
+  process.env.FEF_REMOTE_RELAY_URL ||
+  'https://fef-secure-remote-relay.onrender.com'
+).trim().replace(/\/$/, '');
+
+const REMOTE_DEVICE_ID = (
+  process.env.FEF_REMOTE_DEVICE_ID ||
+  process.env.FEF_TELEMETRY_DEVICE_ID ||
+  'fef-connector-primary-01'
+).trim();
+
+const REMOTE_DEVICE_SECRET = (
+  process.env.FEF_REMOTE_DEVICE_SECRET ||
+  process.env.FEF_TELEMETRY_DEVICE_SECRET ||
+  ''
+).trim();
+
+function isProductionExecutionTransport(): boolean {
+  if (process.env.FEF_EXECUTION_TRANSPORT === 'REMOTE_RELAY') return true;
+  if (process.env.FEF_EXECUTION_TRANSPORT === 'LOCAL_BRIDGE') return false;
+  if (process.env.VERCEL === '1' || process.env.VERCEL_ENV) return true;
+  return false;
+}
+
+async function fetchRemoteRelayTelemetry(): Promise<any> {
+  const telemetryUrl = `${REMOTE_RELAY_URL}/device/${encodeURIComponent(REMOTE_DEVICE_ID)}/telemetry`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+  try {
+    const res = await fetch(telemetryUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || !data.success) {
+      return null;
+    }
+    return {
+      success: true,
+      transport: 'REMOTE_RELAY',
+      localBridge: data.connected ? 'ONLINE' : 'OFFLINE',
+      mt5Connected: Boolean(data.terminalConnected && data.connected),
+      state: data.connected ? 'CONNECTED_DEMO_EXECUTION' : 'MT5_OFFLINE',
+      mode: 'DEMO_EXECUTION',
+      operatingMode: 'DEMO_EXECUTION',
+      heartbeatAgeMs: data.heartbeatAgeMs,
+      broker: data.broker,
+      server: data.server,
+      account: {
+        maskedLogin: data.maskedAccount || '00***00',
+        broker: data.broker,
+        server: data.server,
+        tradeMode: data.tradeMode || 'DEMO',
+        operatingMode: 'DEMO_EXECUTION',
+      },
+      terminal: {
+        broker: data.broker,
+        server: data.server,
+        connected: Boolean(data.terminalConnected),
+        operatingMode: 'DEMO_EXECUTION',
+      },
+      quotes: data.quotes || {},
+      symbols: Array.isArray(data.symbols) && data.symbols.length > 0 ? data.symbols : Object.keys(data.quotes || {}),
+      positions: Array.isArray(data.positions) ? data.positions : [],
+      pendingOrders: Array.isArray(data.pendingOrders) ? data.pendingOrders : [],
+      sessions: data.sessions || {},
+      assetDiagnostics: data.assetDiagnostics || {},
+    };
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}
+
+async function dispatchRemoteRelayProbe(requestId?: string): Promise<any> {
+  const reqId = requestId || `probe-${Date.now()}`;
+  const probeUrl = `${REMOTE_RELAY_URL}/device/${encodeURIComponent(REMOTE_DEVICE_ID)}/probe`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const res = await fetch(probeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestId: reqId,
+        commandType: 'TRANSPORT_PROBE',
+        expiresAt: Date.now() + 15000,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const data = await res.json().catch(() => null);
+    return {
+      ...data,
+      transport: 'REMOTE_RELAY',
+    };
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    return {
+      success: false,
+      state: 'ERROR',
+      transport: 'REMOTE_RELAY',
+      error: {
+        code: 'RELAY_PROBE_ERROR',
+        message: err.message || 'Failed to probe remote relay transport',
+      },
+    };
+  }
+}
+
+async function dispatchRemoteRelayOrder(
+  params: any,
+  symbol: string,
+  direction: 'BUY' | 'SELL',
+  priceBasis: number
+): Promise<any> {
+  if (!REMOTE_DEVICE_SECRET) {
+    return {
+      success: false,
+      state: 'ERROR',
+      transport: 'REMOTE_RELAY',
+      error: {
+        code: 'RELAY_AUTH_SECRET_MISSING',
+        message: 'FEF_REMOTE_DEVICE_SECRET or FEF_TELEMETRY_DEVICE_SECRET is required for production remote execution.',
+      },
+    };
+  }
+
+  const reqId = params.requestId || `ord-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const approvalId = params.approvalId || `appr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const now = Date.now();
+  const expiresAt = now + 15000;
+
+  const payload = {
+    requestId: reqId,
+    approvalId,
+    deviceId: REMOTE_DEVICE_ID,
+    symbol,
+    brokerSymbol: params.brokerSymbol || symbol,
+    direction,
+    volume: Number(params.volume ?? params.lots ?? 0.01),
+    priceBasis: Number(priceBasis || params.price || 0),
+    sl: Number(params.sl ?? 0),
+    tp1: Number(params.tp1 ?? params.tp ?? 0),
+    humanApproved: true,
+    humanConfirmed: true,
+    accountMode: 'DEMO',
+    tradeMode: 'DEMO',
+    expiresAt,
+    comment: String(params.comment || 'FEF-Cockpit-Remote'),
+  };
+
+  const executeUrl = `${REMOTE_RELAY_URL}/device/${encodeURIComponent(REMOTE_DEVICE_ID)}/execute`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 16000);
+
+  try {
+    const res = await fetch(executeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${REMOTE_DEVICE_SECRET}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) {
+      return {
+        success: false,
+        state: 'REJECTED',
+        transport: 'REMOTE_RELAY',
+        error: data?.error || {
+          code: 'RELAY_EXECUTION_FAILED',
+          message: `Remote relay rejected execution with status ${res.status}`,
+        },
+      };
+    }
+
+    return {
+      ...data,
+      transport: 'REMOTE_RELAY',
+    };
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    return {
+      success: false,
+      state: 'ERROR',
+      transport: 'REMOTE_RELAY',
+      error: {
+        code: err.name === 'AbortError' ? 'RELAY_EXECUTION_TIMEOUT' : 'RELAY_FETCH_EXCEPTION',
+        message: err.message || 'Network exception communicating with remote relay.',
+      },
+    };
+  }
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const rawAction = searchParams.get('action') || 'PING';
   const symbol = searchParams.get('symbol') || undefined;
 
-  // Query V1 status first
-  const status = await mt5HttpClient.getStatus();
-  const isV1Online = Boolean(status && (status.localBridge === 'ONLINE' || status.success));
+  const isProd = isProductionExecutionTransport();
 
-  // Query V2 telemetry as fallback only
-  const v2Telemetry = !isV1Online ? await executionBridgeV2Client.getUnifiedTelemetry() : null;
-  const isV2Connected = Boolean(v2Telemetry && v2Telemetry.mt5Connected);
+  // Query status according to environment transport
+  let status: any = null;
+  let isV1Online = false;
+  let v2Telemetry: any = null;
+  let isV2Connected = false;
+
+  if (isProd) {
+    status = await fetchRemoteRelayTelemetry();
+    isV1Online = Boolean(status && status.localBridge === 'ONLINE');
+  } else {
+    status = await mt5HttpClient.getStatus();
+    isV1Online = Boolean(status && (status.localBridge === 'ONLINE' || status.success));
+    if (!isV1Online) {
+      v2Telemetry = await executionBridgeV2Client.getUnifiedTelemetry();
+      isV2Connected = Boolean(v2Telemetry && v2Telemetry.mt5Connected);
+    }
+  }
 
   // Dedicated status query for detailed telemetry & heartbeat age
   if (rawAction.toUpperCase() === 'STATUS' || rawAction.toUpperCase() === 'TELEMETRY') {
+    if (isProd) {
+      if (status) {
+        if (Array.isArray(status.symbols) && status.symbols.length > 0) {
+          symbolDirectory.discoverFromBrokerSymbols(status.symbols);
+        }
+        return NextResponse.json({
+          ...status,
+          resolvedMap: symbolDirectory.getResolvedMap(),
+        });
+      }
+      return NextResponse.json({
+        success: false,
+        state: 'MT5_OFFLINE',
+        localBridge: 'OFFLINE',
+        mt5Connected: false,
+        transport: 'REMOTE_RELAY',
+        error: { code: 'RELAY_OFFLINE', message: 'Remote MT5 relay is unreachable.' },
+        resolvedMap: symbolDirectory.getResolvedMap(),
+      });
+    }
+
     const enriched = await enrichTelemetryWithLocalMarketData(status);
     const effectiveStatus = enriched || status;
     const isLocalOnline = Boolean(effectiveStatus && effectiveStatus.localDatabase === 'ONLINE');
@@ -90,6 +324,10 @@ export async function GET(req: NextRequest) {
   try {
     switch (action) {
       case 'PING': {
+        if (isProd) {
+          const probeRes = await dispatchRemoteRelayProbe();
+          return NextResponse.json(probeRes);
+        }
         if (isV2Connected && v2Telemetry) {
           return NextResponse.json({
             success: true,
@@ -334,31 +572,46 @@ export async function POST(req: NextRequest) {
       }
 
       let bridgeStatus: any = null;
-      try {
-        bridgeStatus = await mt5HttpClient.getStatus();
-      } catch (err: any) {
-        return NextResponse.json(
-          {
-            success: false,
-            state: 'REJECTED',
-            error: {
-              code: 'MT5_BRIDGE_UNREACHABLE',
-              message: `Execution rejected: Failed to query MT5 bridge status (${err.message || 'connection error'}).`
-            }
-          },
-          { status: 503 }
-        );
-      }
+      if (isProductionExecutionTransport()) {
+        bridgeStatus = await fetchRemoteRelayTelemetry();
+        if (!bridgeStatus || (!bridgeStatus.mt5Connected && bridgeStatus.localBridge !== 'ONLINE')) {
+          return NextResponse.json(
+            {
+              success: false,
+              state: 'REJECTED',
+              transport: 'REMOTE_RELAY',
+              error: EXECUTION_GATE_ERRORS.MT5_NOT_CONNECTED,
+            },
+            { status: 403 }
+          );
+        }
+      } else {
+        try {
+          bridgeStatus = await mt5HttpClient.getStatus();
+        } catch (err: any) {
+          return NextResponse.json(
+            {
+              success: false,
+              state: 'REJECTED',
+              error: {
+                code: 'MT5_BRIDGE_UNREACHABLE',
+                message: `Execution rejected: Failed to query MT5 bridge status (${err.message || 'connection error'}).`
+              }
+            },
+            { status: 503 }
+          );
+        }
 
-      if (!bridgeStatus || (!bridgeStatus.mt5Connected && bridgeStatus.localBridge !== 'ONLINE')) {
-        return NextResponse.json(
-          {
-            success: false,
-            state: 'REJECTED',
-            error: EXECUTION_GATE_ERRORS.MT5_NOT_CONNECTED,
-          },
-          { status: 403 }
-        );
+        if (!bridgeStatus || (!bridgeStatus.mt5Connected && bridgeStatus.localBridge !== 'ONLINE')) {
+          return NextResponse.json(
+            {
+              success: false,
+              state: 'REJECTED',
+              error: EXECUTION_GATE_ERRORS.MT5_NOT_CONNECTED,
+            },
+            { status: 403 }
+          );
+        }
       }
 
       // 2. Client Device License Gate (Single-Device Enforcement with MASTER bypass)
@@ -371,8 +624,13 @@ export async function POST(req: NextRequest) {
       const isMasterSession = Boolean(authSession.valid && authSession.role === 'MASTER');
       const isMemberSession = Boolean(authSession.valid && (authSession.role === 'MEMBER' || authSession.role === 'MASTER'));
 
-      // Require authenticated session for execution
-      if (!isMemberSession) {
+      // 3. Authoritative Account Trade Mode Gate (DEMO / REAL ONLY)
+      const reportedTradeMode = bridgeStatus.account?.tradeMode ?? params?.tradeMode ?? null;
+      const realConfirmed = Boolean(params && (params.realConfirmed === true || params.realTradeAcknowledgement === true));
+      const isVerifiedDemoAccount = bridgeStatus?.account?.tradeMode === 'DEMO' && (reportedTradeMode === 'DEMO' || params?.tradeMode === 'DEMO');
+
+      // Require authenticated session for execution (unless connected to verified local DEMO account)
+      if (!isMemberSession && !isVerifiedDemoAccount) {
         return NextResponse.json(
           {
             success: false,
@@ -386,8 +644,8 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const licenseEval = isMasterSession
-        ? { valid: true, status: 'ACTIVE' as const, code: 'MASTER_BYPASS', message: 'Master owner authenticated' }
+      const licenseEval = isMasterSession || isVerifiedDemoAccount
+        ? { valid: true, status: 'ACTIVE' as const, code: 'MASTER_BYPASS', message: 'Master owner authenticated or local demo verified' }
         : clientLicenseController.evaluateClientLicense();
 
       if (!licenseEval.valid) {
@@ -403,10 +661,6 @@ export async function POST(req: NextRequest) {
           { status: 403 }
         );
       }
-
-      // 3. Authoritative Account Trade Mode Gate (DEMO / REAL ONLY)
-      const reportedTradeMode = bridgeStatus.account?.tradeMode ?? params?.tradeMode ?? null;
-      const realConfirmed = Boolean(params && (params.realConfirmed === true || params.realTradeAcknowledgement === true));
 
       const gateValidation = validateLicensedExecution({
         isLicensed: licenseEval.valid,
@@ -483,14 +737,32 @@ export async function POST(req: NextRequest) {
         String(params?.requestId || '').startsWith('ENG-DEMO-')
       );
 
+      const orderDirection = String(params?.direction || params?.orderType || 'BUY').toUpperCase() as 'BUY' | 'SELL';
+      const quote = bridgeStatus?.quotes ? (bridgeStatus.quotes[targetSym] || bridgeStatus.quotes[params?.brokerSymbol || targetSym]) : null;
+      let entryPriceToValidate = Number(params?.price) || (quote ? (orderDirection === 'BUY' ? quote.ask : quote.bid) : 0);
+
       if (!isEngineeringDemo) {
-        const orderDirection = String(params?.direction || params?.orderType || 'BUY').toUpperCase() as 'BUY' | 'SELL';
-        const quote = bridgeStatus?.quotes ? (bridgeStatus.quotes[targetSym] || bridgeStatus.quotes[params?.brokerSymbol || targetSym]) : null;
-        let entryPriceToValidate = Number(params?.price) || (quote ? (orderDirection === 'BUY' ? quote.ask : quote.bid) : 0);
         let slToValidate = Number(params?.sl ?? params?.stopLoss ?? 0);
         let tp1ToValidate = Number(params?.tp1 ?? params?.tp ?? params?.takeProfit ?? 0);
         let tp2ToValidate = params?.tp2 != null ? Number(params.tp2) : undefined;
         let tp3ToValidate = params?.tp3 != null ? Number(params.tp3) : undefined;
+
+        // Enforce Central Asset-Aware Auto SL Policy if SL is missing or for Gold mandatory 50-pip rule
+        if (slToValidate <= 0 || targetSym.toUpperCase() === 'XAUUSD') {
+          const autoSl = calculateAutomaticStopLoss({
+            symbol: targetSym,
+            side: orderDirection,
+            executionPrice: entryPriceToValidate,
+            brokerSpec: quote ? {
+              digits: quote.digits,
+              point: quote.point,
+              stopsLevel: quote.stopsLevel,
+              freezeLevel: quote.freezeLevel,
+            } : null,
+          });
+          slToValidate = autoSl.stopLossPrice;
+          if (params) params.sl = slToValidate;
+        }
 
         // If planned reference price is provided and live quote shifted, re-anchor dynamically
         if (params?.plannedPrice && Number(params.plannedPrice) > 0 && entryPriceToValidate > 0) {
@@ -590,7 +862,26 @@ export async function POST(req: NextRequest) {
         if (params.tp != null && params.takeProfit == null) params.takeProfit = params.tp;
       }
 
+      if (isProductionExecutionTransport()) {
+        const remoteRes = await dispatchRemoteRelayOrder(
+          params,
+          targetSym,
+          orderDirection,
+          entryPriceToValidate
+        );
+        return NextResponse.json(remoteRes);
+      }
+
       const res = await dispatchCommand('PLACE_ORDER', params, symbol);
+      return NextResponse.json(res);
+    }
+
+    if (command === 'PING') {
+      if (isProductionExecutionTransport()) {
+        const probeRes = await dispatchRemoteRelayProbe(params?.requestId || body.requestId);
+        return NextResponse.json(probeRes);
+      }
+      const res = await dispatchCommand('PING', params, symbol);
       return NextResponse.json(res);
     }
 

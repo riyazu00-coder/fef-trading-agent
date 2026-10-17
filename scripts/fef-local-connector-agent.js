@@ -98,6 +98,24 @@ function connectToRelay() {
       if (msg.type === 'TELEMETRY_ACK' || msg.type === 'CANDLES_ACK') {
         return;
       }
+      if (msg.type === 'TRANSPORT_PROBE') {
+        const cmd = msg.command || {};
+        console.log(`[CONNECTOR] Transport probe received (ReqID: ${cmd.requestId})`);
+        ws.send(JSON.stringify({
+          type: 'COMMAND_ACK',
+          requestId: cmd.requestId,
+          status: 'DONE',
+          success: true,
+          probe: 'PONG',
+          connector: REMOTE_DEVICE_ID,
+          timestamp: Date.now(),
+        }));
+        return;
+      }
+      if (msg.type === 'EXECUTE_ORDER' || msg.type === 'ORDER_DISPATCH') {
+        handleIncomingRemoteCommand(msg.command || msg);
+        return;
+      }
     } catch {}
   });
 
@@ -141,6 +159,217 @@ if (TELEMETRY_STORAGE_MODE === 'LOCAL' || TELEMETRY_STORAGE_MODE === 'HYBRID') {
 const LOCAL_BRIDGE_URL = process.env.FEF_LOCAL_BRIDGE_URL || 'http://127.0.0.1:5556';
 const tokenResolution = resolveActiveBridgeToken();
 const LOCAL_BRIDGE_TOKEN = (tokenResolution.token || '').trim();
+
+// Remote execution state & dispatchers (Hop 3: Connector -> Local Bridge)
+const processedRemoteCommands = new Set();
+
+function dispatchToLocalBridge(payload) {
+  return new Promise((resolve) => {
+    const rawData = JSON.stringify(payload);
+    const url = new URL('/api/command', LOCAL_BRIDGE_URL);
+    const req = http.request(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(rawData),
+          Authorization: `Bearer ${LOCAL_BRIDGE_TOKEN}`,
+          'x-bridge-token': LOCAL_BRIDGE_TOKEN,
+        },
+        timeout: 14000,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            resolve(parsed);
+          } catch {
+            resolve({
+              success: false,
+              status: 'ERROR',
+              error: { code: 'INVALID_JSON_FROM_BRIDGE', message: data.slice(0, 200) },
+              timestamp: Date.now(),
+            });
+          }
+        });
+      }
+    );
+
+    req.on('error', (err) => {
+      resolve({
+        success: false,
+        status: 'BRIDGE_OFFLINE',
+        error: { code: 'LOCAL_BRIDGE_UNREACHABLE', message: err.message },
+        timestamp: Date.now(),
+      });
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({
+        success: false,
+        status: 'TIMEOUT',
+        error: { code: 'LOCAL_BRIDGE_TIMEOUT', message: 'Timed out waiting for local MT5 bridge response.' },
+        timestamp: Date.now(),
+      });
+    });
+
+    req.write(rawData);
+    req.end();
+  });
+}
+
+async function handleIncomingRemoteCommand(command) {
+  const reqId = command.requestId || `cmd-${Date.now()}`;
+  console.log(`[CONNECTOR] Remote command received: ${command.command || command.commandType || 'EXECUTE_ORDER'} (ReqID: ${reqId})`);
+
+  // 1. Non-mutating probe / ping support
+  if (command.command === 'PING' || command.commandType === 'PING' || command.commandType === 'TRANSPORT_PROBE') {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'COMMAND_ACK',
+        requestId: reqId,
+        success: true,
+        status: 'PONG',
+        message: 'Remote command transport verified',
+        connector: REMOTE_DEVICE_ID,
+        timestamp: Date.now(),
+      }));
+    }
+    return;
+  }
+
+  // 2. REAL Account Hard Lock (Physical Safety Guard)
+  if (command.accountMode === 'REAL' || command.tradeMode === 'REAL') {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'COMMAND_ACK',
+        requestId: reqId,
+        success: false,
+        status: 'REJECTED',
+        error: {
+          code: 'REAL_EXECUTION_BLOCKED',
+          message: 'REAL account trading strictly prohibited via remote transport. DEMO only.'
+        },
+        timestamp: Date.now(),
+      }));
+    }
+    return;
+  }
+
+  // 3. Human Approval Enforcement
+  if (command.humanApproved !== true && command.humanConfirmed !== true) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'COMMAND_ACK',
+        requestId: reqId,
+        success: false,
+        status: 'REJECTED',
+        error: {
+          code: 'HUMAN_APPROVAL_REQUIRED',
+          message: 'Explicit human approval is mandatory for remote execution.'
+        },
+        timestamp: Date.now(),
+      }));
+    }
+    return;
+  }
+
+  // 4. Command Freshness (TTL)
+  if (command.expiresAt && command.expiresAt <= Date.now()) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'COMMAND_ACK',
+        requestId: reqId,
+        success: false,
+        status: 'REJECTED',
+        error: {
+          code: 'COMMAND_EXPIRED',
+          message: 'Remote command expired before local bridge dispatch.'
+        },
+        timestamp: Date.now(),
+      }));
+    }
+    return;
+  }
+
+  // 5. Replay Protection / Idempotency
+  if (processedRemoteCommands.has(reqId)) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'COMMAND_ACK',
+        requestId: reqId,
+        success: false,
+        status: 'REJECTED',
+        error: {
+          code: 'DUPLICATE_COMMAND_ID',
+          message: `Remote command request ID '${reqId}' has already been processed.`
+        },
+        timestamp: Date.now(),
+      }));
+    }
+    return;
+  }
+  processedRemoteCommands.add(reqId);
+
+  // 6. Forward to Local HTTP Bridge (:5556)
+  const volume = Number(command.volume || 0.01);
+  const direction = String(command.direction || command.orderType || 'BUY').toUpperCase();
+  const symbol = String(command.symbol || command.brokerSymbol || 'XAUUSD').toUpperCase();
+  const sl = Number(command.sl || 0);
+  const tp1 = Number(command.tp1 || command.tp || 0);
+
+  const bridgePayload = {
+    command: 'PLACE_ORDER',
+    requestId: reqId,
+    allowOrderDispatch: true,
+    orderTransportEnabled: true,
+    params: {
+      requestId: reqId,
+      symbol,
+      brokerSymbol: command.brokerSymbol || symbol,
+      direction,
+      volume,
+      lots: volume,
+      price: Number(command.priceBasis || command.price || 0),
+      sl,
+      tp: tp1,
+      tp1,
+      humanApproved: true,
+      humanConfirmed: true,
+      tradeMode: 'DEMO',
+      comment: command.comment || 'FEF-Cockpit-Remote',
+      allowOrderDispatch: true,
+      orderTransportEnabled: true,
+    },
+  };
+
+  try {
+    const bridgeResult = await dispatchToLocalBridge(bridgePayload);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'COMMAND_ACK',
+        requestId: reqId,
+        ...bridgeResult,
+        timestamp: Date.now(),
+      }));
+    }
+  } catch (err) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'COMMAND_ACK',
+        requestId: reqId,
+        success: false,
+        status: 'ERROR',
+        error: { code: 'BRIDGE_DISPATCH_EXCEPTION', message: err.message },
+        timestamp: Date.now(),
+      }));
+    }
+  }
+}
 
 // 2. Cloud telemetry ingress configuration
 const CLOUD_INGRESS_URL = (

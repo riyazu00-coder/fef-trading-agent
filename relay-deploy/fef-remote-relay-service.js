@@ -554,21 +554,24 @@ const server = http.createServer(async (req, res) => {
     const deviceId = executeMatch[1];
     const device = registeredDevices.get(deviceId);
 
-    return sendJson(res, 403, {
-      success: false,
-      status: 'REJECTED',
-      operatingMode: 'READ_ONLY',
-      error: {
-        code: 'GLOBAL_READ_ONLY_LOCK',
-        message: 'FEF CORTEX V1.1.2-S is READ_ONLY / TELEMETRY ONLY. Relay execution dispatch is disabled.'
-      }
-    });
+    // Single-User Execution Gate: Allow ONLY authorized single-user device for MANUAL DEMO execution
+    if (deviceId !== ENV_DEVICE_ID) {
+      return sendJson(res, 403, {
+        success: false,
+        status: 'REJECTED',
+        operatingMode: 'READ_ONLY',
+        error: {
+          code: 'UNAUTHORIZED_DEVICE',
+          message: `Execution rejected: Device '${deviceId}' is not authorized for remote execution.`,
+        },
+      }, allowedOrigin);
+    }
 
     if (!device) {
       return sendJson(res, 404, {
         success: false,
         error: { code: 'DEVICE_NOT_FOUND', message: `Device '${deviceId}' is not registered.` }
-      });
+      }, allowedOrigin);
     }
 
     try {
@@ -592,15 +595,45 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 401, {
           success: false,
           error: { code: 'UNAUTHORIZED', message: 'Invalid authentication credentials or signature for remote execution.' }
-        });
+        }, allowedOrigin);
       }
 
       // 2. REAL Account Hard Lock (Layer 2)
-      if (body.accountMode === 'REAL' || device.tradeMode === 'REAL') {
+      if (body.accountMode === 'REAL' || device.tradeMode === 'REAL' || body.tradeMode === 'REAL') {
         return sendJson(res, 403, {
           success: false,
           error: { code: 'REAL_EXECUTION_LOCKED', message: 'REAL account execution is strictly prohibited. DEMO accounts only.' }
+        }, allowedOrigin);
+      }
+
+      // Non-mutating probe / ping support via /execute
+      if (body.command === 'PING' || body.commandType === 'PING' || body.commandType === 'TRANSPORT_PROBE') {
+        const ws = activeSockets.get(deviceId);
+        if (!ws || ws.readyState !== 1) {
+          return sendJson(res, 503, {
+            success: false,
+            error: { code: 'CONNECTOR_OFFLINE', message: `Target connector '${deviceId}' is currently offline.` }
+          }, allowedOrigin);
+        }
+        const ackPromise = new Promise((resolve) => {
+          const timer = setTimeout(() => {
+            executionWaiters.delete(body.requestId);
+            resolve({
+              success: false,
+              requestId: body.requestId,
+              status: 'TIMEOUT',
+              error: { code: 'EXECUTION_TIMEOUT', message: 'Timed out waiting for connector response.' },
+              timestamp: Date.now(),
+            });
+          }, 10000);
+          executionWaiters.set(body.requestId, { resolve, timer });
         });
+        ws.send(JSON.stringify({
+          type: 'EXECUTE_ORDER',
+          command: body,
+        }));
+        const result = await ackPromise;
+        return sendJson(res, result.success ? 200 : 400, result, allowedOrigin);
       }
 
       // 3. Mandatory Fields Check
@@ -608,7 +641,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, {
           success: false,
           error: { code: 'MISSING_MANDATORY_FIELDS', message: 'Order rejected: requestId, approvalId, symbol, direction, and volume are mandatory.' }
-        });
+        }, allowedOrigin);
       }
 
       // 4. Mandatory SL and TP1
@@ -628,11 +661,11 @@ const server = http.createServer(async (req, res) => {
       }
 
       // 5. Human Approval Verification
-      if (body.humanApproved !== true) {
+      if (body.humanApproved !== true && body.humanConfirmed !== true) {
         return sendJson(res, 403, {
           success: false,
           error: { code: 'HUMAN_APPROVAL_REQUIRED', message: 'Execution rejected: Explicit human approval is mandatory.' }
-        });
+        }, allowedOrigin);
       }
 
       // 6. Idempotency & Replay Protection
@@ -640,13 +673,13 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 409, {
           success: false,
           error: { code: 'DUPLICATE_COMMAND_ID', message: `Execution request ID '${body.requestId}' has already been processed.` }
-        });
+        }, allowedOrigin);
       }
       if (processedApprovalIds.has(body.approvalId)) {
         return sendJson(res, 409, {
           success: false,
           error: { code: 'DUPLICATE_APPROVAL_ID', message: `Human approval ticket '${body.approvalId}' has already been executed.` }
-        });
+        }, allowedOrigin);
       }
 
       // 7. TTL Check
@@ -655,7 +688,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, {
           success: false,
           error: { code: 'COMMAND_EXPIRED', message: `Command expired: cutoff was ${body.expiresAt}, current time is ${now}.` }
-        });
+        }, allowedOrigin);
       }
 
       // 8. Directional Geometry
@@ -666,14 +699,14 @@ const server = http.createServer(async (req, res) => {
             return sendJson(res, 400, {
               success: false,
               error: { code: 'INVALID_GEOMETRY', message: `BUY geometry violation: SL (${body.sl}) must be < Entry (${entry}) < TP1 (${body.tp1}).` }
-            });
+            }, allowedOrigin);
           }
         } else if (body.direction === 'SELL') {
           if (body.sl <= entry || body.tp1 >= entry) {
             return sendJson(res, 400, {
               success: false,
               error: { code: 'INVALID_GEOMETRY', message: `SELL geometry violation: SL (${body.sl}) must be > Entry (${entry}) > TP1 (${body.tp1}).` }
-            });
+            }, allowedOrigin);
           }
         }
       }
@@ -684,7 +717,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 503, {
           success: false,
           error: { code: 'CONNECTOR_OFFLINE', message: `Target connector '${deviceId}' is currently offline. Remote execution requires an active connector.` }
-        });
+        }, allowedOrigin);
       }
 
       // Register IDs in processed sets immediately to block concurrency
@@ -713,12 +746,12 @@ const server = http.createServer(async (req, res) => {
       }));
 
       const result = await ackPromise;
-      return sendJson(res, result.success ? 200 : 400, result);
+      return sendJson(res, result.success ? 200 : 400, result, allowedOrigin);
     } catch (err) {
       return sendJson(res, 500, {
         success: false,
         error: { code: 'INTERNAL_ERROR', message: err.message || 'Execution error.' }
-      });
+      }, allowedOrigin);
     }
   }
 
@@ -993,7 +1026,7 @@ wss.on('connection', (ws, req) => {
     }
 
     // 4. Command Acknowledgment from Connector (Phase 2C)
-    if (msg.type === 'COMMAND_ACK' || msg.type === 'EXECUTION_ACK') {
+    if (msg.type === 'COMMAND_ACK' || msg.type === 'EXECUTION_ACK' || msg.type === 'ORDER_RESULT' || msg.type === 'PROBE_ACK') {
       const ack = msg.ack || msg;
       const reqId = ack.requestId;
       if (reqId && executionWaiters.has(reqId)) {
