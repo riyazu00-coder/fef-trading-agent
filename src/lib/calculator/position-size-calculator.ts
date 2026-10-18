@@ -354,6 +354,7 @@ export interface PositionSizeInput {
     tp2Pct: number;            // Default 30%
     tp3Pct: number;            // Default 20%
   };
+  manualLotOverride?: number;  // Optional explicit user lot size override
 }
 
 export interface PositionSizeResult {
@@ -387,6 +388,13 @@ export interface PositionSizeResult {
   minLot: number;
   maxLot: number;
   isBelowMinLot: boolean;
+
+  // Manual Lot Override Support
+  isManualLot?: boolean;
+  manualLotSize?: number;
+  maxSafeLotSize?: number;     // Auto-calculated safe lot
+  isRiskLimitExceeded?: boolean; // True when manual lot exceeds allowed risk
+  brokerLotValidationError?: string; // Specific broker constraint error (min, max, step)
   
   // Expected Outcomes
   estimatedLossAtSL: number;   // In USD (recalculated with safeLotSize)
@@ -598,9 +606,96 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
     safeLotSize = spec.maxLot;
   }
 
-  // 6. Recalculate Actual Loss at SL with rounded lot
+  // 5B. Manual Lot Size Override & Validation
+  const autoCalculatedSafeLot = safeLotSize;
+  let isManualLot = false;
+  let manualLotSize: number | undefined = undefined;
+  let isRiskLimitExceeded = false;
+  let brokerLotValidationError: string | undefined = undefined;
+
+  if (input.manualLotOverride !== undefined) {
+    isManualLot = true;
+    manualLotSize = input.manualLotOverride;
+
+    // Validate broker bounds and step
+    if (typeof manualLotSize !== 'number' || isNaN(manualLotSize) || !isFinite(manualLotSize) || manualLotSize <= 0) {
+      brokerLotValidationError = 'Manual lot size must be a positive number greater than zero.';
+      return {
+        ...createInvalidResult(
+          input,
+          spec,
+          brokerLotValidationError,
+          safetyLabel
+        ),
+        isManualLot: true,
+        manualLotSize,
+        maxSafeLotSize: autoCalculatedSafeLot,
+        brokerLotValidationError,
+      };
+    }
+
+    if (manualLotSize < spec.minLot) {
+      brokerLotValidationError = `Below broker minimum lot (${spec.minLot} lot minimum)`;
+      return {
+        ...createInvalidResult(
+          input,
+          spec,
+          `Requested lot (${manualLotSize}) is below broker minimum of ${spec.minLot} lot.`,
+          safetyLabel
+        ),
+        isManualLot: true,
+        manualLotSize,
+        maxSafeLotSize: autoCalculatedSafeLot,
+        brokerLotValidationError,
+      };
+    }
+
+    if (manualLotSize > spec.maxLot) {
+      brokerLotValidationError = `Exceeds broker maximum lot (${spec.maxLot} lot maximum)`;
+      return {
+        ...createInvalidResult(
+          input,
+          spec,
+          `Requested lot (${manualLotSize}) exceeds broker maximum of ${spec.maxLot} lot.`,
+          safetyLabel
+        ),
+        isManualLot: true,
+        manualLotSize,
+        maxSafeLotSize: autoCalculatedSafeLot,
+        brokerLotValidationError,
+      };
+    }
+
+    // Lot step alignment check (using epsilon for floating point representation)
+    const stepUnits = (manualLotSize - spec.minLot) / spec.lotStep;
+    if (Math.abs(stepUnits - Math.round(stepUnits)) > 1e-4) {
+      brokerLotValidationError = `Lot must align with broker step of ${spec.lotStep}`;
+      return {
+        ...createInvalidResult(
+          input,
+          spec,
+          `Requested lot (${manualLotSize}) does not align with broker lot step of ${spec.lotStep}.`,
+          safetyLabel
+        ),
+        isManualLot: true,
+        manualLotSize,
+        maxSafeLotSize: autoCalculatedSafeLot,
+        brokerLotValidationError,
+      };
+    }
+
+    // When broker-valid, use the requested manual lot size
+    safeLotSize = manualLotSize;
+  }
+
+  // 6. Recalculate Actual Loss at SL with effective lot
   const estimatedLossAtSL = Math.round(safeLotSize * lossPerLotAtStop * 100) / 100;
   const accountImpactPct = Math.round((estimatedLossAtSL / input.capital) * 10000) / 100;
+
+  if (isManualLot) {
+    // If manual lot exceeds allowed risk, flag risk limit exceeded without silently changing entered lot
+    isRiskLimitExceeded = accountImpactPct > allowedRiskPct + 0.001 || estimatedLossAtSL > riskAmount + 0.01;
+  }
 
   // 7. Calculate Take Profit Returns & R:R Ratios
   const dist = input.exitDistribution || { tp1Pct: 50, tp2Pct: 30, tp3Pct: 20 };
@@ -670,6 +765,11 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
     minLot: spec.minLot,
     maxLot: spec.maxLot,
     isBelowMinLot,
+    isManualLot,
+    manualLotSize,
+    maxSafeLotSize: autoCalculatedSafeLot,
+    isRiskLimitExceeded,
+    brokerLotValidationError,
     estimatedLossAtSL,
     accountImpactPct,
     tp1,

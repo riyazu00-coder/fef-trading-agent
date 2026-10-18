@@ -184,12 +184,19 @@ export function deriveAccountRiskContext(
   positions: MT5PositionItem[] = [],
   effectiveOperatingMode?: 'READ_ONLY' | 'DEMO_EXECUTION' | 'UNIVERSAL_EXECUTION'
 ): MT5AccountContext | null {
-  if (!account || typeof account.balance !== 'number') {
+  if (!account) {
     return null;
   }
 
-  const balance = Number(account.balance || 0);
-  const equity = Number(account.equity || balance);
+  const hasNumericBalance = typeof account.balance === 'number';
+  const hasNumericEquity = typeof account.equity === 'number';
+  const hasTradeMode = account.tradeMode != null;
+  if (!hasNumericBalance && !hasNumericEquity && !hasTradeMode) {
+    return null;
+  }
+
+  const balance = Number(account.balance ?? account.equity ?? 0);
+  const equity = Number(account.equity ?? balance);
   const margin = Number(account.margin || 0);
   const freeMargin = Number(account.freeMargin || (equity - margin));
   const leverage = Number(account.leverage || 100);

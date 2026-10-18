@@ -183,7 +183,7 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const isReadOnly = isRealAccount || opMode === 'READ_ONLY';
 
       // Transform authentic account only when provided by upstream telemetry
-      const rawAccount = data.account || (data.maskedAccount || data.balance != null ? {
+      const rawAccount = data.account || (data.maskedAccount || data.balance != null || data.equity != null || data.tradeMode != null ? {
         maskedLogin: data.maskedAccount || data.accountMasked,
         broker: data.broker,
         server: data.server,
