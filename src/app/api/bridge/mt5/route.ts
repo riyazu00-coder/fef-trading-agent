@@ -284,11 +284,15 @@ export async function GET(req: NextRequest) {
   if (rawAction.toUpperCase() === 'STATUS' || rawAction.toUpperCase() === 'TELEMETRY') {
     if (isProd) {
       if (status) {
-        if (Array.isArray(status.symbols) && status.symbols.length > 0) {
-          symbolDirectory.discoverFromBrokerSymbols(status.symbols);
+        const brokerSymbols = Array.isArray(status.symbols) && status.symbols.length > 0
+          ? status.symbols
+          : Object.keys(status.quotes || {});
+        if (brokerSymbols.length > 0) {
+          symbolDirectory.discoverFromBrokerSymbols(brokerSymbols);
         }
         return NextResponse.json({
           ...status,
+          symbols: brokerSymbols,
           resolvedMap: symbolDirectory.getResolvedMap(),
         });
       }

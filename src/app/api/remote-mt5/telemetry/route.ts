@@ -41,8 +41,13 @@ export async function GET(req: NextRequest) {
     // Strict sanitization: ensure secrets/tokens are never sent to client
     const { authToken, authTokenHash, keyId, ...sanitized } = data;
 
+    const brokerSymbols = Array.isArray(data.symbols) && data.symbols.length > 0
+      ? data.symbols
+      : Object.keys(data.quotes || {});
+
     return NextResponse.json({
       ...sanitized,
+      symbols: brokerSymbols,
       isExecutable: false, // Phase 2B is TELEMETRY ONLY
     });
   } catch (err: any) {

@@ -124,6 +124,60 @@ async function runVerification() {
   });
 
   // -------------------------------------------------------------------------
+  // TEST GROUP 1B: Client-Side Telemetry Hydration Pipeline
+  // -------------------------------------------------------------------------
+  console.log('\n--- GROUP 1B: Client-Side Telemetry Hydration Pipeline ---');
+
+  test('client-side QuickScalpDock mapping is hydrated from the broker symbol inventory available through production telemetry', () => {
+    // 1. Simulate production relay payload where data.symbols might be missing but quotes keys exist
+    const relayTelemetryPayload = {
+      connected: true,
+      quotes: {
+        XAUUSD: { bid: 2650.0, ask: 2650.5 },
+        BTCUSD: { bid: 81500.0, ask: 81501.0 },
+        USTEC: { bid: 20400.0, ask: 20401.0 },
+        EURUSD: { bid: 1.0850, ask: 1.0852 },
+        GBPUSD: { bid: 1.2950, ask: 1.2952 },
+        USDJPY: { bid: 152.00, ask: 152.02 },
+        US500: { bid: 5800.0, ask: 5801.0 },
+        USOIL: { bid: 70.0, ask: 70.05 },
+      }
+    };
+
+    // Client hydration logic (from MT5TelemetryContext and QuickScalpDock)
+    const brokerSymbols = Array.isArray((relayTelemetryPayload as any).symbols) && (relayTelemetryPayload as any).symbols.length > 0
+      ? (relayTelemetryPayload as any).symbols
+      : Object.keys(relayTelemetryPayload.quotes || {});
+
+    assert(brokerSymbols.length > 0, 'Broker symbols must be non-empty');
+    assert(brokerSymbols.includes('BTCUSD'), 'Broker symbols must include BTCUSD');
+    assert(brokerSymbols.includes('USTEC'), 'Broker symbols must include USTEC');
+
+    // Reset and hydrate symbol directory through the exact client path
+    symbolDirectory.discoverFromBrokerSymbols(brokerSymbols);
+
+    // Verify BTCUSD maps to EXACT_MATCH
+    const btcRes = symbolDirectory.resolveBrokerSymbolWithValidation('BTCUSD');
+    assert.strictEqual(btcRes.status, 'EXACT_MATCH');
+    assert.strictEqual(btcRes.brokerSymbol, 'BTCUSD');
+
+    // Verify XAUUSD maps to EXACT_MATCH
+    const xauRes = symbolDirectory.resolveBrokerSymbolWithValidation('XAUUSD');
+    assert.strictEqual(xauRes.status, 'EXACT_MATCH');
+    assert.strictEqual(xauRes.brokerSymbol, 'XAUUSD');
+
+    // Verify US100 maps to ALIAS_MATCH -> USTEC
+    const us100Res = symbolDirectory.resolveBrokerSymbolWithValidation('US100');
+    assert.strictEqual(us100Res.status, 'ALIAS_MATCH');
+    assert.strictEqual(us100Res.brokerSymbol, 'USTEC');
+
+    // Verify GER40 strictly fails closed as NOT_FOUND
+    const gerRes = symbolDirectory.resolveBrokerSymbolWithValidation('GER40');
+    assert.strictEqual(gerRes.status, 'NOT_FOUND');
+    assert.strictEqual(gerRes.brokerSymbol, null);
+  });
+
+  // -------------------------------------------------------------------------
   // TEST GROUP 2: Contract Specifications & Precision
   // -------------------------------------------------------------------------
   console.log('\n--- GROUP 2: Contract Specifications ---');

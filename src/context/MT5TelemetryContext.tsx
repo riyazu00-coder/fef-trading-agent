@@ -168,13 +168,17 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
         return;
       }
 
-      // Hydrate symbolDirectory if symbols present
-      if (Array.isArray(data.symbols) && data.symbols.length > 0) {
-        symbolDirectory.discoverFromBrokerSymbols(data.symbols);
-      }
-
       // Format quotes map
       const allQuotes: Record<string, any> = data.allQuotes || data.quotes || {};
+
+      // Hydrate symbolDirectory from verified broker symbol inventory (either symbols array or quotes keys)
+      const brokerSymbols: string[] = Array.isArray(data.symbols) && data.symbols.length > 0
+        ? data.symbols
+        : Object.keys(allQuotes);
+
+      if (brokerSymbols.length > 0) {
+        symbolDirectory.discoverFromBrokerSymbols(brokerSymbols);
+      }
 
       // Execution policy: Real accounts strictly HARD LOCKED to READ_ONLY.
       // Demo accounts with V2 reflect DEMO_EXECUTION accurately.
@@ -246,6 +250,7 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
           allPositions,
           allPendingOrders,
           allQuotes,
+          symbols: brokerSymbols,
           operatingMode: opMode,
           readOnlyLockActive: isReadOnly,
           lastSyncTimestamp: Date.now()

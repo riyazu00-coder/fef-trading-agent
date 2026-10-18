@@ -89,6 +89,7 @@ export interface MT5UnifiedTelemetry {
   allPositions: MT5PositionItem[];
   allPendingOrders: MT5PendingOrderItem[];
   allQuotes: Record<string, MT5QuoteData>;
+  symbols?: string[];
   operatingMode: 'READ_ONLY' | 'DEMO_EXECUTION' | 'LIVE_EXECUTION' | 'UNIVERSAL_EXECUTION';
   readOnlyLockActive: boolean;
   lastSyncTimestamp: number;

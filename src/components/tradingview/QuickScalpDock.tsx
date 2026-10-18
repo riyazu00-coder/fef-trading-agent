@@ -88,10 +88,20 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
   const liveMt5Capital = mt5Equity ?? mt5Balance ?? null;
   const hasLiveCapitalFact = Boolean(isMt5Connected && liveMt5Capital != null && liveMt5Capital > 0);
 
+  // Deterministic client-side symbol directory hydration from verified broker telemetry
+  useEffect(() => {
+    const brokerSymbols = (Array.isArray(telemetry.symbols) && telemetry.symbols.length > 0)
+      ? telemetry.symbols
+      : Object.keys(telemetry.allQuotes || {});
+    if (brokerSymbols.length > 0) {
+      symbolDirectory.discoverFromBrokerSymbols(brokerSymbols);
+    }
+  }, [telemetry.symbols, telemetry.allQuotes, telemetry.lastSyncTimestamp]);
+
   // Broker symbol resolution and unmapped check
   const resolvedBroker = useMemo(() => {
     return symbolDirectory.resolveBrokerSymbolWithValidation(activeSymbol);
-  }, [activeSymbol, (telemetry as any).symbols]);
+  }, [activeSymbol, telemetry.symbols, telemetry.allQuotes, telemetry.lastSyncTimestamp]);
 
   const resolvedBrokerSymbol = resolvedBroker.brokerSymbol || activeSymbol;
   const isSymbolMapped = resolvedBroker.status !== 'NOT_FOUND';
