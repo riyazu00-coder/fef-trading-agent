@@ -366,27 +366,27 @@ export const CentralIntelligenceHub: React.FC = () => {
   }, []);
 
   return (
-    <div className="ghost-glass-panel rounded-2xl p-2.5 sm:p-3 font-mono space-y-2 relative overflow-hidden transition-all h-full flex flex-col justify-between">
+    <div id="central-intelligence-hub" className="ghost-glass-panel rounded-2xl p-2.5 sm:p-3 font-mono space-y-2 relative overflow-hidden transition-all h-full flex flex-col justify-between">
       {/* Top Header: Balanced Institutional Composition */}
-      <div className="flex flex-col lg:flex-row items-center justify-between gap-2 border-b border-white/10 pb-1.5 w-full">
-        {/* Left: Hub Title & Directory Link */}
-        <div className="flex items-center space-x-2 self-start lg:self-center flex-shrink-0">
-          <div className="w-6 h-6 rounded-full bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center shadow-[0_0_8px_rgba(0,240,255,0.4)] flex-shrink-0">
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2 border-b border-white/10 pb-1.5 w-full">
+        {/* Left: Hub Title & System Architecture Metadata */}
+        <div className="flex items-start sm:items-center space-x-2 flex-1 min-w-0">
+          <div className="w-6 h-6 rounded-full bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center shadow-[0_0_8px_rgba(0,240,255,0.4)] flex-shrink-0 mt-0.5 sm:mt-0">
             <svg className="w-3.5 h-3.5 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
             </svg>
           </div>
-          <div>
-            <div className="flex items-center space-x-1.5 flex-wrap">
-              <h2 className="text-[11px] sm:text-xs font-bold text-[#F8FAFC] tracking-wider font-sans uppercase">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h2 className="text-[11px] sm:text-xs font-bold text-[#F8FAFC] tracking-wider font-sans uppercase whitespace-nowrap">
                 CENTRAL MULTI-AGENT INTELLIGENCE HUB
               </h2>
-              <span className="text-[7.5px] font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-500/40 px-1 py-0.2 rounded flex items-center space-x-1 font-mono">
+              <span className="text-[7.5px] font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-500/40 px-1 py-0.5 rounded flex items-center gap-1 font-mono whitespace-nowrap">
                 <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
                 <span>LIVE: {activeSymbol}</span>
               </span>
               {assetProfile.sessionState && (
-                <span suppressHydrationWarning className={`text-[7.5px] font-bold px-1 py-0.2 rounded flex items-center space-x-1 font-mono border ${
+                <span suppressHydrationWarning className={`text-[7.5px] font-bold px-1 py-0.5 rounded flex items-center gap-1 font-mono border whitespace-nowrap ${
                   assetProfile.tradeExecutable
                     ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40'
                     : 'bg-amber-950/60 text-amber-300 border-amber-500/40'
@@ -399,22 +399,32 @@ export const CentralIntelligenceHub: React.FC = () => {
                   </span>
                 </span>
               )}
+              <Link
+                href="/how-to-use#agents"
+                className="text-[7.5px] font-mono font-bold text-gray-400 hover:text-cyan-300 px-1.5 py-0.5 rounded border border-white/10 hover:border-cyan-400/40 bg-black/40 transition-colors whitespace-nowrap"
+                title="Learn how the 32-Agent Swarm operates"
+              >
+                ? LEARN
+              </Link>
             </div>
-            <p className="text-[8.5px] text-[#94A3B8] font-sans flex items-center space-x-1.5 flex-wrap">
-              <span>21-Node Orbital Swarm (14 Council &bull; 6 Specialists &bull; 1 Final Decision Core) &bull;</span>
+            <div className="text-[8.5px] text-[#94A3B8] font-sans flex items-center gap-x-1.5 gap-y-0.5 flex-wrap pt-0.5">
+              <span className="text-gray-300 font-medium whitespace-nowrap">
+                21-Node Orbital Swarm (14 Council &bull; 6 Specialists &bull; 1 Final Decision Core)
+              </span>
+              <span className="text-gray-600 hidden sm:inline">&bull;</span>
               <Link
                 href="/agents"
-                className="text-cyan-400 hover:text-cyan-200 underline font-mono text-[8px] font-bold"
+                className="text-cyan-400 hover:text-cyan-200 underline font-mono text-[8px] font-bold whitespace-nowrap"
                 title="View full 32-Agent Directory"
               >
                 32 REGISTERED AGENTS (14 Council + 17 Specialists + 1 Final Decision) &rarr;
               </Link>
-            </p>
+            </div>
           </div>
         </div>
 
-        {/* Center: Projected 3D Smoked Optical Glass Telemetry HUD Plate */}
-        <div className="flex items-center justify-center flex-1 w-full lg:w-auto my-0.5">
+        {/* Right: Projected 3D Smoked Optical Glass Telemetry HUD Plate (Right-Aligned) */}
+        <div className="flex items-center justify-end flex-shrink-0 self-end lg:self-center">
           <div className="flex flex-col items-center space-y-1.5 bg-gradient-to-br from-[#061224]/85 via-[#030914]/90 to-[#01040a]/95 border-t border-t-cyan-400/40 border-l border-l-cyan-500/25 border-r border-r-[#030814] border-b border-b-black rounded-xl px-4 py-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.85),0_0_16px_rgba(6,182,212,0.08),inset_0_1px_1px_rgba(255,255,255,0.20),inset_0_0_16px_rgba(6,182,212,0.06)] min-w-[280px]">
             {/* Row 1: Contributing / Visible + Synth Verdict + Authoritative Confidence % */}
             <div className="flex items-center justify-between w-full space-x-3 text-[8px] sm:text-[8.5px] font-mono leading-none">
@@ -491,17 +501,6 @@ export const CentralIntelligenceHub: React.FC = () => {
               </span>
             </div>
           </div>
-        </div>
-
-        {/* Right: Learn Button */}
-        <div className="flex items-center justify-end flex-shrink-0">
-          <Link
-            href="/how-to-use#agents"
-            className="hidden sm:inline-flex text-[8px] font-mono font-bold text-gray-400 hover:text-cyan-300 px-2 py-1 rounded border border-white/10 hover:border-cyan-400/40 bg-black/40 transition-colors"
-            title="Learn how the 32-Agent Swarm operates"
-          >
-            ? LEARN
-          </Link>
         </div>
       </div>
 

@@ -47,6 +47,33 @@ export const GlobalOpportunityRadar: React.FC = () => {
 
   const topOpp = radarData.topOpportunity;
 
+  // Market-hours-aware crypto focus indicator:
+  // Active when crypto markets are open and traditional markets are substantially closed (e.g. weekend).
+  // Not shown simply because BTC ranks #1 during normal trading.
+  const isCryptoFocusActive = useMemo(() => {
+    const opps = radarData.rankedOpportunities;
+    if (!opps || opps.length === 0) return false;
+
+    const cryptoOpps = opps.filter((o) => o.category === 'CRYPTO');
+    const hasActiveCrypto = cryptoOpps.some(
+      (o) => (o.marketState === 'OPEN' || o.marketState === '24/7 ACTIVE') && !o.isDataLimited && o.state !== 'UNAVAILABLE'
+    );
+
+    const nonCryptoOpps = opps.filter((o) => o.category !== 'CRYPTO' && o.state !== 'UNAVAILABLE' && o.marketState !== 'UNAVAILABLE');
+    if (nonCryptoOpps.length === 0) return false;
+
+    const closedNonCrypto = nonCryptoOpps.filter(
+      (o) =>
+        o.marketState === 'CLOSED' ||
+        o.marketState === 'WEEKEND_CLOSED' ||
+        o.marketState === 'DAILY_BREAK' ||
+        o.marketState === 'PRE_OPEN' ||
+        o.marketState === 'HOLIDAY'
+    );
+
+    return hasActiveCrypto && (closedNonCrypto.length / nonCryptoOpps.length >= 0.7);
+  }, [radarData.rankedOpportunities]);
+
   // Filter ranked opportunities
   const filteredOpportunities = useMemo(() => {
     return radarData.rankedOpportunities.filter((item) => {
@@ -188,6 +215,12 @@ export const GlobalOpportunityRadar: React.FC = () => {
               <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-cyan-500/15 text-[#22D3EE] border border-[#22D3EE]/30">
                 ACTIVE SWARM SCAN
               </span>
+              {isCryptoFocusActive && (
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  24/7 CRYPTO FOCUS
+                </span>
+              )}
               <Link
                 href="/how-to-use#opportunity-radar"
                 className="px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold bg-white/5 hover:bg-cyan-500/20 text-gray-400 hover:text-cyan-300 border border-white/10 hover:border-cyan-400/40 transition-colors"

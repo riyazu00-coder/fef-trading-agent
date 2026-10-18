@@ -40,6 +40,56 @@ export type RadarTimeframeType = 'SCALPING' | 'INTRADAY' | 'SWING';
 export type RadarRiskLevel = 'LOW' | 'MEDIUM' | 'ELEVATED' | 'HIGH';
 export type RadarCategory = MarketCategory | 'COMMODITY';
 
+/**
+ * Evaluates the market availability tier for an Opportunity Radar candidate.
+ *
+ * Tier 0: Genuinely open/tradable market + valid live intelligence
+ * Tier 1: Market closed (e.g. weekend, daily break), but historical/planning intelligence remains valid
+ * Tier 2: DATA_LIMITED / UNAVAILABLE / offline / 0 score / unsupported broker instrument
+ */
+export function getRadarOpportunityTier(item: RadarOpportunityItem): number {
+  if (
+    item.isDataLimited ||
+    item.state === 'UNAVAILABLE' ||
+    item.readiness === 'UNAVAILABLE' ||
+    item.marketState === 'UNAVAILABLE' ||
+    item.opportunityScore === 0 ||
+    item.feedStatus === 'OFFLINE'
+  ) {
+    return 2;
+  }
+
+  // Canonical open market check: OPEN or CLOSING_SOON
+  const isMarketOpen = item.marketState === 'OPEN' || item.marketState === 'CLOSING_SOON';
+
+  if (isMarketOpen) {
+    return 0;
+  }
+
+  return 1;
+}
+
+/**
+ * Authoritative market-hours-aware opportunity comparator.
+ * Enforces:
+ * 1. Tier 0 (Open & tradable) candidates strictly rank above Tier 1 (Market closed) candidates.
+ * 2. Tier 1 candidates strictly rank above Tier 2 (Data limited / unavailable) candidates.
+ * 3. Within each tier, opportunity quality is preserved: opportunityScore descending, then aiConfidence descending.
+ */
+export function compareRadarOpportunities(a: RadarOpportunityItem, b: RadarOpportunityItem): number {
+  const tierA = getRadarOpportunityTier(a);
+  const tierB = getRadarOpportunityTier(b);
+
+  if (tierA !== tierB) {
+    return tierA - tierB;
+  }
+
+  if (b.opportunityScore !== a.opportunityScore) {
+    return b.opportunityScore - a.opportunityScore;
+  }
+  return b.aiConfidence - a.aiConfidence;
+}
+
 export interface RadarOpportunityItem {
   rank: number;
   symbol: string;
@@ -415,11 +465,12 @@ export function generateGlobalRadarIntelligence(
     provenance?: EvidenceClassification;
     provider?: string;
   },
-  multiAssetCandles?: Record<string, SymbolCandleFeed>
+  multiAssetCandles?: Record<string, SymbolCandleFeed>,
+  evaluationTime: Date = new Date()
 ): GlobalRadarIntelligence {
   if (!assets || Object.keys(assets).length === 0) {
     return {
-      timestamp: new Date().toLocaleTimeString(),
+      timestamp: evaluationTime.toLocaleTimeString(),
       activeScanCount: 0,
       topOpportunity: null,
       rankedOpportunities: [],
@@ -466,7 +517,7 @@ export function generateGlobalRadarIntelligence(
       volume24h: 0,
       high24h: canonicalDef.basePrice || 0,
       low24h: canonicalDef.basePrice || 0,
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: evaluationTime.toISOString(),
       provider: 'UNAVAILABLE',
       feedStatus: 'OFFLINE',
     };
@@ -478,12 +529,12 @@ export function generateGlobalRadarIntelligence(
     let profile: AssetIntelligenceProfile;
     if (isMatched) {
       const feedBundle = activeCandles.bundle || activeCandles.candles;
-      profile = generateAssetIntelligence(sym, liveAsset, currentTimeframe, feedBundle, activeCandles.provenance, activeCandles.provider);
+      profile = generateAssetIntelligence(sym, liveAsset, currentTimeframe, feedBundle, activeCandles.provenance, activeCandles.provider, evaluationTime);
     } else if (hasMultiCandles) {
       const feedBundle = multiFeed.bundle || multiFeed.candles;
-      profile = generateAssetIntelligence(sym, liveAsset, currentTimeframe, feedBundle, multiFeed.provenance, multiFeed.provider);
+      profile = generateAssetIntelligence(sym, liveAsset, currentTimeframe, feedBundle, multiFeed.provenance, multiFeed.provider, evaluationTime);
     } else {
-      profile = generateAssetIntelligence(sym, liveAsset, currentTimeframe);
+      profile = generateAssetIntelligence(sym, liveAsset, currentTimeframe, undefined, undefined, undefined, evaluationTime);
     }
 
     const { score, setupQuality, tradeExecutable, marketState, state, riskLevel, timeframe, whyReasons } = calculateOpportunityScore(profile, liveAsset);
@@ -531,32 +582,27 @@ export function generateGlobalRadarIntelligence(
       actionabilityState: isUnsupportedOrOffline ? 'INSUFFICIENT_INFORMATION' : profile.actionabilityState,
       verifiedAgentCount: isUnsupportedOrOffline ? 0 : profile.verifiedAgentCount,
       feedStatus: liveAsset.feedStatus,
-      isDataLimited: isUnsupportedOrOffline || liveAsset.feedStatus === 'DATA LIMITED' || liveAsset.feedStatus === 'DEMO' || liveAsset.feedStatus === 'OFFLINE',
+      isDataLimited: isUnsupportedOrOffline || liveAsset.feedStatus === 'DATA LIMITED' || liveAsset.feedStatus === 'DEMO',
       setupLifecycleState: profile.setupLifecycle?.state || (profile.blueprint ? 'ARMED' : 'FORMING'),
       decisionV2: decisionV2Ui,
       setupV3: setupV3Ui
     };
   });
 
-  // Sort descending by Opportunity Score (Setup Quality), breaking ties with AI Confidence
-  // Note: Closed assets CAN rank high for setup quality, but NEVER rank as best immediately executable trade
-  opportunities.sort((a, b) => {
-    if (b.opportunityScore !== a.opportunityScore) {
-      return b.opportunityScore - a.opportunityScore;
-    }
-    return b.aiConfidence - a.aiConfidence;
-  });
+  // Market-hours-aware ranking:
+  // Tier 0 (Active Open) > Tier 1 (Closed with valid analysis) > Tier 2 (Data limited/offline)
+  // Within each tier: opportunityScore desc, then aiConfidence desc.
+  opportunities.sort(compareRadarOpportunities);
 
-  // Assign sequential ranks based on setup quality
+  // Assign sequential ranks based on sorted order
   opportunities.forEach((item, index) => {
     item.rank = index + 1;
   });
 
-  // Requirement: Closed assets can rank for setup quality but NEVER rank as best immediately executable trade
+  // Top opportunity: prefer the highest-ranked executable/actionable opportunity in Tier 0.
+  // If no executable opportunity, use the highest-ranked Tier 0 open opportunity, or top opportunity.
   const topExecutableOpportunity = opportunities.find((o) => o.tradeExecutable);
-  // Phase 2D: NO fallback fabricated object. If no executable opportunity exists, use best available or null.
-  // This is the truthful equivalent: the system must report NO ACTIONABLE OPPORTUNITY rather than invent one.
-  const topOpportunity = topExecutableOpportunity || opportunities[0] || null;
+  const topOpportunity = topExecutableOpportunity || opportunities.find((o) => getRadarOpportunityTier(o) === 0) || opportunities[0] || null;
 
   // Build Market Attention Queue — derived ONLY from real-ranked opportunities.
   // Phase 2D: No hardcoded/fictional symbols, prices, ETA text, or intelligence commentary.
@@ -724,12 +770,7 @@ export function evaluateOpportunityRadar(
     };
   });
 
-  opportunities.sort((a, b) => {
-    if (b.opportunityScore !== a.opportunityScore) {
-      return b.opportunityScore - a.opportunityScore;
-    }
-    return b.aiConfidence - a.aiConfidence;
-  });
+  opportunities.sort(compareRadarOpportunities);
 
   opportunities.forEach((item, index) => {
     item.rank = index + 1;
@@ -799,7 +840,11 @@ export async function evaluateLocalOpportunityRadar(
         provider: 'Exness MT5 Broker (Local SQLite)',
         lastUpdated: new Date(quote.quoteTimestamp).toISOString(),
         category: m.category,
-        feedStatus: quote.freshness === 'FRESH' ? 'LIVE' : (quote.freshness === 'STALE' ? 'DATA LIMITED' : 'OFFLINE'),
+        feedStatus: quote.freshness === 'FRESH'
+          ? 'LIVE'
+          : (quote.freshness === 'SESSION_CLOSED'
+            ? 'DELAYED'
+            : (quote.freshness === 'STALE' ? 'DATA LIMITED' : 'OFFLINE')),
         classification: 'LIVE_MT5',
       };
 
@@ -887,18 +932,10 @@ export async function evaluateLocalOpportunityRadar(
     }
   }
 
-  // Sort: Available instruments first (by opportunityScore descending, then aiConfidence descending),
-  // with UNAVAILABLE instruments strictly placed after all available instruments.
-  radar.rankedOpportunities.sort((a, b) => {
-    const aAvail = a.readiness !== 'UNAVAILABLE' && a.state !== 'UNAVAILABLE';
-    const bAvail = b.readiness !== 'UNAVAILABLE' && b.state !== 'UNAVAILABLE';
-    if (aAvail && !bAvail) return -1;
-    if (!aAvail && bAvail) return 1;
-    if (b.opportunityScore !== a.opportunityScore) {
-      return b.opportunityScore - a.opportunityScore;
-    }
-    return b.aiConfidence - a.aiConfidence;
-  });
+  // Market-hours-aware ranking:
+  // Tier 0 (Active Open) > Tier 1 (Closed with valid analysis) > Tier 2 (Data limited/offline)
+  // Within each tier: opportunityScore desc, then aiConfidence desc.
+  radar.rankedOpportunities.sort(compareRadarOpportunities);
 
   // Re-assign ranks 1..N based on final sorted order
   radar.rankedOpportunities.forEach((item, index) => {
