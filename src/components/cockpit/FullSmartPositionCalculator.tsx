@@ -46,9 +46,10 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
   const [isPanelCollapsed, setIsPanelCollapsed] = useState<boolean>(defaultCollapsed);
 
   // Capital & MT5 Source Toggles
-  const [capitalMode, setCapitalMode] = useState<'LIVE_MT5' | 'MANUAL'>('MANUAL');
-  const [accountSource, setAccountSource] = useState<'MANUAL' | 'MT5_VERIFIED'>('MANUAL');
+  const [capitalMode, setCapitalMode] = useState<'LIVE_MT5' | 'MANUAL'>('LIVE_MT5');
+  const [accountSource, setAccountSource] = useState<'MANUAL' | 'MT5_VERIFIED'>('MT5_VERIFIED');
   const [specSource, setSpecSource] = useState<'REFERENCE' | 'MT5_VERIFIED'>('REFERENCE');
+  const [isManualOverride, setIsManualOverride] = useState<boolean>(false);
 
   // Lot Sizing Mode (AUTO vs MANUAL)
   const [lotMode, setLotMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
@@ -272,12 +273,19 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
   const isRealAccount = accountTradeMode === 'REAL';
   const isUnknownAccount = accountTradeMode === 'UNKNOWN';
 
-  // Authorization check
-  const isLicenseAuthorized = Boolean(
-    (isDemoAccount && isMt5Connected) ||
+  // Pure authorization check (Do NOT conflate with MT5 connectivity!)
+  const isExecutionAuthorized = Boolean(
+    isDemoAccount ||
     isMaster ||
     (isAuthenticated && memberLicense?.status === 'ACTIVE' && isDeviceAuthorized) ||
     licenseState.valid
+  );
+
+  // Canonical execution transport readiness
+  const isExecutionTransportReady = Boolean(
+    isMt5Connected &&
+    (telemetry.localBridgeOnline || (telemetry as any).isRemote || telemetry.transport === 'REMOTE_RELAY' || telemetry.transport === 'CLOUD_PERSISTENT_TELEMETRY') &&
+    telemetry.state !== 'MT5_OFFLINE'
   );
 
   // Live MT5 Capital extraction (Equity takes priority over Balance)
@@ -298,36 +306,46 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
   }, [telemetry.account]);
 
   const liveMt5Capital = mt5Equity ?? mt5Balance ?? null;
+  const hasLiveCapitalFact = Boolean(isMt5Connected && liveMt5Capital != null && liveMt5Capital > 0);
+
+  // Auto-synchronize capital upon asynchronous telemetry arrival unless user explicitly chose MANUAL
+  useEffect(() => {
+    if (!isManualOverride && hasLiveCapitalFact && liveMt5Capital != null) {
+      setCapital(liveMt5Capital);
+      setCapitalMode('LIVE_MT5');
+      setAccountSource('MT5_VERIFIED');
+    }
+  }, [hasLiveCapitalFact, liveMt5Capital, isManualOverride]);
 
   const capitalSourceBadge = useMemo(() => {
-    if (capitalMode === 'LIVE_MT5' && isMt5Connected && liveMt5Capital != null) {
+    if (capitalMode === 'LIVE_MT5' && hasLiveCapitalFact && liveMt5Capital != null) {
       if (mt5Equity != null) {
         return { label: 'LIVE • MT5 EQUITY', color: 'bg-emerald-950/70 text-emerald-300 border-emerald-500/40' };
       }
       return { label: 'LIVE • MT5 BALANCE', color: 'bg-cyan-950/70 text-cyan-300 border-cyan-500/40' };
     }
-    return { label: 'MANUAL OVERRIDE', color: 'bg-amber-950/70 text-amber-300 border-amber-500/40' };
-  }, [capitalMode, isMt5Connected, liveMt5Capital, mt5Equity, mt5Balance]);
+    if (isManualOverride || capitalMode === 'MANUAL') {
+      return { label: 'MANUAL OVERRIDE', color: 'bg-amber-950/70 text-amber-300 border-amber-500/40' };
+    }
+    return { label: 'DEMO FALLBACK', color: 'bg-slate-800/80 text-slate-300 border-slate-600/40' };
+  }, [capitalMode, hasLiveCapitalFact, liveMt5Capital, mt5Equity, isManualOverride]);
 
-  const effectiveCapital = (capitalMode === 'LIVE_MT5' && liveMt5Capital != null) ? liveMt5Capital : capital;
+  const effectiveCapital = (capitalMode === 'LIVE_MT5' && liveMt5Capital != null && liveMt5Capital > 0) ? liveMt5Capital : capital;
 
   // Functional MT5 fact sync: clears manual override, reads fresh equity/balance
   const handleSyncMt5Fact = async () => {
+    setIsManualOverride(false);
     try {
       await refreshTelemetry();
     } catch {}
-    if (telemetry.account && isMt5Connected) {
-      const liveCapital = (typeof telemetry.account.equity === 'number' && telemetry.account.equity > 0)
-        ? telemetry.account.equity
-        : Number(telemetry.account.balance || 10000);
-      const isUsingEquity = typeof telemetry.account.equity === 'number' && telemetry.account.equity > 0;
-      setCapital(liveCapital);
+    if (telemetry.account && isMt5Connected && liveMt5Capital != null && liveMt5Capital > 0) {
+      setCapital(liveMt5Capital);
       setCapitalMode('LIVE_MT5');
       setAccountSource('MT5_VERIFIED');
-      savePreferences(liveCapital, riskPct);
-      setFlashNotice(`✓ Synced MT5 Capital Fact: $${liveCapital.toLocaleString('en-US', { minimumFractionDigits: 2 })} (${isUsingEquity ? 'Equity' : 'Balance'})`);
+      savePreferences(liveMt5Capital, riskPct);
+      setFlashNotice(`✓ Synced MT5 Capital Fact: $${liveMt5Capital.toLocaleString('en-US', { minimumFractionDigits: 2 })} (${mt5Equity != null ? 'Equity' : 'Balance'})`);
     } else {
-      setFlashNotice('⚠️ MT5 Offline — cannot sync live equity');
+      setFlashNotice('⚠️ MT5 Offline or live capital unavailable — using fallback');
     }
   };
 
@@ -433,6 +451,11 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
 
   // Open One-Click Confirmation Guard Modal
   const handleOpenConfirmModal = () => {
+    if (!isExecutionTransportReady) {
+      setFlashNotice('⚠️ Execution locked: MT5 terminal or bridge is not connected.');
+      return;
+    }
+
     if (!calcResult.isValid || calcResult.safeLotSize <= 0 || stopLoss <= 0 || !spec || !spec.isVerified) {
       setFlashNotice('⚠️ Execution locked: Provide valid Stop Loss and verified contract specs.');
       return;
@@ -463,6 +486,14 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
 
   // Confirm and dispatch direct to /api/bridge/mt5
   const handleConfirmDispatch = async () => {
+    if (!isExecutionTransportReady) {
+      setExecutionResult({
+        success: false,
+        error: 'Execution rejected: MT5 terminal or bridge is not connected.',
+      });
+      return;
+    }
+
     setIsDispatching(true);
     setExecutionResult(null);
 
@@ -701,6 +732,7 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
             value={effectiveCapital}
             onChange={(e) => {
               const val = Math.max(10, parseFloat(e.target.value) || 0);
+              setIsManualOverride(true);
               setCapital(val);
               setCapitalMode('MANUAL');
               setAccountSource('MANUAL');
@@ -715,13 +747,14 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
               <button
                 key={c}
                 onClick={() => {
+                  setIsManualOverride(true);
                   setCapital(c);
                   setCapitalMode('MANUAL');
                   setAccountSource('MANUAL');
                   savePreferences(c, riskPct);
                 }}
                 className={`text-[9.5px] px-1.5 py-0.5 rounded border transition-colors ${
-                  effectiveCapital === c && capitalMode === 'MANUAL'
+                  effectiveCapital === c && (isManualOverride || capitalMode === 'MANUAL')
                     ? 'bg-cyan-500/30 text-cyan-300 border-cyan-400 font-bold'
                     : 'bg-black/30 text-gray-400 border-white/5 hover:text-white'
                 }`}
@@ -1152,6 +1185,7 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
         <button
           onClick={handleOpenConfirmModal}
           disabled={
+            !isExecutionTransportReady ||
             !calcResult.isValid ||
             calcResult.safeLotSize <= 0 ||
             stopLoss <= 0 ||
@@ -1161,6 +1195,7 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
             Boolean(calcResult.brokerLotValidationError)
           }
           className={`px-3 py-2 rounded-xl font-black transition-all text-[11px] flex items-center justify-center space-x-1.5 shadow-[0_0_15px_rgba(16,185,129,0.3)] ${
+            !isExecutionTransportReady ||
             !calcResult.isValid ||
             calcResult.safeLotSize <= 0 ||
             stopLoss <= 0 ||
@@ -1172,7 +1207,9 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
               : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.4)]'
           }`}
           title={
-            !spec || !spec.isVerified
+            !isExecutionTransportReady
+              ? 'MT5 terminal or bridge is offline — execution transport unavailable'
+              : !spec || !spec.isVerified
               ? `Broker specifications unavailable for ${symbol} — position sizing locked`
               : calcResult.brokerLotValidationError
               ? `Invalid lot size: ${calcResult.brokerLotValidationError}`
@@ -1184,7 +1221,7 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
           }
         >
           <span>⚡</span>
-          <span>DIRECT MT5 EXECUTE &rarr;</span>
+          <span>{isExecutionTransportReady ? 'DIRECT MT5 EXECUTE \u2192' : 'MT5 BRIDGE OFFLINE'}</span>
         </button>
       </div>
 
@@ -1299,9 +1336,11 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                 <div>
                   <span className="text-[9.5px] text-gray-400 block uppercase">Capital Source</span>
                   <span className="text-white font-bold text-[11px] block truncate">
-                    {capitalMode === 'LIVE_MT5' && liveMt5Capital != null
+                    {capitalMode === 'LIVE_MT5' && hasLiveCapitalFact && liveMt5Capital != null
                       ? `LIVE MT5 ${mt5Equity != null ? 'EQUITY' : 'BALANCE'} ($${effectiveCapital.toLocaleString('en-US', { minimumFractionDigits: 2 })})`
-                      : `MANUAL CAPITAL ($${effectiveCapital.toLocaleString('en-US', { minimumFractionDigits: 2 })})`}
+                      : isManualOverride
+                      ? `MANUAL CAPITAL ($${effectiveCapital.toLocaleString('en-US', { minimumFractionDigits: 2 })})`
+                      : `DEMO FALLBACK ($${effectiveCapital.toLocaleString('en-US', { minimumFractionDigits: 2 })})`}
                   </span>
                 </div>
                 <div className="text-right">
@@ -1337,6 +1376,12 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                     </span>
                     <span>Session: {isMarketOpen ? 'ACTIVE & EXECUTABLE' : 'MARKET CLOSED'}</span>
                   </div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className={isExecutionTransportReady ? 'text-emerald-400' : 'text-rose-400'}>
+                      {isExecutionTransportReady ? '✓' : '⚠️'}
+                    </span>
+                    <span>MT5 Terminal: {isExecutionTransportReady ? 'ONLINE' : 'OFFLINE'}</span>
+                  </div>
                 </div>
               </div>
 
@@ -1354,13 +1399,13 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
               ) : isDemoAccount ? (
                 <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between text-xs">
                   <div className="flex items-center space-x-2 text-emerald-300">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className={`w-2 h-2 rounded-full ${isExecutionTransportReady ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
                     <span className="font-bold uppercase tracking-wider font-sans">
                       DEMO EXECUTION ONLY • {telemetry.account?.maskedLogin || 'DEMO'}
                     </span>
                   </div>
                   <span className="text-[10px] text-emerald-400/80 font-mono">
-                    SAFE PRACTICE ENVIRONMENT
+                    {isExecutionTransportReady ? 'SAFE PRACTICE ENVIRONMENT' : 'TRANSPORT OFFLINE'}
                   </span>
                 </div>
               ) : (
@@ -1423,7 +1468,8 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                     onClick={handleConfirmDispatch}
                     disabled={
                       isDispatching ||
-                      !isLicenseAuthorized ||
+                      !isExecutionAuthorized ||
+                      !isExecutionTransportReady ||
                       !isMarketOpen ||
                       isRealAccount ||
                       isUnknownAccount ||
@@ -1435,7 +1481,8 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                     }
                     className={`w-1/2 sm:w-auto px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-lg ${
                       isDispatching ||
-                      !isLicenseAuthorized ||
+                      !isExecutionAuthorized ||
+                      !isExecutionTransportReady ||
                       !isMarketOpen ||
                       isRealAccount ||
                       isUnknownAccount ||
@@ -1453,15 +1500,20 @@ export const FullSmartPositionCalculator: React.FC<FullSmartPositionCalculatorPr
                         <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         <span>DISPATCHING...</span>
                       </>
+                    ) : !isExecutionAuthorized ? (
+                      <>
+                        <span>🔒</span>
+                        <span>LICENSE REQUIRED</span>
+                      </>
+                    ) : !isExecutionTransportReady ? (
+                      <>
+                        <span>⚠️</span>
+                        <span>MT5 DISCONNECTED</span>
+                      </>
                     ) : !isMarketOpen ? (
                       <>
                         <span>⚠️</span>
                         <span>MARKET CLOSED — PLANNING ONLY</span>
-                      </>
-                    ) : !isLicenseAuthorized ? (
-                      <>
-                        <span>🔒</span>
-                        <span>LICENSE REQUIRED</span>
                       </>
                     ) : isRealAccount ? (
                       <>

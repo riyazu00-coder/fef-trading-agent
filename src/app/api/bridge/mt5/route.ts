@@ -70,10 +70,17 @@ function isProductionExecutionTransport(): boolean {
 async function fetchRemoteRelayTelemetry(): Promise<any> {
   const telemetryUrl = `${REMOTE_RELAY_URL}/device/${encodeURIComponent(REMOTE_DEVICE_ID)}/telemetry`;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  const timeoutId = setTimeout(() => controller.abort(), 6000);
 
   try {
-    const res = await fetch(telemetryUrl, { signal: controller.signal });
+    const res = await fetch(telemetryUrl, {
+      signal: controller.signal,
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+      },
+    });
     clearTimeout(timeoutId);
     const data = await res.json().catch(() => null);
     if (!res.ok || !data || !data.success) {
@@ -98,6 +105,8 @@ async function fetchRemoteRelayTelemetry(): Promise<any> {
         server: data.account?.server || data.server,
         balance: Number(data.account?.balance ?? data.balance ?? 0),
         equity: Number(data.account?.equity ?? data.equity ?? data.account?.balance ?? data.balance ?? 0),
+        freeMargin: Number(data.account?.freeMargin ?? data.freeMargin ?? 0),
+        margin: Number(data.account?.margin ?? data.margin ?? 0),
         tradeMode: data.account?.tradeMode || data.tradeMode || 'DEMO',
         operatingMode: 'DEMO_EXECUTION',
       },

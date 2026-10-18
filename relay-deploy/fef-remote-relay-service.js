@@ -35,7 +35,7 @@ if (fs.existsSync(envLocalPath)) {
 const PORT = parseInt(process.env.PORT || process.env.RELAY_PORT || '5557', 10);
 const HOST = process.env.RELAY_HOST || '0.0.0.0';
 const MAX_PAYLOAD_BYTES = 1 * 1024 * 1024; // 1MB payload cap
-const MAX_HEARTBEAT_AGE_MS = 6000;
+const MAX_HEARTBEAT_AGE_MS = 10000;
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://app.feftradingsolutions.com,http://localhost:3000,*').split(',');
 
 // Rate limiting map: ip -> { count, resetAt }
@@ -399,6 +399,21 @@ const server = http.createServer(async (req, res) => {
       operatingMode: telemetry?.operatingMode || device.operatingMode,
       terminalConnected: telemetry ? telemetry.terminalConnected : false,
       heartbeatAgeMs: terminalHeartbeatAgeMs,
+      balance: telemetry?.balance ?? device.balance ?? undefined,
+      equity: telemetry?.equity ?? device.equity ?? undefined,
+      freeMargin: telemetry?.freeMargin ?? device.freeMargin ?? undefined,
+      margin: telemetry?.margin ?? device.margin ?? undefined,
+      account: telemetry?.account || (telemetry?.balance != null ? {
+        maskedLogin: telemetry.maskedAccount || device.maskedAccount,
+        broker: telemetry.broker || device.broker,
+        server: telemetry.server || device.server,
+        balance: telemetry.balance,
+        equity: telemetry.equity,
+        freeMargin: telemetry.freeMargin,
+        margin: telemetry.margin,
+        tradeMode: telemetry.tradeMode || device.tradeMode,
+        operatingMode: 'DEMO_EXECUTION',
+      } : undefined),
       quotes: telemetry ? telemetry.quotes : {},
       symbolSpecs: telemetry ? telemetry.symbolSpecs : {},
       positions: telemetry ? telemetry.positions : [],
@@ -874,6 +889,11 @@ wss.on('connection', (ws, req) => {
         tradeMode: device.tradeMode,
         operatingMode: 'READ_ONLY',
         priceAuthority: terminalFresh ? 'MT5_BROKER' : 'REFERENCE',
+        balance: typeof snapshot.balance === 'number' ? snapshot.balance : (snapshot.account?.balance ?? device.balance),
+        equity: typeof snapshot.equity === 'number' ? snapshot.equity : (snapshot.account?.equity ?? device.equity),
+        freeMargin: typeof snapshot.freeMargin === 'number' ? snapshot.freeMargin : (snapshot.account?.freeMargin ?? device.freeMargin),
+        margin: typeof snapshot.margin === 'number' ? snapshot.margin : (snapshot.account?.margin ?? device.margin),
+        account: snapshot.account || undefined,
         quotes: (snapshot.quotes && typeof snapshot.quotes === 'object') ? snapshot.quotes : {},
         symbolSpecs: (snapshot.symbolSpecs && typeof snapshot.symbolSpecs === 'object') ? snapshot.symbolSpecs : {},
         positions: Array.isArray(snapshot.positions) ? snapshot.positions.slice(0, 100) : [],
