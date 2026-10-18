@@ -11,6 +11,7 @@
 
 export interface UnifiedManualOrderParams {
   symbol: string;
+  brokerSymbol?: string;
   direction: 'BUY' | 'SELL';
   volume: number;
   entryPrice: number;
@@ -52,6 +53,8 @@ export async function dispatchUnifiedManualOrder(
     symbol: params.symbol,
     params: {
       symbol: params.symbol,
+      brokerSymbol: params.brokerSymbol || params.symbol,
+      canonicalSymbol: params.symbol,
       direction: params.direction,
       volume: params.volume,
       price: params.entryPrice,
@@ -62,7 +65,7 @@ export async function dispatchUnifiedManualOrder(
       tp2: params.tp2 != null && params.tp2 > 0 ? params.tp2 : undefined,
       tp3: params.tp3 != null && params.tp3 > 0 ? params.tp3 : undefined,
       plannedPrice: params.plannedPrice ?? params.entryPrice,
-      magic: params.magic ?? 888123,
+      magic: params.magic ?? 8882026,
       humanApproved: true,
       humanConfirmed: true,
       tradeMode: params.tradeMode || 'DEMO',

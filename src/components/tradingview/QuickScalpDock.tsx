@@ -9,6 +9,8 @@ import { SUPPORT_CONFIG, CORTEX_WHATSAPP_CONFIG } from '@/lib/config/support-con
 import { getInstrumentContractSpec } from '@/lib/calculator/position-size-calculator';
 import { reanchorProtectionLevels } from '@/lib/execution/trade-protection-validator';
 import { dispatchUnifiedManualOrder } from '@/lib/execution/manual-order-client';
+import { normalizeAccountTradeMode } from '@/lib/execution/execution-policy';
+import { symbolDirectory } from '@/lib/bridge/symbol-mapper';
 import {
   calculateAutomaticStopLoss,
   AutomaticStopLossResult,
@@ -39,15 +41,60 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
 
   // Protected trade access modal state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+
+  // Account mode resolution from live MT5 telemetry with canonical normalization
+  const accountTradeMode = useMemo(() => {
+    return normalizeAccountTradeMode(
+      telemetry.account?.tradeMode ?? (telemetry as any).accountMode ?? (telemetry.operatingMode === 'DEMO_EXECUTION' ? 'DEMO' : undefined)
+    );
+  }, [telemetry.account?.tradeMode, (telemetry as any).accountMode, telemetry.operatingMode]);
+
+  const isDemoAccount = accountTradeMode === 'DEMO';
+  const isRealAccount = accountTradeMode === 'REAL';
 
   // Can the current user execute trades?
   // DEMO ACCOUNT: Allowed when connected to verified MT5 demo
   // MASTER: Always authorized
   // MEMBER: Authenticated + Active License + Device Authorized 1/1
-  const isDemoAccount = telemetry.account?.tradeMode === 'DEMO';
   const canExecute = Boolean(
     isDemoAccount || isMaster || (isAuthenticated && license?.status === 'ACTIVE' && isDeviceAuthorized)
   );
+
+  // Canonical execution transport readiness
+  const isExecutionTransportReady = Boolean(
+    isMt5Connected &&
+    (telemetry.localBridgeOnline || (telemetry as any).isRemote || telemetry.transport === 'REMOTE_RELAY' || telemetry.transport === 'CLOUD_PERSISTENT_TELEMETRY') &&
+    telemetry.state !== 'MT5_OFFLINE'
+  );
+
+  // Authoritative live MT5 capital facts (Equity takes precedence over Balance)
+  const mt5Equity = useMemo(() => {
+    if (!telemetry.account) return null;
+    if (typeof telemetry.account.equity === 'number' && telemetry.account.equity > 0) {
+      return telemetry.account.equity;
+    }
+    return null;
+  }, [telemetry.account]);
+
+  const mt5Balance = useMemo(() => {
+    if (!telemetry.account) return null;
+    if (typeof telemetry.account.balance === 'number' && telemetry.account.balance > 0) {
+      return telemetry.account.balance;
+    }
+    return null;
+  }, [telemetry.account]);
+
+  const liveMt5Capital = mt5Equity ?? mt5Balance ?? null;
+  const hasLiveCapitalFact = Boolean(isMt5Connected && liveMt5Capital != null && liveMt5Capital > 0);
+
+  // Broker symbol resolution and unmapped check
+  const resolvedBroker = useMemo(() => {
+    return symbolDirectory.resolveBrokerSymbolWithValidation(activeSymbol);
+  }, [activeSymbol, (telemetry as any).symbols]);
+
+  const resolvedBrokerSymbol = resolvedBroker.brokerSymbol || activeSymbol;
+  const isSymbolMapped = resolvedBroker.status !== 'NOT_FOUND';
 
   // Safety confirmation modal state
   const [pendingOrder, setPendingOrder] = useState<{
@@ -71,6 +118,25 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
   const spec = useMemo(() => getInstrumentContractSpec(activeSymbol), [activeSymbol]);
   const pipSize = spec?.pipSize || 0.0001;
   const precision = spec ? (spec.pipSize < 0.001 ? 5 : spec.pipSize < 0.1 ? 3 : 2) : 2;
+
+  // Gold mandatory 50-pip floor
+  const isGold = activeSymbol === 'XAUUSD';
+  const minSlPips = isGold ? 50 : 5;
+
+  // Synchronize SL pips when activeSymbol changes
+  useEffect(() => {
+    if (isGold) {
+      setSlPips(50);
+    } else {
+      const defaultAutoSl = calculateAutomaticStopLoss({
+        symbol: activeSymbol,
+        side: 'BUY',
+        executionPrice: activeAsset.price || 100,
+        brokerSpec: activeTelemetry?.spec,
+      });
+      setSlPips(defaultAutoSl.distance || 20);
+    }
+  }, [activeSymbol, isGold, activeAsset.price, activeTelemetry?.spec]);
 
   // Authoritative live quote
   const liveQuote = activeTelemetry?.quote || telemetry.allQuotes[activeSymbol];
@@ -143,9 +209,31 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
     return { valid: true, error: null };
   }, []);
 
-  // Open modal trigger — protected by member authorization gate
+  // Open modal trigger — protected by member authorization gate & symbol mapping
   const handleInitiateOrder = (dir: 'BUY' | 'SELL') => {
-    // If user is not authorized for execution, intercept and show Member Access modal
+    setDispatchError(null);
+
+    // 1. Symbol unmapped check (fail-closed for GER40, etc.)
+    if (!isSymbolMapped) {
+      setToast({
+        type: 'error',
+        title: 'Symbol Not Mapped',
+        message: `${activeSymbol} is not supported or mapped by connected broker terminal.`
+      });
+      return;
+    }
+
+    // 2. Transport readiness check
+    if (!isExecutionTransportReady) {
+      setToast({
+        type: 'error',
+        title: 'MT5 Bridge Offline',
+        message: 'Cannot place order: MT5 terminal or bridge is not connected.'
+      });
+      return;
+    }
+
+    // 3. If user is not authorized for execution, intercept and show Member Access modal
     if (!canExecute) {
       setIsAuthModalOpen(true);
       return;
@@ -202,6 +290,7 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
   const handleConfirmDispatch = async () => {
     if (!pendingOrder) return;
     setIsDispatching(true);
+    setDispatchError(null);
 
     try {
       // 1. Pre-dispatch fresh tick fetch to evaluate against real-time broker price
@@ -224,13 +313,15 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
 
       const res = await dispatchUnifiedManualOrder({
         symbol: activeSymbol,
+        brokerSymbol: resolvedBrokerSymbol,
         direction: pendingOrder.direction,
         volume: pendingOrder.volume,
         entryPrice: reanchored.entry,
         sl: reanchored.sl,
         tp1: reanchored.tp1,
         plannedPrice: pendingOrder.price,
-        tradeMode: telemetry.account?.tradeMode || 'DEMO',
+        tradeMode: isRealAccount ? 'REAL' : 'DEMO',
+        magic: 8882026,
         digits: precision,
         comment: 'FEF TRADINGVIEW QUICK SCALP',
       });
@@ -244,8 +335,10 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
           ticket: ticketNum,
         });
         setPendingOrder(null);
+        setDispatchError(null);
       } else {
         const errorMsg = res.error?.message || 'Order rejected by MT5 bridge or safety gate.';
+        setDispatchError(errorMsg);
         setToast({
           type: 'error',
           title: 'Execution Rejected',
@@ -253,10 +346,12 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
         });
       }
     } catch (err: any) {
+      const errorMsg = err.message || 'Network exception communicating with /api/bridge/mt5';
+      setDispatchError(errorMsg);
       setToast({
         type: 'error',
         title: 'Dispatch Failed',
-        message: err.message || 'Network exception communicating with /api/bridge/mt5',
+        message: errorMsg,
       });
     } finally {
       setIsDispatching(false);
@@ -267,9 +362,9 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
 
   return (
     <>
-      {/* Toast Notification Banner */}
+      {/* Toast Notification Banner — z-[60] so it always layers above modal backdrop */}
       {toast && (
-        <div className="fixed top-20 right-6 z-50 max-w-sm w-full animate-in fade-in slide-in-from-top duration-300">
+        <div className="fixed top-20 right-6 z-[60] max-w-sm w-full animate-in fade-in slide-in-from-top duration-300">
           <div
             className={`p-3.5 rounded-2xl border backdrop-blur-xl shadow-2xl flex items-start space-x-3 font-mono ${
               toast.type === 'success'
@@ -340,12 +435,14 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
             <div className="flex items-center space-x-1">
               <span
                 className={`text-[8px] font-bold px-1 py-0.2 rounded border ${
-                  isExecutable
+                  !isSymbolMapped
+                    ? 'bg-rose-950/60 text-rose-300 border-rose-500/40'
+                    : isExecutable
                     ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40'
                     : 'bg-amber-950/60 text-amber-300 border-amber-500/40'
                 }`}
               >
-                {isExecutable ? 'LIVE' : 'CLOSED'}
+                {!isSymbolMapped ? 'UNMAPPED' : isExecutable ? 'LIVE' : 'CLOSED'}
               </span>
               <button
                 onClick={() => setIsCollapsed(true)}
@@ -379,8 +476,10 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[9px]">
                 <span className="text-gray-400 font-bold uppercase">Volume (Lots)</span>
-                <span className="text-cyan-300">
-                  {telemetry.account ? `$${telemetry.account.balance.toLocaleString('en-US', { minimumFractionDigits: 0 })} Bal` : '10,000 Bal'}
+                <span className="text-cyan-300 font-mono">
+                  {hasLiveCapitalFact && liveMt5Capital != null
+                    ? `$${liveMt5Capital.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${mt5Equity != null ? 'Eq' : 'Bal'}`
+                    : '10,000 Bal'}
                 </span>
               </div>
               <div className="flex items-center space-x-1">
@@ -443,19 +542,20 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
                     <span className="text-[8px] text-rose-300 block font-bold">SL (Pips)</span>
                     <div className="flex items-center space-x-0.5">
                       <button
-                        onClick={() => setSlPips((p) => Math.max(5, p - 5))}
+                        onClick={() => setSlPips((p) => Math.max(minSlPips, p - (isGold ? 5 : 1)))}
                         className="w-3.5 h-4 bg-white/5 hover:bg-white/10 rounded text-[9px] flex items-center justify-center cursor-pointer text-gray-300"
                       >
                         -
                       </button>
                       <input
                         type="number"
+                        min={minSlPips}
                         value={slPips}
-                        onChange={(e) => setSlPips(Math.max(1, parseInt(e.target.value) || 1))}
+                        onChange={(e) => setSlPips(Math.max(minSlPips, parseInt(e.target.value) || minSlPips))}
                         className="w-full bg-transparent text-center text-[10px] font-bold focus:outline-none text-rose-200"
                       />
                       <button
-                        onClick={() => setSlPips((p) => p + 5)}
+                        onClick={() => setSlPips((p) => p + (isGold ? 5 : 1))}
                         className="w-3.5 h-4 bg-white/5 hover:bg-white/10 rounded text-[9px] flex items-center justify-center cursor-pointer text-gray-300"
                       >
                         +
@@ -517,13 +617,21 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
             <div className="grid grid-cols-2 gap-1.5 pt-0.5">
               <button
                 onClick={() => handleInitiateOrder('SELL')}
-                disabled={canExecute && !isExecutable}
+                disabled={(!canExecute && false) || (canExecute && !isExecutable) || !isSymbolMapped || !isExecutionTransportReady}
                 className={`h-7 py-1 px-2 rounded-lg text-white font-bold text-[10px] transition-all shadow-[0_0_10px_rgba(244,63,94,0.3)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-1 ${
                   !canExecute
                     ? 'bg-gradient-to-r from-rose-900/80 to-rose-800/80 hover:from-rose-800 hover:to-rose-700 border border-rose-500/40 text-rose-200'
                     : 'bg-gradient-to-r from-rose-700 to-rose-600 hover:from-rose-600 hover:to-rose-500'
                 }`}
-                title={canExecute ? (isExecutable ? `SELL ${activeSymbol} @ broker BID` : 'Market Session Closed') : 'Member Access Required — Sign in to use trading controls'}
+                title={
+                  !isSymbolMapped
+                    ? `${activeSymbol} is not mapped or supported by current broker terminal`
+                    : !isExecutionTransportReady
+                    ? 'MT5 terminal or bridge is not connected'
+                    : canExecute
+                    ? (isExecutable ? `SELL ${activeSymbol} @ broker BID` : 'Market Session Closed')
+                    : 'Member Access Required — Sign in to use trading controls'
+                }
               >
                 {!canExecute && <span className="text-[10px]">🔒</span>}
                 <span className="text-rose-200 uppercase font-black">SELL</span>
@@ -534,13 +642,21 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
 
               <button
                 onClick={() => handleInitiateOrder('BUY')}
-                disabled={canExecute && !isExecutable}
+                disabled={(!canExecute && false) || (canExecute && !isExecutable) || !isSymbolMapped || !isExecutionTransportReady}
                 className={`h-7 py-1 px-2 rounded-lg text-white font-bold text-[10px] transition-all shadow-[0_0_10px_rgba(16,185,129,0.3)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-1 ${
                   !canExecute
                     ? 'bg-gradient-to-r from-emerald-900/80 to-emerald-800/80 hover:from-emerald-800 hover:to-emerald-700 border border-emerald-500/40 text-emerald-200'
                     : 'bg-gradient-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500'
                 }`}
-                title={canExecute ? (isExecutable ? `BUY ${activeSymbol} @ broker ASK` : 'Market Session Closed') : 'Member Access Required — Sign in to use trading controls'}
+                title={
+                  !isSymbolMapped
+                    ? `${activeSymbol} is not mapped or supported by current broker terminal`
+                    : !isExecutionTransportReady
+                    ? 'MT5 terminal or bridge is not connected'
+                    : canExecute
+                    ? (isExecutable ? `BUY ${activeSymbol} @ broker ASK` : 'Market Session Closed')
+                    : 'Member Access Required — Sign in to use trading controls'
+                }
               >
                 {!canExecute && <span className="text-[10px]">🔒</span>}
                 <span className="text-emerald-200 uppercase font-black">BUY</span>
@@ -675,11 +791,37 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
               </span>
             </div>
 
+            {/* In-Modal Error Feedback */}
+            {dispatchError && (
+              <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-500/60 text-rose-200 text-xs font-mono space-y-1">
+                <div className="font-bold flex items-center space-x-1.5 text-rose-300">
+                  <span>⚠️</span>
+                  <span>EXECUTION REJECTED</span>
+                </div>
+                <p className="text-[11px] leading-relaxed opacity-95">{dispatchError}</p>
+              </div>
+            )}
+
             {/* Order Specification Summary */}
             <div className="bg-black/50 rounded-xl p-3 border border-white/5 space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Account Capital:</span>
+                <span className="text-white font-bold font-mono">
+                  {hasLiveCapitalFact && liveMt5Capital != null
+                    ? `$${liveMt5Capital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${mt5Equity != null ? 'LIVE • MT5 EQUITY' : 'LIVE • MT5 BALANCE'})`
+                    : '$10,000.00 (DEMO FALLBACK)'}
+                </span>
+              </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Instrument:</span>
-                <span className="text-white font-bold">{activeSymbol}</span>
+                <div className="text-right">
+                  <span className="text-white font-bold">{activeSymbol}</span>
+                  {resolvedBrokerSymbol !== activeSymbol && (
+                    <span className="text-[10px] text-cyan-300 ml-1.5 font-mono">
+                      (Broker: {resolvedBrokerSymbol})
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Direction:</span>
@@ -749,7 +891,7 @@ export const QuickScalpDock: React.FC<QuickScalpDockProps> = ({ className = '' }
             {/* Modal Actions */}
             <div className="flex items-center justify-end space-x-2 pt-2 border-t border-white/10">
               <button
-                onClick={() => setPendingOrder(null)}
+                onClick={() => { setPendingOrder(null); setDispatchError(null); }}
                 disabled={isDispatching}
                 className="px-4 py-2 rounded-xl bg-black/60 border border-white/10 hover:bg-white/5 text-gray-300 text-xs font-bold cursor-pointer transition-colors"
               >

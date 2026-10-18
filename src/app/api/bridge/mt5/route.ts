@@ -627,6 +627,28 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      if (bridgeStatus && Array.isArray(bridgeStatus.symbols) && bridgeStatus.symbols.length > 0) {
+        symbolDirectory.discoverFromBrokerSymbols(bridgeStatus.symbols);
+      }
+
+      const symbolValidation = symbolDirectory.resolveBrokerSymbolWithValidation(targetSym);
+      if (symbolValidation.status === 'NOT_FOUND') {
+        return NextResponse.json(
+          {
+            success: false,
+            state: 'REJECTED',
+            error: {
+              code: 'SYMBOL_NOT_MAPPED',
+              message: `Risk Guardian Gate: Execution command 'PLACE_ORDER' rejected because ${targetSym} is not supported or mapped by connected broker.`
+            }
+          },
+          { status: 400 }
+        );
+      }
+      if (params && !params.brokerSymbol && symbolValidation.brokerSymbol) {
+        params.brokerSymbol = symbolValidation.brokerSymbol;
+      }
+
       // 2. Client Device License Gate (Single-Device Enforcement with MASTER bypass)
       const sessionCookie =
         req.cookies.get('fef_member_session')?.value ||
