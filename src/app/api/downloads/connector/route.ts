@@ -1,3 +1,4 @@
+import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySessionToken } from '@/lib/licensing/member-session-token';
 import { licenseService } from '@/lib/licensing/license-service';
@@ -5,6 +6,10 @@ import {
   CONNECTOR_RELEASE_MANIFEST,
   validateConnectorBinary,
 } from '@/lib/downloads/connector-manifest';
+
+// Static references for Next.js / Vercel NFT (Node File Trace) serverless bundling
+const _NFT_TRACE_BINARY_PRIMARY = path.resolve(process.cwd(), 'storage/binaries', CONNECTOR_RELEASE_MANIFEST.filename);
+const _NFT_TRACE_BINARY_FALLBACK = path.resolve(process.cwd(), 'mql5/Experts', CONNECTOR_RELEASE_MANIFEST.filename);
 
 export const dynamic = 'force-dynamic';
 
@@ -18,8 +23,12 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   try {
     // 1. Authenticate member via session cookie or authorization header
-    const sessionCookie = req.cookies.get('fef_member_session')?.value;
-    const authHeader = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+    const sessionCookie =
+      req.cookies.get('fef_member_session')?.value ||
+      req.cookies.get('fef_session')?.value;
+    const authHeader =
+      req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ||
+      req.headers.get('x-session-token');
     const token = sessionCookie || authHeader;
 
     if (!token) {
@@ -44,14 +53,30 @@ export async function GET(req: NextRequest) {
     }
 
     const member = licenseService.getMemberById(verification.memberId);
-    if (!member || member.status !== 'ACTIVE') {
-      return NextResponse.json(
-        {
-          error: 'MEMBER_NOT_AUTHORIZED',
-          message: 'Member account is inactive or suspended. Access denied.',
-        },
-        { status: 403 }
-      );
+    const isMaster = verification.role === 'MASTER' || member?.role === 'MASTER';
+
+    // Strict security gate: Non-master accounts MUST exist in authoritative store and be ACTIVE
+    if (!isMaster) {
+      if (!member || member.status !== 'ACTIVE') {
+        return NextResponse.json(
+          {
+            error: 'MEMBER_NOT_AUTHORIZED',
+            message: 'Member account is inactive or suspended. Access denied.',
+          },
+          { status: 403 }
+        );
+      }
+    } else {
+      // For Master, if a profile record is indexed, verify it is not explicitly suspended
+      if (member && member.status === 'SUSPENDED') {
+        return NextResponse.json(
+          {
+            error: 'MEMBER_NOT_AUTHORIZED',
+            message: 'Master account is suspended. Access denied.',
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // 2. Validate binary on disk strictly against release manifest

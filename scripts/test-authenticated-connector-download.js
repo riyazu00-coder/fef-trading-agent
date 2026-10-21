@@ -10,8 +10,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const EXPECTED_SIZE = 99806;
-const EXPECTED_SHA256 = '104b63a6989b032aa48ac2e79932693a9bd0ba43c0f022354ee4ea9c82d938fc';
+const EXPECTED_SIZE = 101348;
+const EXPECTED_SHA256 = '194d577313291a5dad2945888f1e24b7b8dd94104c9da88b79df9db5ecaf55f5';
 const BINARY_FILENAME = 'FEF_HTTP_Bridge.ex5';
 
 console.log('===============================================================');

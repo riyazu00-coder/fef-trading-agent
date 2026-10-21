@@ -66,9 +66,11 @@ export function validateConnectorBinary(basePath: string = process.cwd()): {
   const crypto = req('crypto');
 
   const primaryPath = path.resolve(basePath, 'storage/binaries', CONNECTOR_RELEASE_MANIFEST.filename);
+  const mql5Path = path.resolve(basePath, 'mql5/Experts', CONNECTOR_RELEASE_MANIFEST.filename);
   const fallbackPath = path.resolve(basePath, 'public/downloads', CONNECTOR_RELEASE_MANIFEST.filename);
 
-  const filePath = fs.existsSync(primaryPath) ? primaryPath : (fs.existsSync(fallbackPath) ? fallbackPath : null);
+  const candidatePaths = [primaryPath, mql5Path, fallbackPath];
+  const filePath = candidatePaths.find((p) => fs.existsSync(p)) || null;
 
   if (!filePath) {
     return {
@@ -98,6 +100,17 @@ export function validateConnectorBinary(basePath: string = process.cwd()): {
         valid: false,
         filePath,
         error: `CHECKSUM_MISMATCH: Expected ${CONNECTOR_RELEASE_MANIFEST.expectedSha256}, got ${actualSha256}.`,
+        size: actualSize,
+        sha256: actualSha256,
+      };
+    }
+
+    // Verify EX5 magic header (0x45 0x58 0x35 = "EX5")
+    if (buffer.length < 4 || buffer[0] !== 0x45 || buffer[1] !== 0x58 || buffer[2] !== 0x35) {
+      return {
+        valid: false,
+        filePath,
+        error: 'INVALID_HEADER: File is not a valid 64-bit MQL5 compiled executable (missing EX5 magic).',
         size: actualSize,
         sha256: actualSha256,
       };

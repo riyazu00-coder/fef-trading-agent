@@ -7,6 +7,7 @@ import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
+import { ConnectorDownloadButton } from '@/components/member/ConnectorDownloadButton';
 import { useMemberAuth } from '@/context/MemberAuthContext';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { CONNECTOR_RELEASE_MANIFEST } from '@/lib/downloads/connector-manifest';
@@ -189,14 +190,7 @@ export default function MemberPortalPage() {
               </div>
 
               <div className="pt-1 flex flex-col space-y-1.5">
-                <a
-                  href="/api/downloads/connector"
-                  download={CONNECTOR_RELEASE_MANIFEST.filename}
-                  className="w-full py-2 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-black text-xs font-bold rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(6,182,212,0.25)]"
-                >
-                  <span>⬇️</span>
-                  <span>DOWNLOAD MT5 EA (v{CONNECTOR_RELEASE_MANIFEST.version})</span>
-                </a>
+                <ConnectorDownloadButton variant="sidebar" />
                 <Link
                   href="/member/setup"
                   className="w-full py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-cyan-300 text-[11px] font-bold rounded-xl flex items-center justify-center space-x-1 transition-all block text-center"
@@ -230,14 +224,7 @@ export default function MemberPortalPage() {
               </div>
 
               <div>
-                <a
-                  href="/api/downloads/connector"
-                  download={CONNECTOR_RELEASE_MANIFEST.filename}
-                  className="px-6 py-3 bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-400 hover:from-cyan-400 hover:to-emerald-300 text-black font-black text-xs uppercase tracking-wider rounded-xl shadow-[0_0_25px_rgba(6,182,212,0.4)] flex items-center space-x-2 cursor-pointer transition-all active:scale-[0.98]"
-                >
-                  <span>⬇️</span>
-                  <span>DOWNLOAD MT5 EA</span>
-                </a>
+                <ConnectorDownloadButton variant="hero" />
               </div>
             </div>
 

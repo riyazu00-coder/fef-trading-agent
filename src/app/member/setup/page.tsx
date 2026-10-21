@@ -7,6 +7,7 @@ import { MasterTopNav } from '@/components/cockpit/MasterTopNav';
 import { MarketCategoryFilterBar } from '@/components/cockpit/MarketCategoryFilterBar';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { MemberAccessGuard } from '@/components/common/MemberAccessGuard';
+import { ConnectorDownloadButton } from '@/components/member/ConnectorDownloadButton';
 import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { CONNECTOR_RELEASE_MANIFEST } from '@/lib/downloads/connector-manifest';
 import { SUPPORT_CONFIG, CORTEX_WHATSAPP_CONFIG } from '@/lib/config/support-config';
@@ -80,18 +81,11 @@ export default function MemberSetupPage() {
                 Download the official compiled binary <code className="bg-black/60 px-2 py-0.5 rounded text-cyan-300 font-mono">FEF_HTTP_Bridge.ex5</code>. This compiled Expert Advisor runs natively inside MetaTrader 5 without requiring compiler access or exposing algorithmic source files.
               </p>
 
-              <div className="pl-10 pt-2 flex flex-wrap gap-3">
-                <a
-                  href="/api/downloads/connector"
-                  download={CONNECTOR_RELEASE_MANIFEST.filename}
-                  className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-black font-bold text-xs rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.35)] flex items-center space-x-2 cursor-pointer transition-all"
-                >
-                  <span>⬇️</span>
-                  <span>DOWNLOAD {CONNECTOR_RELEASE_MANIFEST.filename} (v{CONNECTOR_RELEASE_MANIFEST.version} &bull; {(CONNECTOR_RELEASE_MANIFEST.expectedSize / 1024).toFixed(1)} KB &bull; SHA256 VERIFIED)</span>
-                </a>
+              <div className="pl-10 pt-2 flex flex-col gap-3 max-w-xl">
+                <ConnectorDownloadButton variant="setup" />
               </div>
-              <div className="pl-10 text-[11px] text-gray-400 flex items-center space-x-3">
-                <span className="text-emerald-400 font-mono">✓ Release SHA256: {CONNECTOR_RELEASE_MANIFEST.expectedSha256.slice(0, 8)}...{CONNECTOR_RELEASE_MANIFEST.expectedSha256.slice(-3)}</span>
+              <div className="pl-10 text-[11px] text-gray-400 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="text-emerald-400 font-mono">✓ Release SHA256: {CONNECTOR_RELEASE_MANIFEST.expectedSha256.slice(0, 8)}...{CONNECTOR_RELEASE_MANIFEST.expectedSha256.slice(-4)}</span>
                 <span>&bull;</span>
                 <span>Protected Member Distribution</span>
                 <span>&bull;</span>
@@ -154,15 +148,66 @@ export default function MemberSetupPage() {
                 </h3>
               </div>
               <div className="text-xs text-gray-300 space-y-2 pl-10 leading-relaxed font-mono">
-                <div>1. Drag <code className="text-cyan-300">FEF_HTTP_Bridge</code> onto any chart (e.g. <strong>XAUUSD</strong> or <strong>EURUSD</strong>). Only one chart is needed!</div>
+                <div>1. Drag <code className="text-cyan-300">FEF_HTTP_Bridge</code> onto any single chart (e.g. <strong>XAUUSD</strong> or <strong>EURUSD</strong>). Only one chart is needed!</div>
                 <div>2. Verify the EA inputs:</div>
-                <div className="p-3 bg-black/60 rounded-xl border border-white/10 space-y-1 text-[11px]">
+                <div className="p-3 bg-black/60 rounded-xl border border-white/10 space-y-1.5 text-[11px]">
                   <div><span className="text-gray-500">InpBridgeBaseUrl:</span> <span className="text-white">http://127.0.0.1:5556</span></div>
                   <div><span className="text-gray-500">InpAuthToken:</span> <span className="text-white">(Preconfigured default local token)</span></div>
                   <div><span className="text-gray-500">InpMagicNumber:</span> <span className="text-white">8882026</span></div>
-                  <div><span className="text-gray-500">InpOperatingMode:</span> <span className="text-emerald-400 font-bold">MODE_DEMO_EXECUTION</span></div>
+                  <div><span className="text-gray-500">InpOperatingMode:</span> <span className="text-emerald-400 font-bold">MODE_READ_ONLY</span> <span className="text-gray-400 font-sans text-[10px]">(Canonical Telemetry &amp; Market Data Mode)</span></div>
                 </div>
+                <p className="text-[11px] text-gray-400 font-sans leading-relaxed pt-1">
+                  <strong>Note on Operating Modes:</strong> <code className="text-emerald-300 font-mono">MODE_READ_ONLY</code> streams live tick prices, spreads, order book levels, and margin calculations without placing broker orders. <code className="text-amber-300 font-mono">MODE_DEMO_EXECUTION</code> is reserved for authenticated paper trading tests.
+                </p>
                 <div>3. Check the MT5 Experts log to verify: <span className="text-emerald-300">&quot;[FEF-HTTP] Handshake succeeded&quot;</span>.</div>
+              </div>
+            </div>
+
+            {/* Troubleshooting Guide */}
+            <div className="ghost-glass-panel rounded-2xl p-6 space-y-3 font-sans border border-amber-500/20">
+              <div className="flex items-center space-x-2">
+                <span className="text-amber-400 text-lg">🔧</span>
+                <h3 className="text-sm font-bold text-amber-300 uppercase tracking-wider">
+                  Troubleshooting &amp; Common MT5 Diagnostics
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-300">
+                <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-1">
+                  <div className="font-bold text-rose-300 flex items-center space-x-1.5">
+                    <span>⚠️</span>
+                    <span>Error 4014 (WebRequest blocked)</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    MT5 rejected HTTP traffic because URL is missing from whitelist. Ensure <code>http://127.0.0.1:5556</code> is added under Tools &rarr; Options &rarr; Expert Advisors with the checkbox ticked.
+                  </p>
+                </div>
+                <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-1">
+                  <div className="font-bold text-amber-300 flex items-center space-x-1.5">
+                    <span>⚠️</span>
+                    <span>Error 5203 (Connection failed)</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    MT5 cannot reach local port 5556. Verify that the FEF Bridge process is running on your machine (check terminal or supervisor status).
+                  </p>
+                </div>
+                <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-1">
+                  <div className="font-bold text-cyan-300 flex items-center space-x-1.5">
+                    <span>ℹ️</span>
+                    <span>EA Not Showing in Navigator</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    Verify file is in <code>MQL5/Experts/FEF_HTTP_Bridge.ex5</code>. In MT5 Navigator panel (Ctrl+N), right-click &quot;Expert Advisors&quot; and click &quot;Refresh&quot;.
+                  </p>
+                </div>
+                <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-1">
+                  <div className="font-bold text-emerald-300 flex items-center space-x-1.5">
+                    <span>✓</span>
+                    <span>Experts Tab Confirmation</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    Click the <strong>Experts</strong> tab at the bottom of MT5 (Terminal panel). You should see: <em>[FEF-HTTP] Connected to local bridge</em> and <em>Handshake succeeded</em>.
+                  </p>
+                </div>
               </div>
             </div>
 
