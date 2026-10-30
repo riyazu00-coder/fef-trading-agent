@@ -3,6 +3,7 @@
 import React from 'react';
 import { AgentState } from '@/lib/agents/agent-types';
 import { TradingRiskAssessment } from '@/lib/agents/hub-animation-engine';
+import { getAgentReadinessExplanation } from '@/lib/infrastructure/agent-readiness-explainer';
 
 interface HubDetailDrawerProps {
   selectedAgent: AgentState | null;
@@ -81,6 +82,35 @@ export const HubDetailDrawer: React.FC<HubDetailDrawerProps> = ({
                 </p>
               </div>
             </div>
+
+            {/* Honest Data Readiness & Feed Requirement Card */}
+            {(() => {
+              const explanation = getAgentReadinessExplanation((selectedAgent as any).id || selectedAgent.name, selectedAgent.status);
+              return (
+                <div className={`p-2.5 rounded-xl border text-[9px] ${
+                  explanation.status === 'READY'
+                    ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200'
+                    : explanation.status === 'DATA_LIMITED'
+                    ? 'bg-amber-950/20 border-amber-500/30 text-amber-200'
+                    : 'bg-slate-900/40 border-slate-700/50 text-gray-300'
+                }`}>
+                  <div className="flex items-center justify-between pb-1 mb-1 border-b border-white/5">
+                    <span className="font-bold uppercase tracking-wider text-[8px] flex items-center space-x-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        explanation.status === 'READY' ? 'bg-emerald-400' : 'bg-amber-400'
+                      }`} />
+                      <span>DATA READINESS: {explanation.status === 'READY' ? 'READY / ONLINE' : 'DATA LIMITED (EXPECTED)'}</span>
+                    </span>
+                    <span className="text-[7.5px] px-1.5 py-0.2 rounded bg-black/40 border border-white/10 text-gray-300 font-mono">
+                      {explanation.requiredFeed}
+                    </span>
+                  </div>
+                  <p className="text-[8.5px] text-gray-300 font-sans leading-relaxed">
+                    {explanation.explanation}
+                  </p>
+                </div>
+              );
+            })()}
 
             {/* Evidence Signals */}
             <div className="bg-black/30 p-2.5 rounded-xl border border-white/5 space-y-1.5">

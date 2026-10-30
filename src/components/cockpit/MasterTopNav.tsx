@@ -14,6 +14,7 @@ import { useMT5Telemetry } from '@/context/MT5TelemetryContext';
 import { useLicense } from '@/context/LicenseContext';
 import { useMemberAuth } from '@/context/MemberAuthContext';
 import { TradingViewWorkbenchModal } from '@/components/charts/TradingViewWorkbenchModal';
+import { InfrastructureMonitorDrawer } from '@/components/infrastructure/InfrastructureMonitorDrawer';
 
 export const MasterTopNav: React.FC = () => {
   const pathname = usePathname();
@@ -28,6 +29,8 @@ export const MasterTopNav: React.FC = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [isTradingViewOpen, setIsTradingViewOpen] = useState(false);
+  const [isInfrastructureOpen, setIsInfrastructureOpen] = useState(false);
+  const [infraSummary, setInfraSummary] = useState<{ healthy: number; total: number; condition: string } | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
@@ -36,6 +39,31 @@ export const MasterTopNav: React.FC = () => {
   const brokerDisplay = brokerNameRaw
     ? (brokerNameRaw.toLowerCase().includes('exness') ? 'EXNESS' : brokerNameRaw.split(' ')[0].toUpperCase())
     : (telemetry.isRemote ? 'RELAY' : 'LIVE');
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchInfra = async () => {
+      try {
+        const res = await fetch('/api/infrastructure/health');
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted) {
+            setInfraSummary({
+              healthy: data.healthyCount || 0,
+              total: data.totalCount || 0,
+              condition: data.overallCondition || 'HEALTHY',
+            });
+          }
+        }
+      } catch {}
+    };
+    fetchInfra();
+    const interval = setInterval(fetchInfra, 8000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     setIsMobileMenuOpen(false);
@@ -304,6 +332,30 @@ export const MasterTopNav: React.FC = () => {
                 )}
             </span>
           </Link>
+
+          {/* 0. SYSTEM INFRASTRUCTURE Indicator Button */}
+          <button
+            onClick={() => setIsInfrastructureOpen(true)}
+            className={`inline-flex items-center space-x-1 px-1.5 xl:px-2.5 py-1 rounded-xl font-mono text-[9px] border transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+              infraSummary?.condition === 'HEALTHY'
+                ? 'bg-emerald-950/40 border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-emerald-100 shadow-[0_0_10px_rgba(16,185,129,0.15)]'
+                : infraSummary?.condition === 'DEGRADED'
+                ? 'bg-amber-950/40 border-amber-500/50 hover:border-amber-400 text-amber-300 hover:text-amber-100 shadow-[0_0_10px_rgba(245,158,11,0.15)]'
+                : 'bg-rose-950/40 border-rose-500/50 hover:border-rose-400 text-rose-300 hover:text-rose-100'
+            }`}
+            title={`System Infrastructure Monitor: ${infraSummary ? `${infraSummary.healthy}/${infraSummary.total} Components Active • Condition: ${infraSummary.condition}` : 'Syncing local ecosystem...'} • Click to open monitor`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+              infraSummary?.condition === 'HEALTHY'
+                ? 'bg-emerald-400 animate-pulse'
+                : infraSummary?.condition === 'DEGRADED'
+                ? 'bg-amber-400 animate-pulse'
+                : 'bg-rose-400 animate-pulse'
+            }`} />
+            <span className="font-bold tracking-wider">
+              INFRA: {infraSummary ? `${infraSummary.healthy}/${infraSummary.total}` : 'SYSTEM'}
+            </span>
+          </button>
 
           {/* 1. Canonical MT5 Status Pill */}
           {isMt5Connected ? (
@@ -865,6 +917,12 @@ export const MasterTopNav: React.FC = () => {
       <TradingViewWorkbenchModal
         isOpen={isTradingViewOpen}
         onClose={() => setIsTradingViewOpen(false)}
+      />
+
+      {/* System Infrastructure Monitor Drawer */}
+      <InfrastructureMonitorDrawer
+        isOpen={isInfrastructureOpen}
+        onClose={() => setIsInfrastructureOpen(false)}
       />
     </>
   );
