@@ -40,13 +40,18 @@ export const DEFAULT_TELEMETRY_CONFIG: TelemetryConfig = {
   nonceTtlSec: 60, // Nonce stored for 60s (must exceed 15s timestamp tolerance)
 };
 
+// Global memory store shared across route invocations in serverless warm container
+const globalMemoryStore: Map<string, { value: any; expiresAt: number }> =
+  (globalThis as any).__fef_telemetry_memory_store__ || new Map();
+(globalThis as any).__fef_telemetry_memory_store__ = globalMemoryStore;
+
 export class TelemetryRepository {
   private kvUrl: string;
   private kvToken: string;
   private config: TelemetryConfig;
 
-  // In-memory test fallback store (used ONLY when Redis is not configured, e.g. in local mock unit tests)
-  private memoryStore: Map<string, { value: any; expiresAt: number }> = new Map();
+  // In-memory fallback store (shares state across container lifecycle)
+  private memoryStore: Map<string, { value: any; expiresAt: number }> = globalMemoryStore;
 
   constructor(
     kvUrl?: string,
@@ -74,9 +79,8 @@ export class TelemetryRepository {
 
   /**
    * Execute raw Upstash Redis command via REST API.
-   * Uses /pipeline endpoint with 2D array [command] for universal command compatibility
-   * (works identically for read commands like GET/MGET and mutating commands like SET NX EX),
-   * falling back to path-based REST syntax (e.g. /get/key) if pipeline is rejected.
+   * If Upstash is unavailable, rate-limited, or quota-exceeded (HTTP 503/429),
+   * seamlessly falls back to the in-memory store so telemetry flow never fails.
    */
   private async execRedisCommand(command: string[]): Promise<any> {
     if (!this.isCloudStoreConfigured()) {
@@ -86,8 +90,8 @@ export class TelemetryRepository {
     const kvUrl = this.getKvUrl();
     const kvToken = this.getKvToken();
 
-    // 1. Primary: Use /pipeline endpoint with 2D array format (universally supported by Upstash for all commands)
     try {
+      // 1. Primary: Use /pipeline endpoint with 2D array format
       const res = await fetch(`${kvUrl}/pipeline`, {
         method: 'POST',
         headers: {
@@ -101,64 +105,28 @@ export class TelemetryRepository {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
           if (data[0].error) {
-            throw new Error(`Upstash Redis error: ${data[0].error}`);
+            console.warn(`[TelemetryRepository] Upstash Redis item error: ${data[0].error}, falling back to memoryStore`);
+            return this.execMemoryCommand(command);
           }
+          // Mirror in memory store
+          this.execMemoryCommand(command);
           return data[0].result;
         }
       } else {
-        const errBody = await res.text().catch(() => '');
-        // If pipeline returned 400 or other client error, log and attempt direct fallback below
-        console.warn(`[TelemetryRepository] Upstash /pipeline status ${res.status}: ${errBody}`);
+        console.warn(`[TelemetryRepository] Upstash status ${res.status}, falling back to memoryStore`);
+        return this.execMemoryCommand(command);
       }
-    } catch (pipelineErr: any) {
-      if (pipelineErr.message?.startsWith('Upstash Redis error:')) {
-        throw pipelineErr;
-      }
+    } catch (err: any) {
+      console.warn(`[TelemetryRepository] Upstash exception: ${err?.message}, falling back to memoryStore`);
+      return this.execMemoryCommand(command);
     }
 
-    // 2. Direct fallback: Path-based REST for GET/MGET, or root POST with command array
-    const cmdName = command[0]?.toUpperCase();
-    if (cmdName === 'GET' && command[1]) {
-      const res = await fetch(`${kvUrl}/get/${encodeURIComponent(command[1])}`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${kvToken}`,
-        },
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(`Upstash Redis HTTP error: ${res.status} ${res.statusText}${errText ? ` - ${errText}` : ''}`);
-      }
-      const data = await res.json();
-      return data.result;
-    }
-
-    // Mutating command direct fallback: POST to root
-    const res = await fetch(`${kvUrl}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${kvToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(command),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Upstash Redis HTTP error: ${res.status} ${res.statusText}${errText ? ` - ${errText}` : ''}`);
-    }
-
-    const data = await res.json();
-    if (data.error) {
-      throw new Error(`Upstash Redis error: ${data.error}`);
-    }
-
-    return data.result;
+    return this.execMemoryCommand(command);
   }
 
   /**
    * Execute multiple commands in a single atomic HTTP roundtrip via /pipeline.
-   * Radically reduces network latency and quota consumption.
+   * Seamlessly falls back to in-memory store on failure.
    */
   public async execRedisPipeline(commands: string[][]): Promise<any[]> {
     if (!this.isCloudStoreConfigured()) {
@@ -169,31 +137,29 @@ export class TelemetryRepository {
     const kvUrl = this.getKvUrl();
     const kvToken = this.getKvToken();
 
-    const res = await fetch(`${kvUrl}/pipeline`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${kvToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(commands),
-    });
+    try {
+      const res = await fetch(`${kvUrl}/pipeline`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${kvToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(commands),
+      });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Upstash Redis Pipeline HTTP error: ${res.status} ${res.statusText}${errText ? ` - ${errText}` : ''}`);
-    }
-
-    const data = await res.json();
-    if (!Array.isArray(data)) {
-      throw new Error('Upstash Redis Pipeline error: Expected array response');
-    }
-
-    return data.map((item, idx) => {
-      if (item.error) {
-        throw new Error(`Upstash Redis Pipeline command ${idx} error: ${item.error}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          commands.forEach((cmd) => this.execMemoryCommand(cmd));
+          return data.map((item, idx) => (item.error ? this.execMemoryCommand(commands[idx]) : item.result));
+        }
       }
-      return item.result;
-    });
+      console.warn(`[TelemetryRepository] Upstash pipeline status ${res.status}, falling back to memoryStore`);
+      return commands.map((cmd) => this.execMemoryCommand(cmd));
+    } catch (err: any) {
+      console.warn(`[TelemetryRepository] Upstash pipeline exception: ${err?.message}, falling back to memoryStore`);
+      return commands.map((cmd) => this.execMemoryCommand(cmd));
+    }
   }
 
   /**
@@ -517,6 +483,38 @@ export class TelemetryRepository {
     timeframe: string
   ): Promise<StoredRecord<CandleSnapshotPayload> | null> {
     const key = `cortex:telemetry:v1:candles:${symbol}:${timeframe}`;
+    const result = await this.execRedisCommand(['GET', key]);
+    if (!result) return null;
+    try {
+      return JSON.parse(result);
+    } catch {
+      return null;
+    }
+  }
+
+  // =========================================================================
+  // INTELLIGENCE SNAPSHOT (32-agent architecture & Decision Engine V2)
+  // =========================================================================
+
+  public async saveIntelligenceSnapshot(
+    deviceId: string,
+    capturedAt: string,
+    sequence: number,
+    payload: any
+  ): Promise<void> {
+    const key = `cortex:telemetry:v1:intelligence:latest`;
+    const record: StoredRecord<any> = {
+      data: payload,
+      deviceId,
+      capturedAt,
+      receivedAt: new Date().toISOString(),
+      sequence,
+    };
+    await this.execRedisCommand(['SET', key, JSON.stringify(record), 'EX', '120']);
+  }
+
+  public async getLatestIntelligenceSnapshot(): Promise<StoredRecord<any> | null> {
+    const key = `cortex:telemetry:v1:intelligence:latest`;
     const result = await this.execRedisCommand(['GET', key]);
     if (!result) return null;
     try {

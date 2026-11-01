@@ -66,6 +66,7 @@ export type IndependenceGroup =
   | 'RETAIL_SENTIMENT'
   | 'CFTC_REGULATORY'
   | 'TELEMETRY_SUPERVISOR'
+  | 'CHART_COMPUTER_VISION'
   | 'SYNTHESIZER';
 
 export interface AgentDependencyMetadata {
@@ -95,9 +96,9 @@ export const AGENT_DEPENDENCY_REGISTRY: Record<string, AgentDependencyMetadata> 
     agentName: 'Vision / Chart Agent',
     primaryFamilies: ['PRICE_STRUCTURE'],
     secondaryFamilies: ['LIQUIDITY'],
-    independenceGroup: 'PRICE_OHLC_DERIVED',
+    independenceGroup: 'CHART_COMPUTER_VISION',
     isDerived: true,
-    derivationType: 'PATTERN_DETECTION'
+    derivationType: 'MULTIMODAL_IMAGE_PERCEPTION'
   },
   STRATEGY: {
     agentId: 'STRATEGY',

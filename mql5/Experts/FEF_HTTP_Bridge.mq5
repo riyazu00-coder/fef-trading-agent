@@ -13,10 +13,14 @@
 
 //--- Input Parameters (Only necessary parameters)
 input group "=== Bridge HTTP Configuration ==="
-input string   InpBridgeBaseUrl     = "http://127.0.0.1:5556";     // Bridge HTTP Base URL
-input string   InpAuthTokenFallback = "";                          // Migration Token Override (Leave blank for auto-provisioned identity)
-input ulong    InpMagicNumber       = 8882026;                     // FEF Magic Number
-input int      InpHeartbeatSeconds  = 2;                           // Heartbeat Cadence (Seconds)
+input string   InpBridgeBaseUrl          = "http://127.0.0.1:5556";     // Bridge HTTP Base URL
+input string   InpAuthTokenFallback      = "";                          // Migration Token Override (Leave blank for auto-provisioned identity)
+input ulong    InpMagicNumber            = 8882026;                     // FEF Magic Number
+
+input group "=== Telemetry Cadence Configuration ==="
+input int      InpHeartbeatSeconds       = 2;                           // Heartbeat Cadence (Seconds)
+input int      InpCandleBatchSymbols     = 2;                           // Symbols per candle batch (1-3 recommended)
+input int      InpCandleBatchIntervalSec = 2;                           // Interval between candle batches (Seconds)
 
 //--- Dynamic Runtime Authentication Token (Held in memory only, never logged or exposed)
 string g_runtime_auth_token = "";
@@ -92,6 +96,11 @@ datetime g_last_orders_time    = 0;
 datetime g_last_symbols_time   = 0;
 datetime g_last_candles_time   = 0;
 bool     g_bridge_connected    = false;
+
+//--- Staggered Candle Synchronization State
+int      g_candle_sync_symbol_idx = 0;
+bool     g_candle_batch_active    = false;
+uint     g_candle_batch_seq       = 0;
 
 //--- Tracked canonical instruments for multi-asset telemetry (26 total across 5 categories)
 string g_tracked_canonical[] = {
@@ -286,9 +295,12 @@ int PostJson(string endpoint, string jsonPayload, string &responseString)
    int jsonChars = StringLen(jsonPayload);
    int httpBytes = ArraySize(postData);
 
-   // Diagnostic logging
-   Print("[FEF-HTTP] endpoint=", endpoint);
-   Print("[FEF-HTTP] JSON chars=", jsonChars, " | HTTP bytes=", httpBytes);
+   // Diagnostic logging (candle frames omit high-frequency verbose lines to eliminate Wine I/O lag)
+   if(endpoint != "/mt5/candles")
+   {
+      Print("[FEF-HTTP] endpoint=", endpoint);
+      Print("[FEF-HTTP] JSON chars=", jsonChars, " | HTTP bytes=", httpBytes);
+   }
 
    char resultData[];
    string resultHeaders = "";
@@ -313,7 +325,10 @@ int PostJson(string endpoint, string jsonPayload, string &responseString)
          Print("[FEF-HTTP] Bridge connected: HTTP ", httpStatus, " on ", endpoint);
          g_bridge_connected = true;
       }
-      Print("[FEF-HTTP] Response status: ", httpStatus, " on ", endpoint);
+      if(endpoint != "/mt5/candles")
+      {
+         Print("[FEF-HTTP] Response status: ", httpStatus, " on ", endpoint);
+      }
    }
    else
    {
@@ -892,25 +907,64 @@ void PushCandlesForSymbol(string canonical, string brokerSym, ENUM_TIMEFRAMES pe
    PostJson("/mt5/candles", payload, resp);
 }
 
-void PushCandles()
+void PushCandlesBatch(int batchSize)
 {
    if(!g_symbols_resolved) InitializeSymbolResolution();
+   if(g_candle_batch_active) return; // Prevent overlapping execution
+   g_candle_batch_active = true;
 
    int total = ArraySize(g_tracked_canonical);
-   for(int s = 0; s < total; s++)
+   if(total <= 0)
    {
+      g_candle_batch_active = false;
+      return;
+   }
+
+   if(batchSize <= 0) batchSize = 2;
+   uint startTick = GetTickCount();
+   int processedSymbols = 0;
+
+   for(int b = 0; b < batchSize; b++)
+   {
+      int s = (g_candle_sync_symbol_idx + b) % total;
       string canon = g_tracked_canonical[s];
       string brokerSym = g_resolved_broker_symbol[s];
-      if(StringLen(brokerSym) == 0) continue;
 
-      PushCandlesForSymbol(canon, brokerSym, PERIOD_M1, "M1");
-      PushCandlesForSymbol(canon, brokerSym, PERIOD_M5, "M5");
-      PushCandlesForSymbol(canon, brokerSym, PERIOD_M15, "M15");
-      PushCandlesForSymbol(canon, brokerSym, PERIOD_M30, "M30");
-      PushCandlesForSymbol(canon, brokerSym, PERIOD_H1, "H1");
-      PushCandlesForSymbol(canon, brokerSym, PERIOD_H4, "H4");
-      PushCandlesForSymbol(canon, brokerSym, PERIOD_D1, "D1");
+      if(StringLen(brokerSym) > 0)
+      {
+         PushCandlesForSymbol(canon, brokerSym, PERIOD_M1, "M1");
+         PushCandlesForSymbol(canon, brokerSym, PERIOD_M5, "M5");
+         PushCandlesForSymbol(canon, brokerSym, PERIOD_M15, "M15");
+         PushCandlesForSymbol(canon, brokerSym, PERIOD_M30, "M30");
+         PushCandlesForSymbol(canon, brokerSym, PERIOD_H1, "H1");
+         PushCandlesForSymbol(canon, brokerSym, PERIOD_H4, "H4");
+         PushCandlesForSymbol(canon, brokerSym, PERIOD_D1, "D1");
+         processedSymbols++;
+      }
+
+      // Hard safety duration guard: Never allow single timer slice to exceed 600ms
+      if(GetTickCount() - startTick > 600)
+      {
+         break;
+      }
    }
+
+   g_candle_sync_symbol_idx = (g_candle_sync_symbol_idx + batchSize) % total;
+   g_candle_batch_seq++;
+   uint durationMs = GetTickCount() - startTick;
+
+   if(g_candle_batch_seq % 5 == 1)
+   {
+      PrintFormat("[FEF-HTTP] Candle batch %u complete: %d symbols (next idx %d/%d) in %u ms",
+                  g_candle_batch_seq, processedSymbols, g_candle_sync_symbol_idx, total, durationMs);
+   }
+
+   g_candle_batch_active = false;
+}
+
+void PushCandles()
+{
+   PushCandlesBatch(InpCandleBatchSymbols);
 }
 
 //+------------------------------------------------------------------+
@@ -1184,10 +1238,10 @@ void OnTimer()
       g_last_symbols_time = now;
    }
 
-   // 7. OHLC Candles every 10s
-   if(now - g_last_candles_time >= 10)
+   // 7. Staggered OHLC Candles (micro-batched every InpCandleBatchIntervalSec)
+   if(now - g_last_candles_time >= InpCandleBatchIntervalSec)
    {
-      PushCandles();
+      PushCandlesBatch(InpCandleBatchSymbols);
       g_last_candles_time = now;
    }
 }

@@ -38,8 +38,20 @@ next-env.d.ts
 
 # Runtime data & Registries
 /data/
+*.db
+*.db*
+*.db-wal
+*.db-shm
+*.sqlite*
+*.sqlite3*
+fef-local.db
+credentials*
+*.key
+*.cert
 
 # Local Agent Workspace & Scratch Artifacts
+artifacts_visual/
+storage/
 .superpowers/
 docs/superpowers/
 reference/

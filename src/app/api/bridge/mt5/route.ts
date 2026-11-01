@@ -271,6 +271,17 @@ export async function GET(req: NextRequest) {
   if (isProd) {
     status = await fetchRemoteRelayTelemetry();
     isV1Online = Boolean(status && status.localBridge === 'ONLINE');
+    if (!status || status.state === 'MT5_OFFLINE' || status.localBridge === 'OFFLINE') {
+      const cloudStatus = await mt5HttpClient.getStatus();
+      if (cloudStatus && (cloudStatus.localBridge === 'ONLINE' || cloudStatus.mt5Connected || Object.keys(cloudStatus.quotes || {}).length > 0)) {
+        status = {
+          ...cloudStatus,
+          transport: 'OUTBOUND_TELEMETRY_INGRESS',
+          source: 'REMOTE_TELEMETRY',
+        };
+        isV1Online = true;
+      }
+    }
   } else {
     status = await mt5HttpClient.getStatus();
     isV1Online = Boolean(status && (status.localBridge === 'ONLINE' || status.success));

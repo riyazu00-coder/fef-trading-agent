@@ -38,9 +38,17 @@ function sanitizePayload(obj: any): any {
 
 export async function enrichTelemetryWithLocalMarketData(baseStatus: any): Promise<any> {
   try {
-    const { getLocalMarketDataProvider } = await import('@/lib/providers/local-market-data-provider');
-    const localProvider = getLocalMarketDataProvider();
-    const health = await localProvider.getHealth();
+    let getLocalMarketDataProvider: any = null;
+    try {
+      const mod = await import('@/lib/providers/local-market-data-provider');
+      getLocalMarketDataProvider = mod.getLocalMarketDataProvider;
+    } catch {
+      const mod = await import('../providers/local-market-data-provider');
+      getLocalMarketDataProvider = mod.getLocalMarketDataProvider;
+    }
+
+    const localProvider = getLocalMarketDataProvider ? getLocalMarketDataProvider() : null;
+    const health = localProvider ? await localProvider.getHealth() : null;
 
     if (health && health.localDatabase === 'ONLINE') {
       const localQuotes = await localProvider.getLatestQuotes();
@@ -52,7 +60,8 @@ export async function enrichTelemetryWithLocalMarketData(baseStatus: any): Promi
       };
 
       if (hasLocalQuotes) {
-        for (const [sym, q] of Object.entries(localQuotes)) {
+        for (const [sym, quoteVal] of Object.entries(localQuotes)) {
+          const q = quoteVal as any;
           mergedQuotes[sym] = {
             symbol: q.brokerSymbol || sym,
             canonicalSymbol: q.canonicalSymbol,
@@ -71,7 +80,30 @@ export async function enrichTelemetryWithLocalMarketData(baseStatus: any): Promi
         }
       }
 
-      const isMt5Conn = baseStatus?.mt5Connected ?? health.brokerConnected;
+      // Explicit Terminal Disconnect check
+      const explicitDisconnect = Boolean(
+        baseStatus && (
+          (baseStatus.terminal && (baseStatus.terminal.connected === false || baseStatus.terminal.terminalConnected === false)) ||
+          baseStatus.terminalConnected === false
+        )
+      );
+
+      // Robust boolean state determination:
+      // Bridge online & fresh OR SQLite with verified fresh broker data
+      const isBridgeOnline = Boolean(baseStatus && (baseStatus.mt5Connected || baseStatus.localBridge === 'ONLINE'));
+      const isDbLive = Boolean(health.brokerConnected && health.feedStatus !== 'OFFLINE');
+      const isMt5Conn = !explicitDisconnect && (Boolean(baseStatus?.mt5Connected) || (isDbLive && hasLocalQuotes));
+
+      // Measured connection states for transparency
+      const measuredStates = {
+        processRunning: true,
+        terminalConnected: !explicitDisconnect && (health.brokerConnected || Boolean(baseStatus?.terminal?.connected || baseStatus?.terminal?.terminalConnected)),
+        eaAttached: Boolean(baseStatus?.terminal?.build || health.broker),
+        eaHeartbeatFresh: baseStatus?.heartbeatAgeMs != null ? baseStatus.heartbeatAgeMs <= 20000 : (health.lastPersistenceAgeMs != null && health.lastPersistenceAgeMs <= 20000),
+        brokerQuotesFresh: hasLocalQuotes && Object.values(localQuotes).some((q: any) => typeof q.ageMs === 'number' && q.ageMs <= 30000),
+        localDatabaseWritable: health.localDatabase === 'ONLINE',
+        cockpitDataFresh: hasLocalQuotes,
+      };
 
       const enriched = {
         success: true,
@@ -80,16 +112,17 @@ export async function enrichTelemetryWithLocalMarketData(baseStatus: any): Promi
         storageMode: 'LOCAL',
         cloudSync: 'DISABLED',
         mt5Connected: isMt5Conn,
-        brokerConnected: health.brokerConnected,
+        brokerConnected: !explicitDisconnect && (health.brokerConnected || Boolean(baseStatus?.terminal?.connected || baseStatus?.terminal?.terminalConnected)),
         quotesAvailable: hasLocalQuotes ? localQuoteKeys.length : (baseStatus?.quotesAvailable || 0),
         quotes: mergedQuotes,
         allQuotes: mergedQuotes,
         symbols: hasLocalQuotes ? localQuoteKeys : (baseStatus?.symbols || []),
         execution: 'READ_ONLY',
         operatingMode: 'READ_ONLY',
-        feedStatus: health.feedStatus,
+        feedStatus: !explicitDisconnect && (health.feedStatus === 'LIVE' || isMt5Conn) ? 'LIVE' : (hasLocalQuotes ? 'FALLBACK' : 'OFFLINE'),
         broker: health.broker || baseStatus?.broker || baseStatus?.terminal?.broker,
         server: health.server || baseStatus?.server || baseStatus?.terminal?.server,
+        measuredStates,
       };
       return sanitizePayload(enriched);
     }

@@ -27,20 +27,24 @@
     "cortex:master:provision-production": "node scripts/cortex-master-provision-production.js"
   },
   "dependencies": {
-    "next": "13.5.6",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
     "@supabase/supabase-js": "2.39.4",
     "clsx": "2.0.0",
-    "lucide-react": "0.303.0"
+    "lucide-react": "0.303.0",
+    "next": "13.5.6",
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "20.11.24",
     "@types/react": "18.2.37",
     "@types/react-dom": "18.2.15",
-    "typescript": "5.2.2",
-    "tailwindcss": "3.3.5",
+    "autoprefixer": "10.4.16",
     "postcss": "8.4.31",
-    "autoprefixer": "10.4.16"
+    "tailwindcss": "3.3.5",
+    "typescript": "5.2.2"
+  },
+  "optionalDependencies": {
+    "@resvg/resvg-js-linux-x64-gnu": "^2.6.2"
   }
 }

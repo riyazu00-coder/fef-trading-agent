@@ -33,6 +33,9 @@ export interface LiveMarketAsset {
   priceType?: CryptoPriceType;
   referencePrice?: number;
   referenceProvider?: string;
+  tradeMode?: string | number;
+  isTradeDisabled?: boolean;
+  marketAvailable?: boolean;
 }
 
 /**

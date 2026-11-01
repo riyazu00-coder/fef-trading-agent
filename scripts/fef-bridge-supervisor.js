@@ -44,7 +44,8 @@ const ALLOWED_ENV_KEYS = new Set([
   'FEF_REMOTE_DEVICE_ID',
   'FEF_REMOTE_KEY_ID',
   'FEF_REMOTE_DEVICE_SECRET',
-  'FEF_TELEMETRY_STORAGE_MODE'
+  'FEF_TELEMETRY_STORAGE_MODE',
+  'VERCEL_PROTECTION_BYPASS'
 ]);
 
 // Safe OS/Node runtime variables that are strictly non-credential
@@ -110,7 +111,8 @@ function buildConnectorChildEnv(sourceEnv = process.env, bridgeUrl = LOCAL_BRIDG
     'FEF_REMOTE_DEVICE_ID',
     'FEF_REMOTE_KEY_ID',
     'FEF_REMOTE_DEVICE_SECRET',
-    'FEF_TELEMETRY_STORAGE_MODE'
+    'FEF_TELEMETRY_STORAGE_MODE',
+    'VERCEL_PROTECTION_BYPASS'
   ];
   for (const key of connectorKeys) {
     if (sourceEnv[key] && sourceEnv[key].trim() !== '') {
@@ -383,6 +385,12 @@ class ConnectivitySupervisor {
       } else {
         this.healthState.localBridge = this.bridgeProcess ? "DEGRADED" : "OFFLINE";
         this.healthState.mt5Terminal = "OFFLINE";
+        this.healthState.broker = "UNKNOWN";
+        this.healthState.server = "UNKNOWN";
+        if (!this.bridgeProcess && !this.isShuttingDown) {
+          log("WARN", "Local bridge unreachable and no child process. Spawning bridge service...");
+          this.startBridgeService();
+        }
       }
 
       // Check local SQLite database health and freshness
@@ -397,13 +405,12 @@ class ConnectivitySupervisor {
           this.healthState.localPersistenceAgeMs = ageMs;
 
           if (ageMs !== null && ageMs < 15000) {
-            this.healthState.localDatabase = "ONLINE";
-            isLocalDbFresh = true;
+            this.healthState.localDatabase = connState?.state === 'DEGRADED' ? "DEGRADED" : "ONLINE";
+            isLocalDbFresh = connState ? connState.state === 'ONLINE' : true;
           } else if (ageMs !== null) {
             this.healthState.localDatabase = "STALE";
           } else {
-            this.healthState.localDatabase = "ONLINE";
-            isLocalDbFresh = true;
+            this.healthState.localDatabase = "DEGRADED";
           }
 
           const allQuotes = this.localRepo.getAllQuotes();
@@ -434,10 +441,14 @@ class ConnectivitySupervisor {
         this.healthState.connectorAgent = isConnectorLive ? "ONLINE" : (this.connectorProcess ? "SYNCING" : "OFFLINE");
       }
 
-      const isFresh = typeof this.healthState.brokerQuoteAgeMs === "number" && this.healthState.brokerQuoteAgeMs < 5000;
-      if (this.healthState.mt5Terminal === "CONNECTED" && isFresh) {
+      // Distinguish transport heartbeat freshness from individual asset tick freshness
+      const isHeartbeatFresh = typeof this.healthState.bridgeHeartbeatAgeMs === "number" && this.healthState.bridgeHeartbeatAgeMs <= 20000;
+      const isQuoteDisplayLive = typeof this.healthState.brokerQuoteAgeMs === "number" && this.healthState.brokerQuoteAgeMs <= 15000;
+      const isQuoteDisplayEligible = typeof this.healthState.brokerQuoteAgeMs === "number" && this.healthState.brokerQuoteAgeMs <= 30000;
+
+      if (this.healthState.mt5Terminal === "CONNECTED" && (isQuoteDisplayEligible || isHeartbeatFresh) && this.healthState.bid > 0) {
         this.healthState.priceAuthority = "MT5_BROKER";
-        this.healthState.feedStatus = "LIVE";
+        this.healthState.feedStatus = isQuoteDisplayLive ? "LIVE" : "AGING";
       } else {
         this.healthState.priceAuthority = "REFERENCE";
         this.healthState.feedStatus = "FALLBACK";

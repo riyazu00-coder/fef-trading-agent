@@ -85,7 +85,7 @@ export const MT5TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       // 2. Only fall back to remote relay if local/cloud bridge was not configured or completely failed
       // and not already served by cloud persistent telemetry transport
-      const isCloudTransport = data?.transport === 'CLOUD_PERSISTENT_TELEMETRY';
+      const isCloudTransport = data?.transport === 'CLOUD_PERSISTENT_TELEMETRY' || data?.transport === 'OUTBOUND_TELEMETRY_INGRESS';
       if (!mt5Online && !isCloudTransport) {
         try {
           const remoteRes = await fetch('/api/remote-mt5/telemetry', {

@@ -553,10 +553,11 @@ class LocalTelemetryRepository {
    */
   updateConnectorState(deviceId, state, meta = {}) {
     const now = Date.now();
+    const lastPersistVal = (typeof meta.lastLocalPersist === 'number') ? meta.lastLocalPersist : now;
     return this.statements.upsertConnectorState.run(
       deviceId,
       meta.lastBridgeHeartbeat || now,
-      meta.lastLocalPersist || now,
+      lastPersistVal,
       meta.lastError || null,
       state,
       meta.storageMode || 'LOCAL',

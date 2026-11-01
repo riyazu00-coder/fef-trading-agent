@@ -25,8 +25,24 @@ import { AccountPlatformStatusCard } from '@/components/cockpit/AccountPlatformS
 import { GlobalOpportunityRadar } from '@/components/cockpit/GlobalOpportunityRadar';
 import { MasterFooter } from '@/components/cockpit/MasterFooter';
 import { useActiveAsset } from '@/context/ActiveAssetContext';
+import { AgentIntelligenceCenter } from '@/components/cockpit/AgentIntelligenceCenter';
+import { DecisionEngineCockpit } from '@/components/cockpit/DecisionEngineCockpit';
+import { SetupIntelligenceCockpit } from '@/components/cockpit/SetupIntelligenceCockpit';
+import { TelegramSignalCenter } from '@/components/cockpit/TelegramSignalCenter';
+import { AiAssistantPanel } from '@/components/intelligence/AiAssistantPanel';
+import { AiReportsPanel } from '@/components/intelligence/AiReportsPanel';
 
-type SecondaryTab = 'confluence' | 'macro' | 'regime' | 'sentinel';
+type SecondaryTab =
+  | 'confluence'
+  | 'agents'
+  | 'decision'
+  | 'setups'
+  | 'telegram'
+  | 'assistant'
+  | 'reports'
+  | 'macro'
+  | 'regime'
+  | 'sentinel';
 
 export default function CockpitPage() {
   const { activeSymbol, activeAsset } = useActiveAsset();
@@ -110,53 +126,125 @@ export default function CockpitPage() {
             </div>
 
             {/* Tab Selector Buttons */}
-            <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/5 font-mono text-[10px]">
+            <div className="flex flex-wrap items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/5 font-mono text-[10px]">
               <button
                 onClick={() => setActiveTab('confluence')}
-                className={`px-2.5 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                className={`px-2 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
                   activeTab === 'confluence'
                     ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <span>⚡</span>
-                <span>CONFLUENCE &amp; CONSENSUS</span>
+                <span>CONFLUENCE</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('agents')}
+                className={`px-2 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                  activeTab === 'agents'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <span>🧠</span>
+                <span>32-AGENTS</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('decision')}
+                className={`px-2 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                  activeTab === 'decision'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <span>⚖️</span>
+                <span>DECISION V2</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('setups')}
+                className={`px-2 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                  activeTab === 'setups'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <span>📐</span>
+                <span>SETUPS V3</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('telegram')}
+                className={`px-2 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                  activeTab === 'telegram'
+                    ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.3)]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <span>✈️</span>
+                <span>TELEGRAM SIGNALS</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('assistant')}
+                className={`px-2 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                  activeTab === 'assistant'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <span>🤖</span>
+                <span>AI ASSISTANT</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('reports')}
+                className={`px-2 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                  activeTab === 'reports'
+                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <span>📑</span>
+                <span>AI REPORTS</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('macro')}
-                className={`px-2.5 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                className={`px-2 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
                   activeTab === 'macro'
                     ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-[0_0_10px_rgba(59,130,246,0.2)]'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <span>🌐</span>
-                <span>MACRO &amp; CROSS-ASSET</span>
+                <span>MACRO</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('regime')}
-                className={`px-2.5 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                className={`px-2 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
                   activeTab === 'regime'
                     ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <span>📊</span>
-                <span>REGIME &amp; QUANT</span>
+                <span>REGIME</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('sentinel')}
-                className={`px-2.5 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
+                className={`px-2 py-1 rounded-lg transition-all font-bold flex items-center space-x-1 cursor-pointer ${
                   activeTab === 'sentinel'
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <span>🛡️</span>
-                <span>SENTINEL &amp; DIAGNOSTICS</span>
+                <span>SENTINEL</span>
               </button>
             </div>
           </div>
@@ -171,6 +259,42 @@ export default function CockpitPage() {
                 <div className="xl:col-span-5 space-y-2.5">
                   <AgentConsensusBarChart />
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'agents' && (
+              <div className="w-full space-y-2.5">
+                <AgentIntelligenceCenter />
+              </div>
+            )}
+
+            {activeTab === 'decision' && (
+              <div className="w-full space-y-2.5">
+                <DecisionEngineCockpit />
+              </div>
+            )}
+
+            {activeTab === 'setups' && (
+              <div className="w-full space-y-2.5">
+                <SetupIntelligenceCockpit />
+              </div>
+            )}
+
+            {activeTab === 'telegram' && (
+              <div className="w-full space-y-2.5">
+                <TelegramSignalCenter />
+              </div>
+            )}
+
+            {activeTab === 'assistant' && (
+              <div className="w-full space-y-2.5">
+                <AiAssistantPanel />
+              </div>
+            )}
+
+            {activeTab === 'reports' && (
+              <div className="w-full space-y-2.5">
+                <AiReportsPanel />
               </div>
             )}
 

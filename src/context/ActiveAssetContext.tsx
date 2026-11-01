@@ -505,6 +505,12 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 }
               }
 
+              const spec = mt5Data?.specsBySymbol?.[canonical] || mt5Data?.specsBySymbol?.[symKey];
+              const session = mt5Data?.sessions?.[canonical] || mt5Data?.sessions?.[symKey];
+              const tradeMode = spec?.tradeMode || session?.tradeMode;
+              const isTradeDisabled = tradeMode === 'DISABLED' || tradeMode === 0 || session?.marketAvailable === false;
+              const marketAvailable = session?.marketAvailable !== undefined ? session.marketAvailable : !isTradeDisabled;
+
               workingAssets[symKey] = {
                 ...baseAsset,
                 price: midPrice,
@@ -519,7 +525,10 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 feedStatus: (quote.freshness === 'FRESH' || freshness.isDisplayLive) ? 'LIVE' : (quote.freshness === 'STALE' ? 'STALE' : 'FALLBACK'),
                 referencePrice: baseAsset.referencePrice || baseAsset.price,
                 referenceProvider: baseAsset.provider || 'TradingView Spot',
-                lastUpdated: quote.freshness || freshness.statusLabel
+                lastUpdated: quote.freshness || freshness.statusLabel,
+                tradeMode,
+                isTradeDisabled,
+                marketAvailable,
               };
             } else {
               // Quote > 30s: Exceeded display tolerance

@@ -59,8 +59,9 @@ export function getRadarOpportunityTier(item: RadarOpportunityItem): number {
     return 2;
   }
 
-  // Canonical open market check: OPEN or CLOSING_SOON
-  const isMarketOpen = item.marketState === 'OPEN' || item.marketState === 'CLOSING_SOON';
+  // Canonical open market check: OPEN or CLOSING_SOON and broker trading permitted
+  const isTradeDisabled = item.isTradeDisabled === true || item.marketAvailable === false;
+  const isMarketOpen = (item.marketState === 'OPEN' || item.marketState === 'CLOSING_SOON') && !isTradeDisabled;
 
   if (isMarketOpen) {
     return 0;
@@ -126,6 +127,8 @@ export interface RadarOpportunityItem {
   setupLifecycleState?: SetupLifecycleState;
   decisionV2?: DecisionV2UiProjection;
   setupV3?: SetupIntelligenceV3UiProjection;
+  marketAvailable?: boolean;
+  isTradeDisabled?: boolean;
 }
 
 export interface AttentionQueueItem {
@@ -306,7 +309,7 @@ export function calculateOpportunityScore(
 
   // 6. Fast Opportunity Engine & M15/M30 Candle-Close Trigger Integration
   const sessionState = profile.sessionState;
-  const isSessionExecutable = profile.sessionState ? profile.sessionState.tradeExecutable : (profile.tradeExecutable ?? true);
+  const isSessionExecutable = (profile.tradeExecutable !== false) && (profile.sessionState ? profile.sessionState.tradeExecutable : true);
   const marketState = sessionState?.marketState || (isSessionExecutable ? 'OPEN' : 'CLOSED');
   const isInvalidated =
     profile.setupLifecycle?.state === 'INVALIDATED' ||
@@ -585,7 +588,9 @@ export function generateGlobalRadarIntelligence(
       isDataLimited: isUnsupportedOrOffline || liveAsset.feedStatus === 'DATA LIMITED' || liveAsset.feedStatus === 'DEMO',
       setupLifecycleState: profile.setupLifecycle?.state || (profile.blueprint ? 'ARMED' : 'FORMING'),
       decisionV2: decisionV2Ui,
-      setupV3: setupV3Ui
+      setupV3: setupV3Ui,
+      marketAvailable: liveAsset.marketAvailable !== false && liveAsset.tradeMode !== 'DISABLED',
+      isTradeDisabled: liveAsset.isTradeDisabled === true || liveAsset.tradeMode === 'DISABLED' || liveAsset.marketAvailable === false,
     };
   });
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { mt5HttpClient } from '@/lib/bridge/mt5-http-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,51 +20,53 @@ export async function GET(req: NextRequest) {
 
     clearTimeout(timeout);
 
-    if (!res.ok) {
+    if (res.ok) {
+      const data = await res.json();
+      const { authToken, authTokenHash, keyId, ...sanitized } = data;
+      const brokerSymbols = Array.isArray(data.symbols) && data.symbols.length > 0
+        ? data.symbols
+        : Object.keys(data.quotes || {});
+
       return NextResponse.json({
-        success: false,
-        connected: false,
-        priceAuthority: 'REFERENCE',
-        broker: 'UNKNOWN',
-        server: 'UNKNOWN',
-        maskedAccount: '00***00',
-        quotes: {},
-        symbolSpecs: {},
-        positions: [],
-        pendingOrders: [],
+        ...sanitized,
+        symbols: brokerSymbols,
         isExecutable: false,
-        error: { code: `RELAY_HTTP_${res.status}`, message: 'Relay returned error status.' },
       });
     }
-
-    const data = await res.json();
-
-    // Strict sanitization: ensure secrets/tokens are never sent to client
-    const { authToken, authTokenHash, keyId, ...sanitized } = data;
-
-    const brokerSymbols = Array.isArray(data.symbols) && data.symbols.length > 0
-      ? data.symbols
-      : Object.keys(data.quotes || {});
-
-    return NextResponse.json({
-      ...sanitized,
-      symbols: brokerSymbols,
-      isExecutable: false, // Phase 2B is TELEMETRY ONLY
-    });
   } catch (err: any) {
-    return NextResponse.json({
-      success: false,
-      connected: false,
-      priceAuthority: 'REFERENCE',
-      broker: 'UNKNOWN',
-      server: 'UNKNOWN',
-      maskedAccount: '00***00',
-      quotes: {},
-      symbolSpecs: {},
-      positions: [],
-      pendingOrders: [],
-      isExecutable: false,
-      error: { code: 'RELAY_UNREACHABLE', message: 'Cannot connect to secure remote relay.' },
-    });
+    // Relay failed or timed out — fall back to cloud telemetry store
   }
+
+  // Cloud Telemetry Store fallback
+  try {
+    const cloudStatus = await mt5HttpClient.getStatus();
+    if (cloudStatus && (cloudStatus.localBridge === 'ONLINE' || cloudStatus.mt5Connected || Object.keys(cloudStatus.quotes || {}).length > 0)) {
+      const brokerSymbols = Array.isArray(cloudStatus.symbols) && cloudStatus.symbols.length > 0
+        ? cloudStatus.symbols
+        : Object.keys(cloudStatus.quotes || {});
+
+      return NextResponse.json({
+        ...cloudStatus,
+        symbols: brokerSymbols,
+        isExecutable: false,
+        transport: 'OUTBOUND_TELEMETRY_INGRESS',
+        priceAuthority: 'MT5_BROKER',
+      });
+    }
+  } catch {}
+
+  return NextResponse.json({
+    success: false,
+    connected: false,
+    priceAuthority: 'REFERENCE',
+    broker: 'UNKNOWN',
+    server: 'UNKNOWN',
+    maskedAccount: '00***00',
+    quotes: {},
+    symbolSpecs: {},
+    positions: [],
+    pendingOrders: [],
+    isExecutable: false,
+    error: { code: 'RELAY_UNREACHABLE', message: 'No active remote telemetry received.' },
+  });
 }

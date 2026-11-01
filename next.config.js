@@ -3,10 +3,13 @@ module.exports = {
   swcMinify: true,
   distDir: process.env.NEXT_DIST_DIR || '.next',
   experimental: {
+    serverComponentsExternalPackages: ['@resvg/resvg-js'],
     outputFileTracingIncludes: {
       '/api/downloads/connector': ['./storage/binaries/**/*', './mql5/Experts/**/*'],
       '/api/downloads/connector/route': ['./storage/binaries/**/*', './mql5/Experts/**/*'],
       'src/app/api/downloads/connector/route': ['./storage/binaries/**/*', './mql5/Experts/**/*'],
+      '/api/telegram/**/*': ['./node_modules/@resvg/**/*'],
+      'src/app/api/telegram/**/*': ['./node_modules/@resvg/**/*'],
     },
   },
   async rewrites() {

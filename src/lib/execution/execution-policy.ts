@@ -13,8 +13,8 @@ export type AccountTradeMode = 'DEMO' | 'REAL' | 'UNKNOWN';
  */
 export type SimplifiedExecutionMode = 'DEMO' | 'REAL' | 'UNKNOWN';
 
-export const CANONICAL_EXECUTION_MODE = 'ARMED_WITH_CONFIRMATION' as const;
-export const MT5_ORDER_TRANSPORT_ENABLED = true as const;
+export const CANONICAL_EXECUTION_MODE = 'READ_ONLY' as const;
+export const MT5_ORDER_TRANSPORT_ENABLED = false as const;
 
 export const EXECUTION_GATE_ERRORS = {
   GLOBAL_READ_ONLY_LOCK: {

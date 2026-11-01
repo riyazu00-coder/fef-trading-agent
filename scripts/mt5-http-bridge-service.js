@@ -25,7 +25,7 @@ if (!VALID_TOKEN || VALID_TOKEN === RETIRED_UNIVERSAL_TOKEN) {
 } else {
   console.log(`[BRIDGE CONFIG] Active bridge authentication source: ${tokenResolution.source}`);
 }
-const HEARTBEAT_TIMEOUT_MS = 10000; // 10 seconds aligns with HEARTBEAT_FRESH_THRESHOLD_MS
+const HEARTBEAT_TIMEOUT_MS = 20000; // 20 seconds aligns with HEARTBEAT_EXPIRED_THRESHOLD_MS
 const CANONICAL_EXECUTION_MODE = 'READ_ONLY';
 const MT5_ORDER_TRANSPORT_ENABLED = false;
 const GLOBAL_READ_ONLY_ERROR = {

@@ -28,6 +28,7 @@ import { UnifiedAgentResponse } from '@/lib/agents/contracts/unified-agent-contr
 import { VerifiedEvidenceEnvelope } from '@/lib/providers/canonical-envelope';
 import { CotReportRecord } from '@/lib/cot/cftc-cot-provider';
 import { CentralBankPolicyData } from '@/lib/central-banks/central-bank-provider';
+import { VisionOutputContract } from '@/lib/vision/vision-validator';
 
 export interface LiveIntelligenceFeeds {
   timestamp: string;
@@ -58,6 +59,7 @@ export interface LiveIntelligenceFeeds {
   centralBanks?: VerifiedEvidenceEnvelope<Record<string, CentralBankPolicyData>> | null;
   currencyStrength?: VerifiedEvidenceEnvelope<Record<string, number>> | null;
   leadLag?: VerifiedEvidenceEnvelope<any> | null;
+  visionReports?: Record<string, VerifiedEvidenceEnvelope<VisionOutputContract>> | null;
   brokerCandles?: Record<string, any> | null;
   providerHealth?: ProviderHealth[];
 }

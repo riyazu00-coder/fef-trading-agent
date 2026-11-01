@@ -23,6 +23,27 @@ import { telemetryRepository } from '@/lib/telemetry/telemetry-repository';
 
 export const dynamic = 'force-dynamic';
 
+// Simple sliding-window rate limiter per deviceId
+const rateLimitMap = new Map<string, number[]>();
+const RATE_LIMIT_MAX_PER_MINUTE = 60;
+
+function checkRateLimit(deviceId: string, now: number = Date.now()): boolean {
+  let timestamps = rateLimitMap.get(deviceId);
+  if (!timestamps) {
+    timestamps = [];
+    rateLimitMap.set(deviceId, timestamps);
+  }
+  const windowStart = now - 60000;
+  while (timestamps.length > 0 && timestamps[0] < windowStart) {
+    timestamps.shift();
+  }
+  if (timestamps.length >= RATE_LIMIT_MAX_PER_MINUTE) {
+    return false; // Rate limit exceeded
+  }
+  timestamps.push(now);
+  return true;
+}
+
 export async function POST(req: NextRequest) {
   // 1. Enforce secret presence (Fail closed if server environment is unconfigured)
   const secret = (process.env.FEF_TELEMETRY_DEVICE_SECRET || '').trim();
@@ -66,6 +87,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { success: false, error: { code: 'MISSING_AUTH_HEADERS', message: 'Required telemetry auth headers missing' } },
       { status: 401 }
+    );
+  }
+
+  // 4b. Enforce per-device rate limiting
+  if (!checkRateLimit(authHeaders.deviceId)) {
+    return NextResponse.json(
+      { success: false, error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Too many telemetry requests. Limit: 60/min' } },
+      { status: 429 }
     );
   }
 
@@ -139,6 +168,9 @@ export async function POST(req: NextRequest) {
         break;
       case 'CANDLE_SNAPSHOT':
         await telemetryRepository.saveCandleSnapshot(env.deviceId, env.capturedAt, env.sequence, env.payload);
+        break;
+      case 'INTELLIGENCE_SNAPSHOT':
+        await telemetryRepository.saveIntelligenceSnapshot(env.deviceId, env.capturedAt, env.sequence, env.payload);
         break;
     }
   } catch (err: any) {

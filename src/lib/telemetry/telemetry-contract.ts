@@ -12,7 +12,8 @@ export type TelemetryMessageType =
   | 'HEARTBEAT'
   | 'ACCOUNT_STATUS'
   | 'QUOTE_SNAPSHOT'
-  | 'CANDLE_SNAPSHOT';
+  | 'CANDLE_SNAPSHOT'
+  | 'INTELLIGENCE_SNAPSHOT';
 
 export interface BaseTelemetryEnvelope<T = unknown> {
   version: 1;
@@ -101,11 +102,52 @@ export type CandleSnapshotEnvelope = BaseTelemetryEnvelope<CandleSnapshotPayload
   type: 'CANDLE_SNAPSHOT';
 };
 
+// 5. INTELLIGENCE_SNAPSHOT (Read-only summary of local 32-agent architecture and Decision Engine V2)
+export interface IntelligenceAgentSummary {
+  id: string;
+  name: string;
+  category: string;
+  status: 'ONLINE' | 'DEGRADED' | 'DISCONNECTED';
+  ready: boolean;
+  inputFreshness: string;
+  missingDependencies: string[];
+  evidenceSummary?: string;
+  lastEvaluatedAt?: number;
+}
+
+export interface IntelligenceDecisionSummary {
+  symbol: string;
+  decision: 'STRONG_BUY' | 'BUY' | 'NEUTRAL' | 'SELL' | 'STRONG_SELL';
+  confidence: number;
+  engineVersion: 'V2';
+  setupGrade?: string;
+  blockingReasons: string[];
+  vetoes: string[];
+  correlationClusters?: Record<string, any>;
+  synthesizer: 'FINAL_DECISION';
+  evaluatedAt: number;
+  source: 'LOCAL_ENGINE' | 'REMOTE_TELEMETRY';
+}
+
+export interface IntelligenceSnapshotPayload {
+  sourceAuthority: 'LOCAL_ENGINE';
+  evaluatedAt: number;
+  agents: IntelligenceAgentSummary[];
+  decisions: Record<string, IntelligenceDecisionSummary>;
+  activeClusters?: string[];
+  finalDecisionSynthesizer: 'FINAL_DECISION';
+}
+
+export type IntelligenceSnapshotEnvelope = BaseTelemetryEnvelope<IntelligenceSnapshotPayload> & {
+  type: 'INTELLIGENCE_SNAPSHOT';
+};
+
 export type CanonicalTelemetryEnvelope =
   | HeartbeatEnvelope
   | AccountStatusEnvelope
   | QuoteSnapshotEnvelope
-  | CandleSnapshotEnvelope;
+  | CandleSnapshotEnvelope
+  | IntelligenceSnapshotEnvelope;
 
 // Allowed canonical symbols & timeframes
 export const CANONICAL_TELEMETRY_SYMBOLS = new Set([

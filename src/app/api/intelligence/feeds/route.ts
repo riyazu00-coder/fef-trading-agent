@@ -26,7 +26,12 @@ import { calculateCurrencyStrengthMatrix, calculateCurrencyStrengthFromCandles }
 import { fetchBatchBrokerCandles } from '@/lib/candles/broker-candle-service';
 import { buildVerifiedLeadLagEnvelope, CANONICAL_LEAD_LAG_PAIRS } from '@/lib/cross-asset/lead-lag-engine';
 import { fetchLiveMarketPrices } from '@/lib/providers/real-market-api';
-import { getVerifiedCandles } from '@/lib/candles/independent-candle-service';
+import { getVerifiedCandles, aggregateCandlesToH4 } from '@/lib/candles/independent-candle-service';
+import { geminiVisionProvider } from '@/lib/vision/gemini-vision-provider';
+import { VisionOutputContract } from '@/lib/vision/vision-validator';
+import { createFailedClosedEnvelope, VerifiedEvidenceEnvelope } from '@/lib/providers/canonical-envelope';
+import { analyzeMarketStructure } from '@/lib/market/market-structure-engine';
+import { OHLCCandle } from '@/lib/market/canonical-market-snapshot';
 
 export const dynamic = 'force-dynamic';
 
@@ -241,6 +246,75 @@ export async function GET(req: Request) {
       leadLagResult = null;
     }
 
+    // 7. Genuine Multimodal Vision Analysis (Phase 7B.2C Runtime Caller)
+    const visionReports: Record<string, VerifiedEvidenceEnvelope<VisionOutputContract>> = {};
+    try {
+      // Bounded concurrency: analyze active targetSymbol (at most 2 symbols)
+      const symbolsForVision = Array.from(new Set([targetSymbol])).slice(0, 2);
+
+      await Promise.all(
+        symbolsForVision.map(async (sym) => {
+          try {
+            const [m15Res, h1CandlesRaw, h4Res] = await Promise.allSettled([
+              getVerifiedCandles(sym, 'M15', 35),
+              getCandlesForSymbol(sym, 35),
+              getVerifiedCandles(sym, 'H4', 30),
+            ]);
+
+            const m15Candles: OHLCCandle[] = m15Res.status === 'fulfilled' && m15Res.value?.candles ? m15Res.value.candles : [];
+            const h1Candles: OHLCCandle[] = h1CandlesRaw.status === 'fulfilled' && Array.isArray(h1CandlesRaw.value) ? h1CandlesRaw.value : [];
+            let h4Candles: OHLCCandle[] = h4Res.status === 'fulfilled' && h4Res.value?.candles ? h4Res.value.candles : [];
+
+            // If H4 is missing/sparse but H1 has sufficient depth, aggregate deterministically
+            if (h4Candles.length < 5 && h1Candles.length >= 20) {
+              h4Candles = aggregateCandlesToH4(h1Candles) as OHLCCandle[];
+            }
+
+            if (m15Candles.length >= 5 && h1Candles.length >= 5 && h4Candles.length >= 5) {
+              const h4Structure = h4Candles.length >= 10 ? analyzeMarketStructure(h4Candles, sym, 'H4', 'INDEPENDENT_VERIFIED_OHLC') : null;
+              const h1Structure = h1Candles.length >= 10 ? analyzeMarketStructure(h1Candles, sym, 'H1', 'INDEPENDENT_VERIFIED_OHLC') : null;
+              const m15Structure = m15Candles.length >= 10 ? analyzeMarketStructure(m15Candles, sym, 'M15', 'INDEPENDENT_VERIFIED_OHLC') : null;
+              const currentPrice = h1Candles[h1Candles.length - 1]?.close;
+
+              const visionEnvelope = await geminiVisionProvider.analyzeChartPacket({
+                symbol: sym,
+                h4Candles,
+                h1Candles,
+                m15Candles,
+                currentPrice,
+                h4Structure,
+                h1Structure,
+                m15Structure,
+              });
+
+              visionReports[sym] = visionEnvelope;
+            } else {
+              visionReports[sym] = createFailedClosedEnvelope<VisionOutputContract>(
+                'GEMINI_VISION',
+                'MULTIMODAL_IMAGE_PERCEPTION',
+                `Insufficient multi-timeframe candles to render vision packet for ${sym} (H4: ${h4Candles.length}, H1: ${h1Candles.length}, M15: ${m15Candles.length})`,
+                900
+              );
+            }
+          } catch (symErr: any) {
+            visionReports[sym] = createFailedClosedEnvelope<VisionOutputContract>(
+              'GEMINI_VISION',
+              'MULTIMODAL_IMAGE_PERCEPTION',
+              `Vision analysis error for ${sym}: ${symErr?.message || 'Unknown error'}`,
+              900
+            );
+          }
+        })
+      );
+    } catch (visionBatchErr: any) {
+      visionReports[targetSymbol] = createFailedClosedEnvelope<VisionOutputContract>(
+        'GEMINI_VISION',
+        'MULTIMODAL_IMAGE_PERCEPTION',
+        `Vision batch error: ${visionBatchErr?.message || 'Unknown batch error'}`,
+        900
+      );
+    }
+
     const payload: LiveIntelligenceFeeds = {
       timestamp: new Date().toISOString(),
       news,
@@ -267,6 +341,7 @@ export async function GET(req: Request) {
       centralBanks,
       currencyStrength,
       leadLag: leadLagResult,
+      visionReports,
       brokerCandles: brokerCandlesSnapshot,
       providerHealth: providerHealthList,
     };

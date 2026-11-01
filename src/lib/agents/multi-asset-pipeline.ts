@@ -420,9 +420,9 @@ export function generateAssetIntelligence(
   const sessionState = evaluateMarketSession(normSymbol, evaluationTime, quoteTimestampMs);
   const isTradeModeDisabled = Boolean(
     liveAsset && (
-      (liveAsset as any).tradeMode === 0 ||
-      (liveAsset as any).tradeMode === 'DISABLED' ||
-      (liveAsset as any).isTradeDisabled === true
+      liveAsset.tradeMode === 0 ||
+      liveAsset.tradeMode === 'DISABLED' ||
+      liveAsset.isTradeDisabled === true
     )
   );
   const tradeExecutable = sessionState.tradeExecutable && !isTradeModeDisabled;
@@ -1528,46 +1528,71 @@ export function generateAssetIntelligence(
       }
 
       case 'VISION': {
-        if (hasCandles && marketStructure) {
-          const visBias: BiasType = marketStructure.trend === 'BULLISH' ? 'BULLISH' : (marketStructure.trend === 'BEARISH' ? 'BEARISH' : 'NEUTRAL');
-          const hasZones = marketStructure.orderBlocks.length > 0 || marketStructure.fvg.length > 0;
+        const visionEnv = feeds?.visionReports?.[normSymbol];
+        if (visionEnv && isEnvelopeActionable(visionEnv)) {
+          const v = visionEnv.payload;
+          const visBias: BiasType = v.visualDirection === 'BULLISH'
+            ? 'BULLISH'
+            : v.visualDirection === 'BEARISH'
+            ? 'BEARISH'
+            : 'NEUTRAL';
+
+          const patternMorphology = v.compressionExpansion?.patternMorphology && v.compressionExpansion.patternMorphology !== 'NONE'
+            ? `Pattern Morphology: ${v.compressionExpansion.patternMorphology} (${v.compressionExpansion.state || 'BALANCED'})`
+            : `Structure Morphology: ${v.structureQuality || 'CLEAN_TRENDING'}`;
+
+          const zoneClaim = `Zone Reaction: FVG ${v.zoneReactionQuality?.fvgRespect || 'UNTESTED'}, OB ${v.zoneReactionQuality?.obRespect || 'UNTESTED'}`;
+          const wickCount = Array.isArray(v.wickRejectionClusters) ? v.wickRejectionClusters.length : 0;
+          const wickClaim = wickCount > 0
+            ? `Wick Rejection Clusters: ${wickCount} horizontal absorption zones mapped`
+            : 'Wick Rejections: No dense absorption clusters';
+          const regimeClaim = `Visual Regime: ${v.visualRegimeTransition || 'TREND_CONTINUATION'} (${v.visualTrend || 'BALANCED'})`;
+
+          const rawObservations = Array.isArray(v.observations) ? v.observations : [];
+          const visionEvidence = [
+            patternMorphology,
+            zoneClaim,
+            wickClaim,
+            regimeClaim,
+            ...rawObservations.slice(0, 2),
+          ];
+
           return {
             ...base,
             bias: visBias,
-            confidence: hasZones ? 76 : 65,
+            confidence: v.visualConfidence ?? 75,
             status: 'ONLINE',
-            lastOpinion: `Structured chart pattern recognition active. ${marketStructure.trend} structure with ${marketStructure.fvg.length} FVGs and ${marketStructure.orderBlocks.length} Order Blocks mapped on ${structureTf}.`,
-            evidence: [
-              `SMC Chart Structure: ${marketStructure.trend} (${marketStructure.candleCount} bars)`,
-              `Active Order Blocks: ${marketStructure.orderBlocks.length}`,
-              `Active Fair Value Gaps: ${marketStructure.fvg.length}`,
-              `Key Swings: [${marketStructure.lastSwingLow ?? 'N/A'} - ${marketStructure.lastSwingHigh ?? 'N/A'}]`,
-              volumeProfile ? `Volume Profile POC: ${volumeProfile.poc}` : 'Volume Profile: CALIBRATING'
-            ],
-            keyRisk: 'Pattern invalidation on opposing boundary break',
-            invalidation: marketStructure.trend === 'BULLISH'
-              ? (marketStructure.lastSwingLow ? `Breach of swing low ${marketStructure.lastSwingLow}` : 'Structure breach')
-              : (marketStructure.lastSwingHigh ? `Breach of swing high ${marketStructure.lastSwingHigh}` : 'Structure breach'),
-            requiredInputs: ['Verified OHLC Candles', 'Structure Geometry'],
-            availableInputs: ['Verified OHLC Candles', 'Structure Geometry'],
+            lastOpinion: `Genuine multimodal chart vision active. ${v.visualTrend || 'BALANCED'} morphology (${v.structureQuality || 'CLEAN_TRENDING'}). ${rawObservations[0] || 'Multi-timeframe visual alignment verified.'}`,
+            evidence: visionEvidence,
+            keyRisk: 'Visual pattern boundary invalidation on opposing displacement',
+            invalidation: 'Break of visible multi-timeframe structural geometry',
+            requiredInputs: ['Standardized 3-Panel Chart (H4/H1/M15)', 'Multimodal Vision Model'],
+            availableInputs: ['Standardized 3-Panel Chart (H4/H1/M15)', 'Multimodal Vision Model'],
             missingInputs: [],
             lastRun: new Date().toISOString(),
             freshness: 'CURRENT',
           };
         }
 
+        // Truthful fail-closed: When genuine vision packet / key is unavailable,
+        // declare DATA LIMITED rather than pseudo-vision OHLC duplication.
         return {
           ...base,
           bias: 'NEUTRAL',
           confidence: 0,
           status: 'DATA LIMITED',
-          lastOpinion: `Awaiting verified chart candles for structural vision analysis on ${normSymbol}.`,
-          evidence: ['Chart structure: PENDING CANDLES'],
+          lastOpinion: visionEnv?.error
+            ? `Vision feed limited: ${visionEnv.error}`
+            : `Awaiting verified multimodal chart vision packet for ${normSymbol}. Zero synthetic vision mockup.`,
+          evidence: [
+            visionEnv?.error ? `Vision Error: ${visionEnv.error}` : 'Multimodal Vision: PROVIDER UNAVAILABLE / DATA LIMITED',
+            'Authenticity Policy: ZERO SYNTHETIC VISION MOCKUP ENFORCED',
+          ],
           keyRisk: 'N/A',
           invalidation: 'N/A',
-          requiredInputs: ['Verified OHLC Candles'],
-          availableInputs: [],
-          missingInputs: ['Verified OHLC Candles'],
+          requiredInputs: ['Standardized 3-Panel Chart (H4/H1/M15)', 'Multimodal Vision Model'],
+          availableInputs: hasCandles ? ['Standardized 3-Panel Chart (H4/H1/M15)'] : [],
+          missingInputs: ['Active Gemini Vision Model'],
           lastRun: new Date().toISOString(),
           freshness: 'OFFLINE',
         };
@@ -1724,14 +1749,21 @@ export function generateAssetIntelligence(
           sourceTimestampMs = undefined;
           structuralGate = false;
         }
-      } else if (ag.type === 'VISION' && hasCandles && marketStructure) {
-        classification = effectiveCandleProvenance === 'INDEPENDENT_REFERENCE'
-          ? 'INDEPENDENT_REFERENCE'
-          : 'MODEL_INFERENCE';
-        sourceName = 'Computer Vision Technical Detection';
-        sourceType = 'MODEL_INFERENCE';
-        sourceTimestampMs = candleTimestampMs;
-        structuralGate = false;
+      } else if (ag.type === 'VISION') {
+        const vEnv = feeds?.visionReports?.[normSymbol];
+        if (vEnv && isEnvelopeActionable(vEnv)) {
+          classification = 'DERIVED_FROM_VERIFIED';
+          sourceName = 'Gemini Multimodal Chart Vision';
+          sourceType = 'MULTIMODAL_IMAGE_PERCEPTION';
+          sourceTimestampMs = new Date(vEnv.observedAt).getTime();
+          structuralGate = true;
+        } else {
+          classification = 'UNAVAILABLE';
+          sourceName = 'Multimodal Vision Provider';
+          sourceType = 'UNAVAILABLE';
+          sourceTimestampMs = undefined;
+          structuralGate = false;
+        }
       } else if (ag.type === 'MACRO' && cachedXauusdMacro && cachedXauusdMacro.dataReadiness !== 'UNAVAILABLE') {
         classification = 'INDEPENDENT_VERIFIED';
         sourceName = 'Official Federal Reserve Economic Data (FRED)';
@@ -2154,6 +2186,9 @@ export function generateAssetIntelligence(
   }
   if (feeds?.cotReports?.[normSymbol] && isEnvelopeActionable(feeds.cotReports[normSymbol])) {
     coveredFamilies.push('CFTC_POSITIONING');
+  }
+  if (feeds?.visionReports?.[normSymbol] && isEnvelopeActionable(feeds.visionReports[normSymbol])) {
+    coveredFamilies.push('CHART_COMPUTER_VISION');
   }
   if (hasCandles && analysisCandles.length >= 15) {
     coveredFamilies.push('MT5_PRICE');

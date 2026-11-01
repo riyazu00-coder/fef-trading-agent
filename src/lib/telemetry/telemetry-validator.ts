@@ -57,7 +57,7 @@ export function validateTelemetryEnvelope(data: any): ValidationResult {
 
   // Check type
   const type = data.type;
-  if (!['HEARTBEAT', 'ACCOUNT_STATUS', 'QUOTE_SNAPSHOT', 'CANDLE_SNAPSHOT'].includes(type)) {
+  if (!['HEARTBEAT', 'ACCOUNT_STATUS', 'QUOTE_SNAPSHOT', 'CANDLE_SNAPSHOT', 'INTELLIGENCE_SNAPSHOT'].includes(type)) {
     return { valid: false, error: `Unsupported telemetry message type: ${type}` };
   }
 
@@ -150,6 +150,25 @@ export function validateTelemetryEnvelope(data: any): ValidationResult {
         if (i > 0 && c.timestamp <= payload.candles[i - 1].timestamp) {
           return { valid: false, error: 'Candle bars must be in strictly ascending chronological order' };
         }
+      }
+      break;
+    }
+
+    case 'INTELLIGENCE_SNAPSHOT': {
+      if (payload.sourceAuthority !== 'LOCAL_ENGINE') {
+        return { valid: false, error: 'sourceAuthority must be LOCAL_ENGINE' };
+      }
+      if (!isFiniteNumber(payload.evaluatedAt) || payload.evaluatedAt <= 0) {
+        return { valid: false, error: 'Invalid evaluatedAt timestamp' };
+      }
+      if (!Array.isArray(payload.agents)) {
+        return { valid: false, error: 'agents must be an array' };
+      }
+      if (!payload.decisions || typeof payload.decisions !== 'object') {
+        return { valid: false, error: 'decisions must be an object' };
+      }
+      if (payload.finalDecisionSynthesizer !== 'FINAL_DECISION') {
+        return { valid: false, error: 'finalDecisionSynthesizer must be FINAL_DECISION' };
       }
       break;
     }

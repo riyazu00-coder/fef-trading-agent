@@ -11,7 +11,8 @@ export type EnvelopeSourceType =
   | 'REGULATED_EXCHANGE'
   | 'CENTRAL_BANK'
   | 'CLOSED_CANDLE_STREAM'
-  | 'DERIVED_ANALYTICS';
+  | 'DERIVED_ANALYTICS'
+  | 'MULTIMODAL_IMAGE_PERCEPTION';
 
 export type EnvelopeVerificationLevel =
   | 'UNVERIFIED'

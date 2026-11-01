@@ -185,7 +185,7 @@ const YAHOO_SYMBOLS: Record<string, string> = {
   DXY: 'DX-Y.NYB',
 };
 
-function aggregateCandlesToH4(hourlyCandles: RawCandleInput[]): RawCandleInput[] {
+export function aggregateCandlesToH4(hourlyCandles: RawCandleInput[]): RawCandleInput[] {
   if (!hourlyCandles || hourlyCandles.length === 0) return [];
   const FOUR_HOURS_MS = 4 * 3600 * 1000;
   const h4Buckets = new Map<number, RawCandleInput[]>();

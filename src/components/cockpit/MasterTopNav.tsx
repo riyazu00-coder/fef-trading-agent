@@ -665,7 +665,10 @@ export const MasterTopNav: React.FC = () => {
               <div className="grid grid-cols-2 gap-1.5">
                 {[
                   { name: 'Cockpit', path: '/cockpit', icon: '⚡' },
-                  { name: 'Agents', path: '/agents', icon: '🤖' },
+                  { name: 'Agents', path: '/agents', icon: '🧠' },
+                  { name: 'AI Assistant', path: '/cockpit#sentinel-deck', icon: '🤖' },
+                  { name: 'AI Reports', path: '/cockpit#sentinel-deck', icon: '📑' },
+                  { name: 'Telegram Signals', path: '/cockpit#sentinel-deck', icon: '✈️' },
                   { name: 'Markets', path: '/markets', icon: '🌐' },
                   { name: 'TradingView', path: '/tradingview', icon: '📈' },
                   { name: 'Execution', path: '/execution', icon: '🎯' },

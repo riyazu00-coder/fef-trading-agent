@@ -265,13 +265,21 @@ runTest('Evidence family metadata exists and covers canonical families', () => {
 
 // 5. Correlated technical agents grouped into independence groups
 runTest('Correlated technical agents share PRICE_OHLC_DERIVED independence group', () => {
-  const techAgents = ['TECHNICAL', 'VISION', 'STRATEGY', 'VOLATILITY_SQUEEZE', 'ANCHORED_VWAP', 'MARKET_REGIME_CLASSIFIER', 'QUANT_MOMENTUM'];
-  for (const agentId of techAgents) {
+  // Pure mathematical OHLC agents share PRICE_OHLC_DERIVED
+  const ohlcTechAgents = ['TECHNICAL', 'STRATEGY', 'VOLATILITY_SQUEEZE', 'ANCHORED_VWAP', 'MARKET_REGIME_CLASSIFIER', 'QUANT_MOMENTUM'];
+  for (const agentId of ohlcTechAgents) {
     const dep = AGENT_DEPENDENCY_REGISTRY[agentId];
     assert(dep, `Dependency for ${agentId} must exist`);
     assert.strictEqual(dep.independenceGroup, 'PRICE_OHLC_DERIVED');
     assert.strictEqual(dep.isDerived, true);
   }
+
+  // Vision agent canonically belongs to CHART_COMPUTER_VISION with MULTIMODAL_IMAGE_PERCEPTION (Phase 7B.2)
+  const visionDep = AGENT_DEPENDENCY_REGISTRY['VISION'];
+  assert(visionDep, 'Dependency for VISION must exist');
+  assert.strictEqual(visionDep.independenceGroup, 'CHART_COMPUTER_VISION');
+  assert.strictEqual(visionDep.derivationType, 'MULTIMODAL_IMAGE_PERCEPTION');
+  assert.strictEqual(visionDep.isDerived, true);
 });
 
 // 6. Seven correlated bullish agents do not count as seven independent domains
@@ -282,7 +290,7 @@ runTest('Seven correlated bullish candle agents do not count as seven independen
   // Create 7 bullish agents all derived from PRICE_OHLC_DERIVED
   const agents = [
     { agentId: 'TECHNICAL', agentName: 'Technical Agent', direction: 'BULLISH', confidence: 85, evidenceTrust: 90, readiness: 'READY' },
-    { agentId: 'VISION', agentName: 'Vision Agent', direction: 'BULLISH', confidence: 80, evidenceTrust: 85, readiness: 'READY' },
+    { agentId: 'OPPORTUNITY', agentName: 'Opportunity Agent', direction: 'BULLISH', confidence: 80, evidenceTrust: 85, readiness: 'READY' },
     { agentId: 'STRATEGY', agentName: 'Strategy Agent', direction: 'BULLISH', confidence: 80, evidenceTrust: 85, readiness: 'READY' },
     { agentId: 'VOLATILITY_SQUEEZE', agentName: 'Volatility Squeeze', direction: 'BULLISH', confidence: 75, evidenceTrust: 80, readiness: 'READY' },
     { agentId: 'ANCHORED_VWAP', agentName: 'Anchored VWAP', direction: 'BULLISH', confidence: 85, evidenceTrust: 85, readiness: 'READY' },
@@ -835,7 +843,7 @@ runTest('SCENARIO A: 7 correlated technical agents bullish -> capped confidence,
 
   const agents = [
     { agentId: 'TECHNICAL', agentName: 'Technical Agent', direction: 'BULLISH', confidence: 90, evidenceTrust: 95, readiness: 'READY' },
-    { agentId: 'VISION', agentName: 'Vision Agent', direction: 'BULLISH', confidence: 90, evidenceTrust: 95, readiness: 'READY' },
+    { agentId: 'OPPORTUNITY', agentName: 'Opportunity Agent', direction: 'BULLISH', confidence: 90, evidenceTrust: 95, readiness: 'READY' },
     { agentId: 'STRATEGY', agentName: 'Strategy Agent', direction: 'BULLISH', confidence: 90, evidenceTrust: 95, readiness: 'READY' },
     { agentId: 'VOLATILITY_SQUEEZE', agentName: 'Volatility Squeeze', direction: 'BULLISH', confidence: 90, evidenceTrust: 95, readiness: 'READY' },
     { agentId: 'ANCHORED_VWAP', agentName: 'Anchored VWAP', direction: 'BULLISH', confidence: 90, evidenceTrust: 95, readiness: 'READY' },
