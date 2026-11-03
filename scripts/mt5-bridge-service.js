@@ -13,8 +13,26 @@
  */
 
 const net = require('net');
+const path = require('path');
+const fs = require('fs');
 
 const PORT = parseInt(process.env.MT5_PORT || '5555', 10);
+const HOST = '127.0.0.1'; // STRICT LOOPBACK BINDING
+
+// Load .env.local if present and not already set
+if (!process.env.FEF_BRIDGE_TOKEN) {
+  const envLocalPath = path.resolve(__dirname, '../.env.local');
+  if (fs.existsSync(envLocalPath)) {
+    try {
+      const content = fs.readFileSync(envLocalPath, 'utf8');
+      const match = content.match(/FEF_BRIDGE_TOKEN=["']?([^"'\r\n]+)["']?/);
+      if (match) {
+        process.env.FEF_BRIDGE_TOKEN = match[1].trim();
+      }
+    } catch (_) {}
+  }
+}
+
 const VALID_TOKEN = (process.env.FEF_BRIDGE_TOKEN || '').trim();
 if (!VALID_TOKEN || VALID_TOKEN === 'fef_local_bridge_token_v1') {
   console.warn('[BRIDGE CONFIG] FEF_BRIDGE_TOKEN is unconfigured or uses retired public fallback. Fail-closed.');

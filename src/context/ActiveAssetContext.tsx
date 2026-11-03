@@ -27,6 +27,7 @@ import {
 } from '../lib/bridge/connectivity-policy';
 import { symbolDirectory } from '../lib/bridge/symbol-mapper';
 import { evaluateCanonicalDailyStats } from '../lib/price/canonical-daily-ohlc';
+import { resolveCanonicalTimestampContract } from '../lib/price/canonical-timestamp-contract';
 
 export type CandleLoadingState = 'LOADING' | 'VERIFIED' | 'STALE' | 'UNAVAILABLE' | 'ERROR';
 
@@ -511,6 +512,18 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
               const isTradeDisabled = tradeMode === 'DISABLED' || tradeMode === 0 || session?.marketAvailable === false;
               const marketAvailable = session?.marketAvailable !== undefined ? session.marketAvailable : !isTradeDisabled;
 
+              const quoteTimeMs = typeof quote.timestamp === 'number' && quote.timestamp > 0
+                ? (quote.timestamp < 1e11 ? quote.timestamp * 1000 : quote.timestamp)
+                : (typeof (freshness as any)?.lastReceivedMs === 'number' ? (freshness as any).lastReceivedMs : nowMs);
+
+              const timeContract = resolveCanonicalTimestampContract({
+                quoteTimestamp: quoteTimeMs,
+                lastUpdated: quote.freshness || freshness.statusLabel,
+                nowMs,
+                maxFreshAgeMs: 30_000,
+                isBrokerFeed: true,
+              });
+
               workingAssets[symKey] = {
                 ...baseAsset,
                 price: midPrice,
@@ -526,25 +539,47 @@ export const ActiveAssetProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 referencePrice: baseAsset.referencePrice || baseAsset.price,
                 referenceProvider: baseAsset.provider || 'TradingView Spot',
                 lastUpdated: quote.freshness || freshness.statusLabel,
+                quoteTimestampMs: timeContract.quoteTimestampMs,
+                lastReceivedAtMs: timeContract.lastReceivedAtMs,
+                lastValidatedAtMs: timeContract.lastValidatedAtMs,
+                dataAgeMs: timeContract.dataAgeMs,
+                dataFreshness: timeContract.dataFreshness,
+                dataAvailability: timeContract.dataAvailability,
                 tradeMode,
                 isTradeDisabled,
                 marketAvailable,
               };
             } else {
               // Quote > 30s: Exceeded display tolerance
+              const staleTimeContract = resolveCanonicalTimestampContract({
+                quoteTimestamp: typeof quote.timestamp === 'number' ? quote.timestamp : (nowMs - (freshness.ageMs || 45_000)),
+                lastUpdated: freshness.statusLabel,
+                nowMs,
+                maxFreshAgeMs: 30_000,
+                isBrokerFeed: true,
+              });
+
               if (isLocalMode) {
                 workingAssets[symKey] = {
                   ...baseAsset,
                   feedStatus: 'DATA LIMITED',
                   source: 'MT5 Broker (Local SQLite)',
                   provider: resolvedBroker,
-                  lastUpdated: `Stale (${freshness.statusLabel})`
+                  lastUpdated: `Stale (${freshness.statusLabel})`,
+                  quoteTimestampMs: staleTimeContract.quoteTimestampMs,
+                  dataAgeMs: staleTimeContract.dataAgeMs,
+                  dataFreshness: staleTimeContract.dataFreshness,
+                  dataAvailability: 'AVAILABLE',
                 };
               } else {
                 workingAssets[symKey] = {
                   ...baseAsset,
                   feedStatus: 'FALLBACK',
-                  lastUpdated: `Ref Fallback (${freshness.statusLabel})`
+                  lastUpdated: `Ref Fallback (${freshness.statusLabel})`,
+                  quoteTimestampMs: staleTimeContract.quoteTimestampMs,
+                  dataAgeMs: staleTimeContract.dataAgeMs,
+                  dataFreshness: staleTimeContract.dataFreshness,
+                  dataAvailability: 'PARTIAL',
                 };
               }
             }

@@ -82,7 +82,8 @@ async function runMasterAcceptanceSuite() {
     entryZone: { low: 2740.0, high: 2742.0, midpoint: 2741.0, source: 'FVG', rationale: 'Fair Value Gap' },
     stopLoss: { price: 2735.0, distance: 6.0, rationale: 'Swing Low', bufferAtrMultiplier: 1.5 },
     targets: [
-      { targetIndex: 0, label: 'TP1', price: 2755.0, source: 'Liquidity', rationale: 'Equal Highs', rewardDistance: 14.0, riskReward: 2.33 },
+      { targetIndex: 1, label: 'TP1', price: 2750.0, source: 'Liquidity', rationale: 'Equal Highs', rewardDistance: 9.0, riskReward: 1.50 },
+      { targetIndex: 2, label: 'TP2', price: 2755.0, source: 'Expansion', rationale: 'Expansion Target', rewardDistance: 14.0, riskReward: 2.33 },
     ],
     invalidation: { price: 2735.0, condition: 'Candle close below 2735.0', source: 'Structure', rationale: 'Structure invalidation' },
   };
@@ -201,7 +202,8 @@ async function runMasterAcceptanceSuite() {
     entryZone: { low: 2740.0, high: 2742.0, midpoint: 2741.0, source: 'FVG', rationale: 'Fair Value Gap' },
     stopLoss: { price: 2748.0, distance: 7.0, rationale: 'Swing High', bufferAtrMultiplier: 1.5 },
     targets: [
-      { targetIndex: 0, label: 'TP1', price: 2725.0, source: 'Liquidity', rationale: 'Equal Lows', rewardDistance: 16.0, riskReward: 2.29 },
+      { targetIndex: 1, label: 'TP1', price: 2731.0, source: 'Liquidity', rationale: 'Equal Lows', rewardDistance: 10.0, riskReward: 1.43 },
+      { targetIndex: 2, label: 'TP2', price: 2725.0, source: 'Expansion', rationale: 'Expansion Target', rewardDistance: 16.0, riskReward: 2.29 },
     ],
     invalidation: { price: 2748.0, condition: 'Candle close above 2748.0', source: 'Structure', rationale: 'Structure invalidation' },
   };
@@ -216,7 +218,10 @@ async function runMasterAcceptanceSuite() {
     setupRevision: 2,
     entryZone: { low: 2745.0, high: 2747.0, midpoint: 2746.0 }, // significant 5 pts movement
     stopLoss: { price: 2740.0, distance: 6.0 },
-    targets: [{ targetIndex: 0, label: 'TP1', price: 2760.0, rewardDistance: 14.0, riskReward: 2.33 }],
+    targets: [
+      { targetIndex: 1, label: 'TP1', price: 2755.0, rewardDistance: 9.0, riskReward: 1.50 },
+      { targetIndex: 2, label: 'TP2', price: 2760.0, rewardDistance: 14.0, riskReward: 2.33 },
+    ],
   };
   const updateCheck = evaluateSignalEligibility(
     baseDecision,

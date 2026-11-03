@@ -457,18 +457,47 @@ export class SetupIntelligenceEngineV3 {
             geometryRejectionReason = 'Target progression violates directional monotonicity';
             targets = [];
           } else {
+            // Locate TP2 target explicitly (TP3 must not replace missing or invalid TP2)
+            const tp2Target = targets.find(t => t.targetIndex === 2);
+            const tp2Price = (blueprint.tp2 && typeof blueprint.tp2.price === 'number' && !isNaN(blueprint.tp2.price))
+              ? Number(blueprint.tp2.price.toFixed(precision))
+              : undefined;
+
+            const isTp2DirectionallyValid = Boolean(
+              tp2Price &&
+              tp2Price > 0 &&
+              (candidateDirection === 'LONG' ? (tp2Price > eMid && tp2Price > tp1Price) : (tp2Price < eMid && tp2Price < tp1Price))
+            );
+
+            const hasValidTp2 = Boolean(
+              blueprint.tp2 &&
+              tp2Target &&
+              isTp2DirectionallyValid &&
+              tp2Target.rewardDistance > 0 &&
+              riskDist > 0
+            );
+
+            const tp2Dist = hasValidTp2 && tp2Target ? tp2Target.rewardDistance : 0;
+            const tp2Rr = hasValidTp2 && riskDist > 0 ? Number((tp2Dist / riskDist).toFixed(2)) : 0;
+
+            // MANDATORY TP2 QUALIFICATION:
+            // TP2 MUST exist, be directionally valid, and TP2_RR >= 2.0 (MINIMUM_SETUP_RR).
+            // TP1 MUST NOT independently qualify the setup.
+            // TP3 must not replace missing or invalid TP2.
+            const meetsThreshold = Boolean(hasValidTp2 && tp2Rr >= MINIMUM_SETUP_RR);
+
             risk = {
               riskDistance: Number(riskDist.toFixed(precision)),
               riskAtrMultiple: Number(geomEval.riskAtrMultiple.toFixed(2))
             };
             reward = {
-              rewardDistance: Number(rewardDist.toFixed(precision)),
+              rewardDistance: Number((tp2Dist > 0 ? tp2Dist : rewardDist).toFixed(precision)),
               primaryTargetPrice: tp1Price
             };
             riskReward = {
-              ratio: tp1Rr,
-              formatted: `1:${tp1Rr.toFixed(2)}`,
-              meetsMinimumThreshold: tp1Rr >= MINIMUM_SETUP_RR
+              ratio: tp2Rr,
+              formatted: tp2Rr > 0 ? `1:${tp2Rr.toFixed(2)}` : (tp1Rr > 0 ? `1:${tp1Rr.toFixed(2)} (NO_TP2)` : 'INVALID_RR'),
+              meetsMinimumThreshold: meetsThreshold
             };
           }
         }
@@ -587,11 +616,11 @@ export class SetupIntelligenceEngineV3 {
       details: riskReward ? `${riskReward.formatted} (Min: 1:${MINIMUM_SETUP_RR.toFixed(1)})` : 'Awaiting geometry'
     });
 
-    // Independent Confirmation requirement (Decision Engine V2 dependency groups)
-    const hasIndependentDomains = (decisionV2?.independentDomainCount ?? 0) >= 3;
+    // Independent Confirmation requirement (Decision Engine V2 dependency groups: >= 2 independent domains)
+    const hasIndependentDomains = (decisionV2?.independentDomainCount ?? 0) >= 2;
     reqs.push({
       id: 'INDEPENDENT_EVIDENCE',
-      label: 'Multi-Domain Independent Alignment (>= 3 Domains)',
+      label: 'Multi-Domain Independent Alignment (>= 2 Domains)',
       status: hasIndependentDomains ? 'SATISFIED' : 'MISSING',
       source: 'DECISION_ENGINE_V2',
       details: `${decisionV2?.independentDomainCount ?? 0} independent domains aligned`

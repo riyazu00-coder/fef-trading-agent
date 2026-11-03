@@ -26,6 +26,13 @@ export interface LiveMarketAsset {
   sparkline: string;
   source: string;
   lastUpdated: string;
+  quoteTimestampMs?: number;
+  candleTimestampMs?: number;
+  lastReceivedAtMs?: number;
+  lastValidatedAtMs?: number;
+  dataAgeMs?: number;
+  dataFreshness?: 'FRESH' | 'STALE' | 'UNAVAILABLE' | 'INVALID_TIMESTAMP';
+  dataAvailability?: 'AVAILABLE' | 'PARTIAL' | 'UNAVAILABLE';
   category: MarketCategory | 'COMMODITY';
   feedStatus?: MarketFeedStatus;
   provider?: string;
@@ -90,7 +97,7 @@ function buildInitialLiveAssets(): Record<string, LiveMarketAsset> {
       sparkline: isPos
         ? '0,28 20,24 40,20 60,18 80,14 100,16 120,10 140,8'
         : '0,10 20,14 40,16 60,22 80,25 100,28 120,32 140,34',
-      source: isUnverified ? 'UNAVAILABLE' : 'Awaiting Live Feed',
+      source: isUnverified ? 'UNAVAILABLE' : (def.symbol === 'XAUUSD' ? 'Gold-API / Exness (Awaiting Live Feed)' : 'Awaiting Live Feed'),
       provider: isUnverified ? 'UNAVAILABLE (No Public Live Feed)' : def.feedProvider,
       lastUpdated: isUnverified ? 'UNAVAILABLE' : 'Awaiting Live Feed',
       category: def.category,

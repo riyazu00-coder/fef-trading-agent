@@ -33,6 +33,7 @@ import {
   EvidenceClassification
 } from '../evidence/agent-evidence';
 import { TIMEFRAME_INTERVAL_MS } from '../candles/candle-validator';
+import { resolveCanonicalTimestampContract } from '../price/canonical-timestamp-contract';
 import { getInstrumentParityProfile } from '../price/instrument-parity';
 import { analyzeMarketStructure, MarketStructure } from '../market/market-structure-engine';
 import {
@@ -414,9 +415,16 @@ export function generateAssetIntelligence(
 
   // 1. Evaluate Session & Trading Temporal Window
   const evalTimeMs = evaluationTime ? evaluationTime.getTime() : Date.now();
-  const quoteTimestampMs = liveAsset?.lastUpdated && !isNaN(new Date(liveAsset.lastUpdated).getTime())
-    ? new Date(liveAsset.lastUpdated).getTime()
-    : undefined;
+  const isIncomingBroker = liveAsset?.provider === 'MT5' || Boolean(liveAsset?.source && liveAsset.source.includes('MT5'));
+  const timestampContract = resolveCanonicalTimestampContract({
+    quoteTimestamp: liveAsset?.quoteTimestampMs,
+    lastUpdated: liveAsset?.lastUpdated,
+    lastReceivedAt: liveAsset?.lastReceivedAtMs,
+    nowMs: evalTimeMs,
+    maxFreshAgeMs: 30_000,
+    isBrokerFeed: isIncomingBroker,
+  });
+  const quoteTimestampMs = timestampContract.quoteTimestampMs;
   const sessionState = evaluateMarketSession(normSymbol, evaluationTime, quoteTimestampMs);
   const isTradeModeDisabled = Boolean(
     liveAsset && (
@@ -453,6 +461,9 @@ export function generateAssetIntelligence(
         effectiveCandleProvenance = candleProvenance;
         effectiveCandleProvider = candleProvider || 'Provider';
       }
+    } else if (liveAsset?.provider === 'MT5' || Boolean(liveAsset?.source && liveAsset.source.includes('MT5')) || liveAsset?.classification === 'LIVE_MT5') {
+      effectiveCandleProvenance = 'LIVE_MT5';
+      effectiveCandleProvider = liveAsset?.provider || 'MT5 Broker';
     } else {
       // Fail-closed: Unspecified or untracked candle feed must NEVER be upgraded to INDEPENDENT_VERIFIED
       effectiveCandleProvenance = 'HEURISTIC';
@@ -572,7 +583,9 @@ export function generateAssetIntelligence(
 
   if (isExecutionLevelPermitted && isStructureValid && marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
     let freshBlueprint: TradeBlueprint | null = null;
-    const candidateDir = marketStructure.trend === 'BULLISH' ? 'BUY' : 'SELL';
+    let candidateDir: 'BUY' | 'SELL' = marketStructure.trend === 'BULLISH' ? 'BUY' :
+      marketStructure.trend === 'BEARISH' ? 'SELL' :
+      (p >= (marketStructure.lastSwingHigh || p) || (analysisCandles && analysisCandles.length > 0 && analysisCandles[analysisCandles.length - 1].close > analysisCandles[0].close) ? 'BUY' : 'SELL');
 
     // Anti-flip-flop guard: Require genuinely new structural evidence before regenerating same-direction setup
     const evidenceCheck = SetupLifecycleEngine.hasNewStructuralEvidence(
@@ -585,8 +598,14 @@ export function generateAssetIntelligence(
     if (evidenceCheck.hasNewEvidence) {
       if (candidateDir === 'BUY') {
         freshBlueprint = buildBuyBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
+        if (!freshBlueprint && marketStructure.trend === 'RANGING') {
+          freshBlueprint = buildSellBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
+        }
       } else if (candidateDir === 'SELL') {
         freshBlueprint = buildSellBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
+        if (!freshBlueprint && marketStructure.trend === 'RANGING') {
+          freshBlueprint = buildBuyBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
+        }
       }
 
       if (freshBlueprint) {
@@ -1734,14 +1753,14 @@ export function generateAssetIntelligence(
         }
         sourceName = volumeProfile.isExchangeVolume ? 'Exchange Volume Profile' : 'Broker Tick Volume Profile';
         sourceTimestampMs = candleTimestampMs;
-        structuralGate = false;
+        structuralGate = Boolean(volumeProfile && hasCandles);
       } else if (ag.type === 'CORRELATION') {
         if (ag.status === 'ONLINE' && feeds?.crossAsset) {
           classification = 'DERIVED_FROM_VERIFIED';
           sourceName = 'Cross-Asset & Correlation Engine';
           sourceType = 'INTERMARKET_COVARIANCE';
           sourceTimestampMs = feeds.crossAsset.computedAt || evalTimeMs;
-          structuralGate = false;
+          structuralGate = Boolean(feeds.crossAsset.computedAt && (evalTimeMs - feeds.crossAsset.computedAt) <= 300_000);
         } else {
           classification = 'STATIC_REFERENCE';
           sourceName = 'Intermarket Correlation Baseline';
@@ -1769,7 +1788,7 @@ export function generateAssetIntelligence(
         sourceName = 'Official Federal Reserve Economic Data (FRED)';
         sourceType = 'MACROECONOMIC_ENGINE';
         sourceTimestampMs = cachedXauusdMacro.assembledAt;
-        structuralGate = false;
+        structuralGate = Boolean(sourceTimestampMs && (evalTimeMs - sourceTimestampMs) <= 86_400_000);
       } else if (ag.type === 'MACRO' && cachedMacro.length > 0) {
         const relevantMacro = cachedMacro.filter((m) =>
           isMacroRecordApplicable(m, normSymbol, meta.category)
@@ -1783,7 +1802,7 @@ export function generateAssetIntelligence(
           sourceTimestampMs = rawMacroTs && !isNaN(new Date(rawMacroTs).getTime())
             ? new Date(rawMacroTs).getTime()
             : undefined;
-          structuralGate = false;
+          structuralGate = Boolean(sourceTimestampMs && (evalTimeMs - sourceTimestampMs) <= 86_400_000);
         } else {
           classification = 'UNAVAILABLE';
           sourceName = 'Unconnected Feed';
@@ -1799,7 +1818,7 @@ export function generateAssetIntelligence(
         sourceTimestampMs = top.epochMs || (top.publishedAt && !isNaN(new Date(top.publishedAt).getTime())
           ? new Date(top.publishedAt).getTime()
           : undefined);
-        structuralGate = false;
+        structuralGate = Boolean(sourceTimestampMs && (evalTimeMs - sourceTimestampMs) <= 7_200_000);
       } else if (ag.type === 'GEOPOLITICAL' && cachedAlerts.length > 0) {
         const top = cachedAlerts[0];
         classification = top.classification || 'DELAYED_EXTERNAL';
@@ -1808,7 +1827,7 @@ export function generateAssetIntelligence(
         sourceTimestampMs = top.timestamp && !isNaN(new Date(top.timestamp).getTime())
           ? new Date(top.timestamp).getTime()
           : undefined;
-        structuralGate = false;
+        structuralGate = Boolean(sourceTimestampMs && (evalTimeMs - sourceTimestampMs) <= 14_400_000);
       } else if (ag.type === 'SENTIMENT' && cachedSentiment && cachedSentiment.status === 'AVAILABLE') {
         classification = cachedSentiment.classification || 'INDEPENDENT_VERIFIED';
         sourceName = cachedSentiment.provenance || 'Binance Futures Public LSR';
@@ -1816,7 +1835,7 @@ export function generateAssetIntelligence(
         sourceTimestampMs = cachedSentiment.timestamp && !isNaN(new Date(cachedSentiment.timestamp).getTime())
           ? new Date(cachedSentiment.timestamp).getTime()
           : undefined;
-        structuralGate = false;
+        structuralGate = Boolean(sourceTimestampMs && (evalTimeMs - sourceTimestampMs) <= 3_600_000);
       } else if (lower.includes('mt5 broker') || lower.includes('live_mt5') || lower.includes('broker candle')) {
         classification = 'LIVE_MT5';
         sourceName = 'MT5 Broker Telemetry';
@@ -2120,9 +2139,11 @@ export function generateAssetIntelligence(
             receivedAt: Date.now(),
             freshnessMs: ev.freshnessMs,
             isStale,
+            decisionEligible: ev.decisionEligible,
             instrument: normSymbol,
           };
         }),
+        evidenceRecords: a.evidenceRecords,
         conflicts: [],
         missingEvidence: a.missingInputs || [],
         invalidation: a.invalidation || 'Structural violation',
@@ -2370,10 +2391,10 @@ export function generateAssetIntelligence(
       mid: p,
       spread: isAssetMt5Live ? (liveAsset?.spread ?? 0) : 0,
       digits: 2,
-      quoteTimestamp: evalTimeMs,
-      quoteAgeMs: isAssetMt5Live && quoteTimestampMs ? Math.max(0, evalTimeMs - quoteTimestampMs) : 0,
+      quoteTimestamp: quoteTimestampMs || evalTimeMs,
+      quoteAgeMs: timestampContract.dataAgeMs,
       quoteFreshness: isAssetMt5Live
-        ? ((evalTimeMs - (quoteTimestampMs || 0)) <= 30_000 ? 'FRESH' : 'STALE')
+        ? timestampContract.dataFreshness
         : (liveAsset && liveAsset.price > 0 ? 'FRESH' : 'UNAVAILABLE'),
       marketState: (sessionState.marketState === 'CLOSED' || sessionState.marketState === 'DAILY_BREAK') ? sessionState.marketState : 'OPEN',
       sessionState: { ...sessionState, tradeExecutable: false },

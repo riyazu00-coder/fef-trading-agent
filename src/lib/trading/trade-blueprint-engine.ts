@@ -12,6 +12,7 @@
 import { MarketStructure, StructureLevel, FVG, OrderBlock } from '../market/market-structure-engine';
 import { OHLCCandle } from '../market/canonical-market-snapshot';
 import { calculateATR } from '../market/canonical-market-snapshot';
+import { detectInstitutionalStrategy, buildExpandedInstitutionalBlueprint } from './expanded-strategies';
 
 export type SetupLifecycleState =
   | 'FORMING'
@@ -376,7 +377,7 @@ export function evaluateBlueprintMarketCompatibility(
   return { isCompatible: true };
 }
 
-function generateSetupId(symbol: string, direction: string): string {
+export function generateSetupId(symbol: string, direction: string): string {
   return `SETUP-${symbol}-${direction}-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 }
 
@@ -447,7 +448,13 @@ export function buildBuyBlueprint(
     entryType = 'BULLISH_OB';
   }
 
-  if (!entrySource) return null;
+  if (!entrySource) {
+    const strat = detectInstitutionalStrategy(structure, candles, symbol, currentPrice, effectiveSource, policy);
+    if (strat && strat.direction === 'BUY') {
+      return buildExpandedInstitutionalBlueprint(strat, structure, symbol, effectiveSource, structure.timeframe || 'M15');
+    }
+    return null;
+  }
 
   const entryHigh = entrySource.type === 'BULLISH_FVG' ? (entrySource as FVG).high : (entrySource as OrderBlock).high;
   const entryLow = entrySource.type === 'BULLISH_FVG' ? (entrySource as FVG).low : (entrySource as OrderBlock).low;
@@ -474,7 +481,13 @@ export function buildBuyBlueprint(
     ...structure.resistance.filter(r => r.price > entryHigh && r.price > entryRef),
   ].sort((a, b) => a.price - b.price);
 
-  if (targetsAbove.length === 0) return null; // no structural target available — refuse blueprint
+  if (targetsAbove.length === 0) {
+    const strat = detectInstitutionalStrategy(structure, candles, symbol, currentPrice, effectiveSource, policy);
+    if (strat && strat.direction === 'BUY') {
+      return buildExpandedInstitutionalBlueprint(strat, structure, symbol, effectiveSource, structure.timeframe || 'M15');
+    }
+    return null; // no structural target available — refuse blueprint
+  }
 
   const tp1Level = targetsAbove[0];
   const tp2Level = targetsAbove.length > 1 ? targetsAbove[1] : undefined;
@@ -583,7 +596,13 @@ export function buildSellBlueprint(
     entryType = 'BEARISH_OB';
   }
 
-  if (!entrySource) return null;
+  if (!entrySource) {
+    const strat = detectInstitutionalStrategy(structure, candles, symbol, currentPrice, effectiveSource, policy);
+    if (strat && strat.direction === 'SELL') {
+      return buildExpandedInstitutionalBlueprint(strat, structure, symbol, effectiveSource, structure.timeframe || 'M15');
+    }
+    return null;
+  }
 
   const entryHigh = entrySource.type === 'BEARISH_FVG' ? (entrySource as FVG).high : (entrySource as OrderBlock).high;
   const entryLow = entrySource.type === 'BEARISH_FVG' ? (entrySource as FVG).low : (entrySource as OrderBlock).low;
@@ -610,7 +629,13 @@ export function buildSellBlueprint(
     ...structure.support.filter(s => s.price < entryLow && s.price < entryRef),
   ].sort((a, b) => b.price - a.price);
 
-  if (targetsBelow.length === 0) return null;
+  if (targetsBelow.length === 0) {
+    const strat = detectInstitutionalStrategy(structure, candles, symbol, currentPrice, effectiveSource, policy);
+    if (strat && strat.direction === 'SELL') {
+      return buildExpandedInstitutionalBlueprint(strat, structure, symbol, effectiveSource, structure.timeframe || 'M15');
+    }
+    return null;
+  }
 
   const tp1Level = targetsBelow[0];
   const tp2Level = targetsBelow.length > 1 ? targetsBelow[1] : undefined;

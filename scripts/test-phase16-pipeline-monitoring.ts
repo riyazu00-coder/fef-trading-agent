@@ -138,7 +138,10 @@ async function runPhase16Suite() {
   // Synthetic test candidate with Stale Telemetry (> 30s)
   const mockSetupValidRR: any = {
     ...mockSetupLowRR,
-    targets: [{ targetIndex: 1, label: 'TP1', price: 2675.00, rewardDistance: 25.00 }],
+    targets: [
+      { targetIndex: 1, label: 'TP1', price: 2664.00, rewardDistance: 14.00, riskReward: 1.40 },
+      { targetIndex: 2, label: 'TP2', price: 2675.00, rewardDistance: 25.00, riskReward: 2.50 },
+    ],
     riskReward: { ratio: 2.5, formatted: '2.50:1', meetsMinimumThreshold: true },
   };
   const mockTelemetryStale: any = {

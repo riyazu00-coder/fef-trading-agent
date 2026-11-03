@@ -22,6 +22,7 @@ import { marketSentimentEngine } from '../src/lib/sentiment/market-sentiment-eng
 import { workerStateManager, AssetSnapshotSummary } from '../src/lib/worker/worker-state';
 import { MARKET_REGISTRY } from '../src/lib/registry/market-registry';
 import { LiveMarketAsset } from '../src/lib/providers/real-market-api';
+import { candidateIntakeCoordinator } from '../src/lib/telegram/candidate-intake-coordinator';
 
 const MONITORED_SYMBOLS = [
   'XAUUSD',
@@ -175,6 +176,13 @@ export class BackgroundAutonomousWorker {
         timestamp: a.timestamp,
         priority: a.priority,
       }));
+
+      // 5b. Evaluate Candidate Setups for Telegram Signal Eligibility & Dispatch
+      await candidateIntakeCoordinator.evaluateAndDispatchCandidates(profiles, {
+        source: 'AUTONOMOUS_WORKER',
+        cycleCount: this.cycleCount,
+        timestamp: iso,
+      });
 
       // 6. Persist Cycle Snapshots
       workerStateManager.recordCycle(

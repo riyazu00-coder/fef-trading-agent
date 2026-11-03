@@ -482,17 +482,24 @@ export class DecisionEngineV2 {
    * Resolves canonical dependency metadata for an agent.
    */
   public getAgentDependency(agentIdOrType: string): AgentDependencyMetadata {
-    const norm = (agentIdOrType || '').toUpperCase().replace(/[\s-]/g, '_');
-    if (AGENT_DEPENDENCY_REGISTRY[norm]) {
-      return AGENT_DEPENDENCY_REGISTRY[norm];
+    const raw = (agentIdOrType || '').toUpperCase().replace(/[\s-]/g, '_');
+    const stripped = raw.endsWith('_AGENT') ? raw.slice(0, -6) : raw;
+
+    if (AGENT_DEPENDENCY_REGISTRY[raw]) {
+      return AGENT_DEPENDENCY_REGISTRY[raw];
     }
-    // Alias lookups
+    if (AGENT_DEPENDENCY_REGISTRY[stripped]) {
+      return AGENT_DEPENDENCY_REGISTRY[stripped];
+    }
+
+    // Alias lookups (handling both stripped and raw forms)
+    const norm = stripped;
     if (norm === 'VOLATILITYSPECIALIST' || norm === 'VOLATILITY') return AGENT_DEPENDENCY_REGISTRY['VOLATILITY'];
     if (norm === 'VOLATILITYSQUEEZESPECIALIST' || norm === 'VOLATILITY_SQUEEZE') return AGENT_DEPENDENCY_REGISTRY['VOLATILITY_SQUEEZE'];
     if (norm === 'ANCHOREDVWAPSPECIALIST' || norm === 'ANCHORED_VWAP') return AGENT_DEPENDENCY_REGISTRY['ANCHORED_VWAP'];
     if (norm === 'MARKETREGIMECLASSIFIERSPECIALIST' || norm === 'MARKET_REGIME_CLASSIFIER') return AGENT_DEPENDENCY_REGISTRY['MARKET_REGIME_CLASSIFIER'];
     if (norm === 'ORDERFLOWDELTASPECIALIST' || norm === 'ORDER_FLOW_DELTA') return AGENT_DEPENDENCY_REGISTRY['ORDER_FLOW_DELTA'];
-    if (norm === 'QUANTSPECIALIST' || norm === 'QUANT_MOMENTUM') return AGENT_DEPENDENCY_REGISTRY['QUANT_MOMENTUM'];
+    if (norm === 'QUANTSPECIALIST' || norm === 'QUANT' || norm === 'QUANT_MOMENTUM') return AGENT_DEPENDENCY_REGISTRY['QUANT_MOMENTUM'];
     if (norm === 'QUANTMONTECARLOSPECIALIST' || norm === 'QUANT_MONTE_CARLO') return AGENT_DEPENDENCY_REGISTRY['QUANT_MONTE_CARLO'];
     if (norm === 'CROSSASSETSPECIALIST' || norm === 'CROSS_ASSET') return AGENT_DEPENDENCY_REGISTRY['CROSS_ASSET'];
     if (norm === 'CROSSASSETLEADLAGSPECIALIST' || norm === 'CROSS_ASSET_LEAD_LAG') return AGENT_DEPENDENCY_REGISTRY['CROSS_ASSET_LEAD_LAG'];
@@ -936,11 +943,19 @@ export class DecisionEngineV2 {
           const ag = item.agent;
           participatingAgents.push(ag.agentName || ag.agentId || 'Agent');
 
-          if (ag.readiness === 'READY') { hasReady = true; }
-          else if (ag.readiness === 'PARTIAL') { hasPartial = true; }
-          else if (ag.readiness === 'STALE') { hasStale = true; }
-          else if (ag.readiness === 'DATA_LIMITED') { hasDataLimited = true; }
-          else if (ag.readiness === 'UNAVAILABLE') { hasUnavailable = true; }
+          const readiness = ag.readiness || (
+            ag.status === 'ONLINE' ? 'READY' :
+            ag.status === 'PARTIAL' ? 'PARTIAL' :
+            ag.status === 'STALE' ? 'STALE' :
+            ag.status === 'OFFLINE' || ag.status === 'ERROR' ? 'UNAVAILABLE' :
+            'DATA_LIMITED'
+          );
+
+          if (readiness === 'READY') { hasReady = true; }
+          else if (readiness === 'PARTIAL') { hasPartial = true; }
+          else if (readiness === 'STALE') { hasStale = true; }
+          else if (readiness === 'DATA_LIMITED') { hasDataLimited = true; }
+          else if (readiness === 'UNAVAILABLE') { hasUnavailable = true; }
 
           // Correlated diminishing return formula: w_k = 0.5^(idx)
           // idx=0: 1.0, idx=1: 0.5, idx=2: 0.25, idx=3: 0.125...
@@ -950,12 +965,30 @@ export class DecisionEngineV2 {
           const trust = ag.evidenceTrust ?? conf;
 
           // Check if evidence records are valid direct or derived evidence
-          const evList = ag.evidence || [];
-          const isStaticOnly = evList.length > 0 && evList.every((e: any) =>
-            e.classification === 'STATIC_REFERENCE' || e.classification === 'MOCK' || e.classification === 'FALLBACK' || !e.decisionEligible
-          );
+          const evRecords = Array.isArray(ag.evidenceRecords) && ag.evidenceRecords.length > 0
+            ? ag.evidenceRecords
+            : undefined;
 
-          if (!isStaticOnly && ag.readiness !== 'UNAVAILABLE' && ag.readiness !== 'DATA_LIMITED' && conf > 0) {
+          let isStaticOnly = false;
+          if (evRecords) {
+            isStaticOnly = evRecords.every((e: any) =>
+              e.classification === 'STATIC_REFERENCE' || e.classification === 'MOCK' || e.classification === 'FALLBACK' || e.decisionEligible === false
+            );
+          } else if (Array.isArray(ag.evidence) && ag.evidence.length > 0) {
+            isStaticOnly = ag.evidence.every((e: any) =>
+              typeof e === 'object' && e !== null
+                ? (
+                    e.classification === 'STATIC_REFERENCE' ||
+                    e.classification === 'MOCK' ||
+                    e.classification === 'FALLBACK' ||
+                    e.decisionEligible === false ||
+                    e.isStale === true
+                  )
+                : false
+            );
+          }
+
+          if (!isStaticOnly && readiness !== 'UNAVAILABLE' && readiness !== 'DATA_LIMITED' && conf > 0) {
             const dir = ag.direction || ag.bias;
             if (dir === 'BULLISH') {
               bullishWeightedScore += weight * (conf / 100) * (trust / 100);

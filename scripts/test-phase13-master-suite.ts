@@ -81,8 +81,11 @@ async function runMasterSuite() {
     thesis: 'M15 liquidity sweep with strong bullish displacement into London open',
     entryZone: { low: 2740.0, high: 2742.0, midpoint: 2741.0 },
     stopLoss: { price: 2735.0, distance: 6.0 },
-    targets: [{ targetIndex: 1, label: 'TP1', price: 2755.0, rewardDistance: 14.0, riskReward: 2.33 }],
-    riskReward: { ratio: 2.33, formatted: '2.33:1', meetsMinimumThreshold: true },
+    targets: [
+      { targetIndex: 1, label: 'TP1', price: 2749.0, rewardDistance: 8.0, riskReward: 1.33 },
+      { targetIndex: 2, label: 'TP2', price: 2755.0, rewardDistance: 14.0, riskReward: 2.33 },
+    ],
+    riskReward: { ratio: 2.33, formatted: '1:2.33', meetsMinimumThreshold: true },
     structuralContext: { structureTf: 'M15' },
   };
 
@@ -102,7 +105,14 @@ async function runMasterSuite() {
   assert(2, 'Direction correctly mapped from LONG to BUY', 'ELIGIBILITY', el1.payload?.direction === 'BUY');
   assert(3, 'Mandatory R:R threshold verified (≥ 2.0:1)', 'ELIGIBILITY', (el1.payload?.riskRewardRatio || 0) >= 2.0);
 
-  const elSubRr = evaluateSignalEligibility(mockDecision, { ...mockSetup, riskReward: { ratio: 1.8, meetsMinimumThreshold: false } }, mockTelemetry, new Set());
+  const elSubRr = evaluateSignalEligibility(mockDecision, {
+    ...mockSetup,
+    targets: [
+      { targetIndex: 1, label: 'TP1', price: 2749.0, rewardDistance: 8.0, riskReward: 1.33 },
+      { targetIndex: 2, label: 'TP2', price: 2745.8, rewardDistance: 4.8, riskReward: 0.8 },
+    ],
+    riskReward: { ratio: 0.8, meetsMinimumThreshold: false }
+  }, mockTelemetry, new Set());
   assert(4, 'Sub-2.0 R:R setup rejected by gate (REJECTED_RR)', 'ELIGIBILITY', !elSubRr.isEligible && elSubRr.status === 'REJECTED_RR');
 
   const elVeto = evaluateSignalEligibility({ ...mockDecision, hardVetoes: [{ type: 'HARD_VETO', effect: 'BLOCK_SETUP_VALIDATION', reason: 'Veto' }] }, mockSetup, mockTelemetry, new Set());

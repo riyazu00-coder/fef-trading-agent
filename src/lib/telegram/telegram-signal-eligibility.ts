@@ -246,14 +246,75 @@ export function evaluateSignalEligibility(
     };
   }
 
-  // Check 11: Risk/Reward ratio must be at least 2.0:1 (mandatory institutional policy)
-  const rrRatio = setup.riskReward?.ratio ?? (primaryTarget.rewardDistance / setup.stopLoss.distance);
-  const meetsThreshold = setup.riskReward ? setup.riskReward.meetsMinimumThreshold : (rrRatio >= 2.0);
-  if (rrRatio < 2.0 || !meetsThreshold) {
+  // Check 11: Mandatory TP2 Qualification: TP2 must exist, be valid, and TP2_RR >= 2.0:1
+  // Strict institutional policy: TP1 MUST NOT independently qualify a setup.
+  // TP3 must not silently replace a missing or invalid TP2.
+  const tp2 = setup.targets?.find((t) => t.targetIndex === 2 || t.label === 'TP2');
+  if (!tp2) {
     return {
       isEligible: false,
       status: 'REJECTED_RR',
-      rejectionReason: `Risk/Reward ratio ${rrRatio.toFixed(2)}:1 fails mandatory minimum threshold of 2.0:1`,
+      rejectionReason: 'Setup secondary target (TP2) is missing. Mandatory policy requires valid TP2 with R:R >= 2.0:1. TP1 cannot independently qualify.',
+      failedCheckIndex: 11,
+    };
+  }
+
+  if (
+    typeof tp2.price !== 'number' ||
+    isNaN(tp2.price) ||
+    tp2.price <= 0 ||
+    typeof tp2.rewardDistance !== 'number' ||
+    isNaN(tp2.rewardDistance) ||
+    tp2.rewardDistance <= 0
+  ) {
+    return {
+      isEligible: false,
+      status: 'REJECTED_RR',
+      rejectionReason: 'Setup secondary target (TP2) price or reward distance is invalid or non-positive',
+      failedCheckIndex: 11,
+    };
+  }
+
+  // Verify TP2 is on the correct side of the entry zone and strictly beyond TP1
+  if (broadcastDirection === 'BUY') {
+    if (tp2.price <= setup.entryZone.high || (primaryTarget && tp2.price <= primaryTarget.price)) {
+      return {
+        isEligible: false,
+        status: 'REJECTED_RR',
+        rejectionReason: `Invalid BUY TP2 geometry: TP2 (${tp2.price}) must be strictly above Entry (${setup.entryZone.high}) and above TP1 (${primaryTarget?.price})`,
+        failedCheckIndex: 11,
+      };
+    }
+  } else {
+    if (tp2.price >= setup.entryZone.low || (primaryTarget && tp2.price >= primaryTarget.price)) {
+      return {
+        isEligible: false,
+        status: 'REJECTED_RR',
+        rejectionReason: `Invalid SELL TP2 geometry: TP2 (${tp2.price}) must be strictly below Entry (${setup.entryZone.low}) and below TP1 (${primaryTarget?.price})`,
+        failedCheckIndex: 11,
+      };
+    }
+  }
+
+  // Verify stop loss distance is strictly positive
+  if (!setup.stopLoss || typeof setup.stopLoss.distance !== 'number' || setup.stopLoss.distance <= 0) {
+    return {
+      isEligible: false,
+      status: 'REJECTED_INCOMPLETE',
+      rejectionReason: 'Setup stop loss distance is invalid or zero',
+      failedCheckIndex: 9,
+    };
+  }
+
+  // Calculate TP2 R:R (with standard 2-decimal institutional precision)
+  const tp2Rr = Number((tp2.rewardDistance / setup.stopLoss.distance).toFixed(2));
+  const meetsThreshold = setup.riskReward ? setup.riskReward.meetsMinimumThreshold : (tp2Rr >= 2.0);
+
+  if (tp2Rr < 2.0 || !meetsThreshold) {
+    return {
+      isEligible: false,
+      status: 'REJECTED_RR',
+      rejectionReason: `TP2 Risk/Reward ratio ${tp2Rr.toFixed(2)}:1 fails mandatory minimum threshold of 2.0:1 (TP1 cannot independently qualify)`,
       failedCheckIndex: 11,
     };
   }
@@ -399,11 +460,13 @@ export function evaluateSignalEligibility(
   // ALL 21 CHECKS PASSED: CONSTRUCT VALIDATED SIGNAL PAYLOAD
   const signalId = `SIG-${symbol}-${setup.setupId.slice(-6).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
 
-  const target2 = setup.targets && setup.targets.length > 1 ? setup.targets[1] : undefined;
-  const target3 = setup.targets && setup.targets.length > 2 ? setup.targets[2] : undefined;
+  const target2 = tp2;
+  const target3 = setup.targets && setup.targets.length > 2 ? setup.targets.find(t => t.targetIndex === 3 || t.label === 'TP3') : undefined;
 
   const messageType: 'NEW_OPPORTUNITY' | 'SETUP_UPDATE' | 'SETUP_INVALIDATED' =
     isInvalidatedNotice ? 'SETUP_INVALIDATED' : (setupRevision > 1 ? 'SETUP_UPDATE' : 'NEW_OPPORTUNITY');
+
+  const tp1Ratio = Number((primaryTarget.rewardDistance / setup.stopLoss.distance).toFixed(2));
 
   const payload: ValidatedSignalPayload = {
     signalId,
@@ -426,19 +489,19 @@ export function evaluateSignalEligibility(
     takeProfit1: {
       price: Number(primaryTarget.price.toFixed(5)),
       distance: Number(primaryTarget.rewardDistance.toFixed(5)),
-      riskReward: Number(rrRatio.toFixed(2)),
+      riskReward: tp1Ratio,
     },
-    takeProfit2: target2 ? {
+    takeProfit2: {
       price: Number(target2.price.toFixed(5)),
       distance: Number(target2.rewardDistance.toFixed(5)),
-      riskReward: Number(target2.riskReward.toFixed(2)),
-    } : undefined,
+      riskReward: Number(tp2Rr.toFixed(2)),
+    },
     takeProfit3: target3 ? {
       price: Number(target3.price.toFixed(5)),
       distance: Number(target3.rewardDistance.toFixed(5)),
-      riskReward: Number(target3.riskReward.toFixed(2)),
+      riskReward: Number((target3.riskReward || (target3.rewardDistance / setup.stopLoss.distance)).toFixed(2)),
     } : undefined,
-    riskRewardRatio: Number(rrRatio.toFixed(2)),
+    riskRewardRatio: Number(tp2Rr.toFixed(2)),
     decisionEngine: {
       bias: decision.bias,
       confidencePct: decision.confidence,

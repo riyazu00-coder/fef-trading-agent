@@ -35,12 +35,26 @@ export const MarketSessionLiquidityMap: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Compute real Session & Countdown based on actual UTC hours & minutes
+  // Compute real Session & Countdown based on actual UTC hours, minutes & weekend boundaries
   const sessionInfo: SessionState = useMemo(() => {
+    const day = now.getUTCDay(); // 0 = Sun, 6 = Sat
     const utcHours = now.getUTCHours();
     const utcMinutes = now.getUTCMinutes();
     const utcSeconds = now.getUTCSeconds();
     const totalMinutesNow = utcHours * 60 + utcMinutes;
+
+    const isCrypto = activeSymbol.includes('BTC') || activeSymbol.includes('ETH') || activeSymbol.includes('SOL') || activeSymbol.includes('CRYPTO');
+    const isWeekend = !isCrypto && (day === 6 || (day === 5 && utcHours >= 22) || (day === 0 && utcHours < 22));
+
+    if (isWeekend) {
+      return {
+        currentSession: 'Weekend Market Closure',
+        nextSession: 'Global Session Open (Sun 22:00 UTC)',
+        timeRemaining: assetProfile?.sessionState?.nextOpenCountdown || 'Opens Sun 22:00 UTC',
+        activeBadge: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+        isOverlap: false,
+      };
+    }
 
     const formatDiff = (targetMinutes: number) => {
       let diffMinutes = targetMinutes - totalMinutesNow;
@@ -99,7 +113,7 @@ export const MarketSessionLiquidityMap: React.FC = () => {
       activeBadge: 'bg-gray-700/40 text-gray-300 border-gray-600',
       isOverlap: false,
     };
-  }, [now]);
+  }, [now, activeSymbol, assetProfile?.sessionState]);
 
   // Compute session liquidity levels dynamically from verified OHLC candles
   const liquidityLevels: LiquidityLevel[] = useMemo(() => {

@@ -160,53 +160,89 @@ export const MarketOverviewCard: React.FC = () => {
     return candleBundle?.['H4'] || (timeframe === 'H4' && Array.isArray(candles) ? candles : undefined);
   }, [candleBundle, timeframe, candles]);
 
+  const activeTimeframeCandles = useMemo(() => {
+    return candleBundle?.[timeframe] || (Array.isArray(candles) ? candles : undefined);
+  }, [candleBundle, timeframe, candles]);
+
+  const isMt5Source = activeAsset.provider === 'MT5' || (activeAsset as any).source === 'LIVE_MT5' || candleProvenance === 'LIVE_MT5';
+  const isRefProxy = candleProvenance === 'INDEPENDENT_REFERENCE' || candleProvenance === 'INDEPENDENT_REFERENCE_OHLC' || parityProfile.isProxy;
+  const canonicalSource = isMt5Source
+    ? 'MT5_BROKER_OHLC'
+    : isRefProxy
+    ? 'INDEPENDENT_REFERENCE_OHLC'
+    : 'INDEPENDENT_VERIFIED_OHLC';
+
   const h4MarketStructure: MarketStructure | null = useMemo(() => {
     if (!h4Candles || !Array.isArray(h4Candles) || h4Candles.length < 10) {
       return null;
     }
-    const isMt5Source = activeAsset.provider === 'MT5' || (activeAsset as any).source === 'LIVE_MT5' || candleProvenance === 'LIVE_MT5';
-    const isRefProxy = candleProvenance === 'INDEPENDENT_REFERENCE' || candleProvenance === 'INDEPENDENT_REFERENCE_OHLC' || parityProfile.isProxy;
-    const source = isMt5Source
-      ? 'MT5_BROKER_OHLC'
-      : isRefProxy
-      ? 'INDEPENDENT_REFERENCE_OHLC'
-      : 'INDEPENDENT_VERIFIED_OHLC';
-    return analyzeMarketStructure(h4Candles, activeAsset.symbol, 'H4', source);
-  }, [h4Candles, activeAsset.symbol, activeAsset.provider, (activeAsset as any).source, candleProvenance, parityProfile.isProxy]);
+    return analyzeMarketStructure(h4Candles, activeAsset.symbol, 'H4', canonicalSource);
+  }, [h4Candles, activeAsset.symbol, canonicalSource]);
 
-  const activeTrendMode: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'DATA LIMITED' = useMemo(() => {
-    if (!h4MarketStructure || h4MarketStructure.trend === 'INSUFFICIENT_DATA') {
-      return 'DATA LIMITED';
+  const activeMarketStructure: MarketStructure | null = useMemo(() => {
+    if (!activeTimeframeCandles || !Array.isArray(activeTimeframeCandles) || activeTimeframeCandles.length < 10) {
+      return h4MarketStructure;
     }
+    return analyzeMarketStructure(activeTimeframeCandles, activeAsset.symbol, timeframe, canonicalSource);
+  }, [activeTimeframeCandles, activeAsset.symbol, timeframe, canonicalSource, h4MarketStructure]);
+
+  const h4TrendMode = useMemo(() => {
+    if (!h4MarketStructure || h4MarketStructure.trend === 'INSUFFICIENT_DATA') return 'DATA LIMITED';
     const trend = (h4MarketStructure.trend || '').toUpperCase();
     if (trend === 'BULLISH') return 'BULLISH';
     if (trend === 'BEARISH') return 'BEARISH';
     return 'NEUTRAL';
   }, [h4MarketStructure]);
 
+  const activeTrendMode: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'DATA LIMITED' = useMemo(() => {
+    if (!activeMarketStructure || activeMarketStructure.trend === 'INSUFFICIENT_DATA') {
+      return 'DATA LIMITED';
+    }
+    const trend = (activeMarketStructure.trend || '').toUpperCase();
+    if (trend === 'BULLISH') return 'BULLISH';
+    if (trend === 'BEARISH') return 'BEARISH';
+    return 'NEUTRAL';
+  }, [activeMarketStructure]);
+
   const waveConfig = useMemo(() => {
+    const isPullback = (timeframe !== 'H4') && (
+      (activeTrendMode === 'BEARISH' && h4TrendMode === 'BULLISH') ||
+      (activeTrendMode === 'BULLISH' && h4TrendMode === 'BEARISH')
+    );
+
+    let displayLabel = `${timeframe} ${activeTrendMode}`;
+    if (timeframe === 'H4') {
+      displayLabel = `H4 ${activeTrendMode} MOMENTUM`;
+    } else if (isPullback) {
+      displayLabel = activeTrendMode === 'BEARISH'
+        ? `${timeframe} PULLBACK • HTF BULLISH`
+        : `${timeframe} RETRACEMENT • HTF BEARISH`;
+    } else if (h4TrendMode !== 'DATA LIMITED') {
+      displayLabel = `${timeframe} ${activeTrendMode} • HTF ${h4TrendMode}`;
+    }
+
     switch (activeTrendMode) {
       case 'BEARISH':
         return {
-          stroke: '#f43f5e',
+          stroke: isPullback ? '#f59e0b' : '#f43f5e',
           gradientId: 'areaGradBear',
           pathLine: 'M 0 10 Q 50 14, 100 28 T 170 38 T 240 44',
           pathArea: 'M 0 10 Q 50 14, 100 28 T 170 38 T 240 44 L 240 50 L 0 50 Z',
-          label: 'H4 BEARISH MOMENTUM',
-          arrow: '↘',
-          colorClass: 'text-rose-400',
-          glowStyle: 'drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]',
+          label: displayLabel,
+          arrow: isPullback ? '⤵' : '↘',
+          colorClass: isPullback ? 'text-amber-400' : 'text-rose-400',
+          glowStyle: isPullback ? 'drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]' : 'drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]',
         };
       case 'BULLISH':
         return {
-          stroke: '#10b981',
+          stroke: isPullback ? '#06b6d4' : '#10b981',
           gradientId: 'areaGradBull',
           pathLine: 'M 0 42 Q 50 36, 100 22 T 170 14 T 240 8',
           pathArea: 'M 0 42 Q 50 36, 100 22 T 170 14 T 240 8 L 240 50 L 0 50 Z',
-          label: 'H4 BULLISH MOMENTUM',
-          arrow: '↗',
-          colorClass: 'text-emerald-400',
-          glowStyle: 'drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]',
+          label: displayLabel,
+          arrow: isPullback ? '⤴' : '↗',
+          colorClass: isPullback ? 'text-cyan-400' : 'text-emerald-400',
+          glowStyle: isPullback ? 'drop-shadow-[0_0_8px_rgba(6,182,212,0.4)]' : 'drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]',
         };
       case 'DATA LIMITED':
         return {
@@ -214,7 +250,7 @@ export const MarketOverviewCard: React.FC = () => {
           gradientId: 'areaGradDataLtd',
           pathLine: 'M 0 25 Q 40 25, 80 25 T 160 25 T 240 25',
           pathArea: 'M 0 25 Q 40 25, 80 25 T 160 25 T 240 25 L 240 50 L 0 50 Z',
-          label: 'H4 DATA LIMITED',
+          label: displayLabel,
           arrow: '•',
           colorClass: 'text-amber-400',
           glowStyle: 'drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]',
@@ -226,13 +262,13 @@ export const MarketOverviewCard: React.FC = () => {
           gradientId: 'areaGradNeutral',
           pathLine: 'M 0 25 Q 40 14, 80 34 T 160 18 T 240 25',
           pathArea: 'M 0 25 Q 40 14, 80 34 T 160 18 T 240 25 L 240 50 L 0 50 Z',
-          label: 'H4 RANGING / NEUTRAL',
+          label: displayLabel,
           arrow: '↔',
           colorClass: 'text-cyan-400',
           glowStyle: 'drop-shadow-[0_0_8px_rgba(6,182,212,0.4)]',
         };
     }
-  }, [activeTrendMode]);
+  }, [activeTrendMode, h4TrendMode, timeframe]);
 
   const rawTrend = (assetProfile.trend || '').toUpperCase();
   const isTrendBearish = rawTrend.includes('BEARISH');
