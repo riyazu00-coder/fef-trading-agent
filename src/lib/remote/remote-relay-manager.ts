@@ -28,6 +28,11 @@ export class RemoteRelayManager {
   private processedRequestIds = new Set<string>();                   // Idempotency history
   private commandAcks = new Map<string, RemoteCommandAck>();         // requestId -> Ack
   private deviceNonces = new Map<string, number>();                  // deviceId -> last valid nonce
+  private allowOrderTransportForTesting: boolean;
+
+  constructor(options?: { allowOrderTransportForTesting?: boolean }) {
+    this.allowOrderTransportForTesting = options?.allowOrderTransportForTesting ?? false;
+  }
 
   /**
    * Register a new connector device
@@ -125,7 +130,7 @@ export class RemoteRelayManager {
     success: boolean;
     error?: { code: string; message: string };
   } {
-    if (!isMt5OrderTransportAllowed()) {
+    if (!this.allowOrderTransportForTesting && !isMt5OrderTransportAllowed()) {
       return { success: false, error: { ...READ_ONLY_EXECUTION_ERROR } };
     }
 

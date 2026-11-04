@@ -45,7 +45,7 @@ async function runSuite() {
   console.log('FEF TRADING SOLUTIONS: PHASE 2 REMOTE FOUNDATION TEST SUITE');
   console.log('================================================================\n');
 
-  const relay = new RemoteRelayManager();
+  const relay = new RemoteRelayManager({ allowOrderTransportForTesting: true });
 
   // Test setup credentials
   const deviceId = 'test-device-uuid-101';

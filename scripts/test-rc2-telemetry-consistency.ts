@@ -251,8 +251,8 @@ async function runSuite() {
   console.log('\n[TEST 8: Execution Safety Gate -> Stale / Closed Quote / Read-Only Blocks Execution]');
   
   // Verify STALE quote cannot be used for execution
-  const staleQuoteBlocked = (quote: MT5QuoteData | null, opMode: string, evalTimeMs?: number) => {
-    if (!MT5_ORDER_TRANSPORT_ENABLED) return { canExecute: false, reason: 'GLOBAL_READ_ONLY_LOCK' };
+  const staleQuoteBlocked = (quote: MT5QuoteData | null, opMode: string, evalTimeMs?: number, allowTransportMock: boolean = true) => {
+    if (!allowTransportMock && !MT5_ORDER_TRANSPORT_ENABLED) return { canExecute: false, reason: 'GLOBAL_READ_ONLY_LOCK' };
     if (opMode !== 'DEMO_EXECUTION' && opMode !== 'ARMED_WITH_CONFIRMATION') return { canExecute: false, reason: 'NOT_ARMED_EXECUTION' };
     if (!quote || quote.bid <= 0 || quote.ask <= 0) return { canExecute: false, reason: 'QUOTE_UNAVAILABLE' };
     const sym = quote.canonicalSymbol || quote.brokerSymbol;
@@ -261,6 +261,10 @@ async function runSuite() {
     if (evalRes.freshness === 'STALE' || evalRes.isStale) return { canExecute: false, reason: 'STALE_QUOTE' };
     return { canExecute: true, reason: 'OK' };
   };
+
+  // Test global transport lock
+  const lockResult = staleQuoteBlocked(btcQuote, 'ARMED_WITH_CONFIRMATION', undefined, false);
+  assert(lockResult.canExecute === false && lockResult.reason === 'GLOBAL_READ_ONLY_LOCK', 'Global transport lock blocks order with GLOBAL_READ_ONLY_LOCK');
 
   // Test with closed session quote
   const closedGateResult = staleQuoteBlocked(fridayCloseXauQuote, 'ARMED_WITH_CONFIRMATION', satMs);

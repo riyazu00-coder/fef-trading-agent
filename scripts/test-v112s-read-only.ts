@@ -49,6 +49,30 @@ async function main() {
   const relay = new RemoteRelayManager();
   const relayResult = relay.queueCommand({ requestId: 'read-only-test' } as any);
   check(relayResult.error?.code === 'GLOBAL_READ_ONLY_LOCK', 'RemoteRelayManager denies before command validation or queueing');
+  check(relayResult.error?.code === 'GLOBAL_READ_ONLY_LOCK', 'RemoteRelayManager defaults allowOrderTransportForTesting to false');
+
+  // Test-only transport isolation verification
+  const prevEnv1 = process.env.FEF_ALLOW_ORDER_TRANSPORT;
+  const prevEnv2 = process.env.ALLOW_ORDER_TRANSPORT;
+  process.env.FEF_ALLOW_ORDER_TRANSPORT = 'true';
+  process.env.ALLOW_ORDER_TRANSPORT = 'true';
+  const envRelay = new RemoteRelayManager();
+  const envResult = envRelay.queueCommand({ requestId: 'env-override-attempt' } as any);
+  check(envResult.error?.code === 'GLOBAL_READ_ONLY_LOCK', 'allowOrderTransportForTesting cannot be activated via environment variables');
+  if (prevEnv1 !== undefined) process.env.FEF_ALLOW_ORDER_TRANSPORT = prevEnv1; else delete process.env.FEF_ALLOW_ORDER_TRANSPORT;
+  if (prevEnv2 !== undefined) process.env.ALLOW_ORDER_TRANSPORT = prevEnv2; else delete process.env.ALLOW_ORDER_TRANSPORT;
+
+  const testRelay = new RemoteRelayManager({ allowOrderTransportForTesting: true });
+  check(CANONICAL_EXECUTION_MODE === 'READ_ONLY' && MT5_ORDER_TRANSPORT_ENABLED === false, 'allowOrderTransportForTesting cannot override canonical READ_ONLY policy');
+
+  // Explicit queueCommand() test with allowOrderTransportForTesting: true
+  // Verify that an unapproved or invalid command still fails pre-flight security validation
+  const testQueueResult = testRelay.queueCommand({ requestId: 'test-req-raw', deviceId: 'unregistered-device', nonce: 1 } as any);
+  check(!testQueueResult.success && testQueueResult.error?.code === 'HUMAN_APPROVAL_REQUIRED', 'queueCommand with allowOrderTransportForTesting still enforces pre-flight validation');
+
+  // Verify downstream defense: Even if a command existed in relay memory, downstream components strictly enforce GLOBAL_READ_ONLY_LOCK
+  const downstreamHttpResult = await http.sendCommand('PLACE_ORDER', { humanApproved: true }, 'XAUUSD');
+  check(downstreamHttpResult.error?.code === 'GLOBAL_READ_ONLY_LOCK', 'downstream MT5 HTTP client strictly enforces GLOBAL_READ_ONLY_LOCK before transport');
 
   const relaySource = fs.readFileSync(path.resolve('relay-deploy/fef-remote-relay-service.js'), 'utf8');
   const connectorSource = fs.readFileSync(path.resolve('scripts/fef-local-connector-agent.js'), 'utf8');

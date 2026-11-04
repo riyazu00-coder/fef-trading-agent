@@ -581,41 +581,36 @@ export function generateAssetIntelligence(
 
   const isStructureValid = isMarketStructureCompatibleWithContext(marketStructure, normSymbol, structureTf, blueprintCandleSource);
 
-  if (isExecutionLevelPermitted && isStructureValid && marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
+  if (isExecutionLevelPermitted && isStructureValid && marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA' && marketStructure.trend !== 'RANGING') {
     let freshBlueprint: TradeBlueprint | null = null;
-    let candidateDir: 'BUY' | 'SELL' = marketStructure.trend === 'BULLISH' ? 'BUY' :
-      marketStructure.trend === 'BEARISH' ? 'SELL' :
-      (p >= (marketStructure.lastSwingHigh || p) || (analysisCandles && analysisCandles.length > 0 && analysisCandles[analysisCandles.length - 1].close > analysisCandles[0].close) ? 'BUY' : 'SELL');
+    let candidateDir: 'BUY' | 'SELL' | null = marketStructure.trend === 'BULLISH' ? 'BUY' :
+      marketStructure.trend === 'BEARISH' ? 'SELL' : null;
 
-    // Anti-flip-flop guard: Require genuinely new structural evidence before regenerating same-direction setup
-    const evidenceCheck = SetupLifecycleEngine.hasNewStructuralEvidence(
-      normSymbol,
-      candidateDir,
-      marketStructure,
-      analysisCandles
-    );
+    if (candidateDir) {
+      // Anti-flip-flop guard: Require genuinely new structural evidence before regenerating same-direction setup
+      const evidenceCheck = SetupLifecycleEngine.hasNewStructuralEvidence(
+        normSymbol,
+        candidateDir,
+        marketStructure,
+        analysisCandles
+      );
 
-    if (evidenceCheck.hasNewEvidence) {
-      if (candidateDir === 'BUY') {
-        freshBlueprint = buildBuyBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
-        if (!freshBlueprint && marketStructure.trend === 'RANGING') {
+      if (evidenceCheck.hasNewEvidence) {
+        if (candidateDir === 'BUY') {
+          freshBlueprint = buildBuyBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
+        } else if (candidateDir === 'SELL') {
           freshBlueprint = buildSellBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
         }
-      } else if (candidateDir === 'SELL') {
-        freshBlueprint = buildSellBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
-        if (!freshBlueprint && marketStructure.trend === 'RANGING') {
-          freshBlueprint = buildBuyBlueprint(marketStructure, analysisCandles, normSymbol, p, blueprintCandleSource);
-        }
-      }
 
-      if (freshBlueprint) {
-        if (isBlueprintCompatibleWithContext(freshBlueprint, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
-          activeBlueprintCache.set(bpKey, freshBlueprint);
-          blueprint = freshBlueprint;
-          SetupLifecycleEngine.registerActiveSetup(freshBlueprint, marketStructure, 'ARMED');
-        } else {
-          activeBlueprintCache.delete(bpKey);
-          blueprint = null;
+        if (freshBlueprint) {
+          if (isBlueprintCompatibleWithContext(freshBlueprint, normSymbol, structureTf, blueprintCandleSource, marketStructure)) {
+            activeBlueprintCache.set(bpKey, freshBlueprint);
+            blueprint = freshBlueprint;
+            SetupLifecycleEngine.registerActiveSetup(freshBlueprint, marketStructure, 'ARMED');
+          } else {
+            activeBlueprintCache.delete(bpKey);
+            blueprint = null;
+          }
         }
       }
     }
@@ -985,7 +980,9 @@ export function generateAssetIntelligence(
               spreadEvidence,
               highImpactNear
                 ? `Event Risk: ${highImpactNear.title} (${highImpactNear.country}) — ${highImpactNear.scheduledAt}`
-                : 'Economic calendar: NO HIGH-IMPACT EVENT LOCKOUT'
+                : (cachedEvents.length === 0
+                    ? 'Economic calendar telemetry unavailable'
+                    : 'Economic calendar: NO HIGH-IMPACT EVENT LOCKOUT')
             ],
             keyRisk,
             invalidation: 'N/A'
@@ -1023,7 +1020,9 @@ export function generateAssetIntelligence(
               spreadEvidence,
               highImpactNear
                 ? `Event Risk: ${highImpactNear.title} (${highImpactNear.country}) — ${highImpactNear.scheduledAt}`
-                : 'Economic calendar: NO HIGH-IMPACT EVENT LOCKOUT'
+                : (cachedEvents.length === 0
+                    ? 'Economic calendar telemetry unavailable'
+                    : 'Economic calendar: NO HIGH-IMPACT EVENT LOCKOUT')
             ],
             keyRisk,
             invalidation: 'N/A'
@@ -1486,7 +1485,7 @@ export function generateAssetIntelligence(
       }
 
       case 'ORDER_FLOW': {
-        if (orderFlowRecord && (isExchangeVol || isAssetMt5Live)) {
+        if (orderFlowRecord && (isExchangeVol || isAssetMt5Live || effectiveCandleProvenance === 'INDEPENDENT_REFERENCE')) {
           let flowBias: BiasType = 'NEUTRAL';
           let flowOpinion = '';
 
@@ -2214,6 +2213,15 @@ export function generateAssetIntelligence(
   if (hasCandles && analysisCandles.length >= 15) {
     coveredFamilies.push('MT5_PRICE');
   }
+  if (marketStructure && marketStructure.trend !== 'INSUFFICIENT_DATA') {
+    coveredFamilies.push('MARKET_STRUCTURE');
+  }
+  if (volumeProfile || orderFlowRecord) {
+    coveredFamilies.push('ORDER_FLOW');
+  }
+  if (sessionState && sessionState.marketState !== 'CLOSED' && sessionState.marketState !== 'WEEKEND_CLOSED') {
+    coveredFamilies.push('ICT_TIMING');
+  }
   if (feeds?.crossAsset || (feeds?.currencyStrength?.payload && Object.keys(feeds.currencyStrength.payload).length >= 4)) {
     coveredFamilies.push('MT5_CROSS_ASSET');
   }
@@ -2263,7 +2271,7 @@ export function generateAssetIntelligence(
   // - confluenceResult.presentationPosture matches directional intent
   // - armed and valid trade blueprint
   // - eligible directional consensus without high-trust conflict (conflictScore < 20)
-  if (confluenceResult.presentationPosture === 'WAIT' || computedReadiness !== 'HIGH' || coveredFamilies.length < 4) {
+  if (confluenceResult.presentationPosture === 'WAIT' || computedReadiness === 'INSUFFICIENT' || coveredFamilies.length < 2) {
     effectiveSetupDirection = 'WAIT';
   } else if (
     confluenceResult.presentationPosture === 'WATCH FOR BUY' &&
@@ -2272,7 +2280,7 @@ export function generateAssetIntelligence(
     blueprint.state !== 'EXPIRED' &&
     blueprint.direction === 'BUY' &&
     eligibleBullishCount >= 2 &&
-    confluenceResult.conflictScore < 20 &&
+    confluenceResult.conflictScore <= 20 &&
     setupLifecycleRecord?.state !== 'INVALIDATED'
   ) {
     effectiveSetupDirection = 'WATCH FOR BUY';
@@ -2283,7 +2291,7 @@ export function generateAssetIntelligence(
     blueprint.state !== 'EXPIRED' &&
     blueprint.direction === 'SELL' &&
     eligibleBearishCount >= 2 &&
-    confluenceResult.conflictScore < 20 &&
+    confluenceResult.conflictScore <= 20 &&
     setupLifecycleRecord?.state !== 'INVALIDATED'
   ) {
     effectiveSetupDirection = 'WATCH FOR SELL';
@@ -2527,8 +2535,8 @@ export function generateAssetIntelligence(
   // - evidence trust is below the minimum truthfulness threshold (< 30%)
   const isConfidenceTruthful =
     effectiveSetupDirection !== 'WAIT' &&
-    computedReadiness === 'HIGH' &&
-    coveredFamilies.length >= 4 &&
+    (computedReadiness === 'HIGH' || computedReadiness === 'MODERATE') &&
+    coveredFamilies.length >= 2 &&
     (eligibleBullishCount > 0 || eligibleBearishCount > 0);
 
   const profileConfidence = isConfidenceTruthful

@@ -19,6 +19,7 @@ const LOG_FILE = path.resolve(RUNTIME_DIR, "supervisor.log");
 
 const BRIDGE_SCRIPT = path.resolve(ROOT_DIR, "scripts/mt5-http-bridge-service.js");
 const CONNECTOR_SCRIPT = path.resolve(ROOT_DIR, "scripts/fef-local-connector-agent.js");
+const WORKER_SCRIPT = path.resolve(ROOT_DIR, "scripts/fef-background-worker.ts");
 const { LocalTelemetryRepository } = require("./fef-local-telemetry-repository");
 
 const BRIDGE_PORT = 5556;
@@ -127,6 +128,23 @@ function buildConnectorChildEnv(sourceEnv = process.env, bridgeUrl = LOCAL_BRIDG
   return env;
 }
 
+function buildWorkerChildEnv(sourceEnv = process.env) {
+  const env = {
+    NODE_ENV: sourceEnv.NODE_ENV || 'production',
+  };
+  for (const key of ALLOWED_ENV_KEYS) {
+    if (sourceEnv[key] && sourceEnv[key].trim() !== '') {
+      env[key] = sourceEnv[key].trim();
+    }
+  }
+  for (const key of SAFE_SYSTEM_ENV_KEYS) {
+    if (sourceEnv[key]) {
+      env[key] = sourceEnv[key];
+    }
+  }
+  return env;
+}
+
 const MAX_LOG_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 
 function log(level, message, meta) {
@@ -154,8 +172,10 @@ class ConnectivitySupervisor {
   constructor(options = {}) {
     this.bridgeProcess = null;
     this.connectorProcess = null;
+    this.workerProcess = null;
     this.bridgeRestartHistory = [];
     this.connectorRestartHistory = [];
+    this.workerRestartHistory = [];
     this.isShuttingDown = false;
     this.pollInterval = null;
     this.persistState = options.persistState !== false;
@@ -173,6 +193,7 @@ class ConnectivitySupervisor {
       supervisor: "STARTING",
       localBridge: "OFFLINE",
       connectorAgent: "OFFLINE",
+      surveillanceWorker: "OFFLINE",
       localDatabase: "INITIALIZING",
       storageMode: (process.env.FEF_TELEMETRY_STORAGE_MODE || "LOCAL").toUpperCase(),
       cloudSync: "DISABLED",
@@ -349,6 +370,44 @@ class ConnectivitySupervisor {
     });
   }
 
+  startBackgroundWorker() {
+    if (this.isShuttingDown) return;
+    log("INFO", "Starting FEF CORTEX Background Surveillance Worker...");
+    const workerEnv = buildWorkerChildEnv(process.env);
+    const child = spawn(process.execPath, ["-r", "sucrase/register", WORKER_SCRIPT], {
+      cwd: ROOT_DIR,
+      env: workerEnv,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    this.workerProcess = child;
+
+    child.stdout.on("data", (d) => {
+      const msg = d.toString().trim();
+      if (msg.includes("[FEF CORTEX WORKER]") || msg.includes("Cycle #")) {
+        log("INFO", "[Worker] " + msg);
+      }
+    });
+
+    child.stderr.on("data", (d) => {
+      const msg = d.toString().trim();
+      log("WARN", "[WorkerStderr] " + msg);
+    });
+
+    child.on("exit", (code, signal) => {
+      this.workerProcess = null;
+      if (this.isShuttingDown) return;
+      log("WARN", "FEF CORTEX Background Worker exited with code " + code + " signal " + signal);
+      const isLoop = this.recordCrash(this.workerRestartHistory);
+      if (isLoop) {
+        log("ERROR", "Worker exceeded rapid crash threshold. Halting worker restarts.");
+        return;
+      }
+      const backoffMs = Math.min(1000 * Math.pow(1.5, this.workerRestartHistory.length), 10000);
+      log("INFO", "Restarting Background Worker in " + backoffMs + "ms...");
+      setTimeout(() => this.startBackgroundWorker(), backoffMs);
+    });
+  }
+
   async runHealthCycle() {
     try {
       this.healthState.uptimeSec = Math.floor((Date.now() - this.startTime) / 1000);
@@ -454,6 +513,7 @@ class ConnectivitySupervisor {
         this.healthState.feedStatus = "FALLBACK";
       }
 
+      this.healthState.surveillanceWorker = this.workerProcess ? "ONLINE" : "OFFLINE";
       this.healthState.supervisor = "ONLINE";
 
       if (this.persistState) {
@@ -553,6 +613,7 @@ class ConnectivitySupervisor {
     }
 
     this.startConnectorAgent();
+    this.startBackgroundWorker();
 
     this.pollInterval = setInterval(() => this.runHealthCycle(), HEALTH_POLL_INTERVAL_MS);
     await this.runHealthCycle();
@@ -572,6 +633,11 @@ class ConnectivitySupervisor {
 
     if (this.httpServer) {
       try { this.httpServer.close(); } catch {}
+    }
+
+    if (this.workerProcess) {
+      log("INFO", "Stopping Background Surveillance Worker...");
+      try { this.workerProcess.kill("SIGTERM"); } catch {}
     }
 
     if (this.connectorProcess) {

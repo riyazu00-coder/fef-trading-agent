@@ -178,7 +178,9 @@ await runTest('supervisor loads ONLY the explicit FEF allowlist from .env.local'
     'FEF_REMOTE_RELAY_URL',
     'FEF_REMOTE_DEVICE_ID',
     'FEF_REMOTE_KEY_ID',
-    'FEF_REMOTE_DEVICE_SECRET'
+    'FEF_REMOTE_DEVICE_SECRET',
+    'FEF_TELEMETRY_STORAGE_MODE',
+    'VERCEL_PROTECTION_BYPASS'
   ];
   assert.strictEqual(allowed.size, expectedKeys.length, `Allowlist must contain exactly ${expectedKeys.length} keys`);
   for (const k of expectedKeys) {
@@ -271,18 +273,18 @@ await runTest('incorrect LOCAL_BRIDGE_URL key is not used for connector configur
   assert(!('LOCAL_BRIDGE_URL' in testEnv), 'LOCAL_BRIDGE_URL must not exist in connector environment');
 });
 
-// 22. Execution mode is ARMED_WITH_CONFIRMATION
-await runTest('execution mode is ARMED_WITH_CONFIRMATION', () => {
+// 22. Execution mode is locked to READ_ONLY
+await runTest('execution mode is locked to READ_ONLY', () => {
   const policySource = fs.readFileSync(path.resolve(ROOT_DIR, 'src/lib/execution/execution-policy.ts'), 'utf8');
-  assert(policySource.includes("export const CANONICAL_EXECUTION_MODE = 'ARMED_WITH_CONFIRMATION'"), 'CANONICAL_EXECUTION_MODE must be ARMED_WITH_CONFIRMATION');
+  assert(policySource.includes("export const CANONICAL_EXECUTION_MODE = 'READ_ONLY'"), 'CANONICAL_EXECUTION_MODE must be READ_ONLY');
   const supervisor = new supervisorModule.ConnectivitySupervisor({ persistState: false });
   assert.strictEqual(supervisor.healthState.execution, 'READ_ONLY', 'Supervisor initial execution state must be READ_ONLY');
 });
 
-// 23. MT5 order transport is enabled
-await runTest('MT5 order transport is enabled', () => {
+// 23. MT5 order transport is disabled (fail-closed read-only lock)
+await runTest('MT5 order transport is disabled', () => {
   const policySource = fs.readFileSync(path.resolve(ROOT_DIR, 'src/lib/execution/execution-policy.ts'), 'utf8');
-  assert(policySource.includes("export const MT5_ORDER_TRANSPORT_ENABLED = true"), 'MT5_ORDER_TRANSPORT_ENABLED must be true');
+  assert(policySource.includes("export const MT5_ORDER_TRANSPORT_ENABLED = false"), 'MT5_ORDER_TRANSPORT_ENABLED must be false');
   assert(policySource.includes("return MT5_ORDER_TRANSPORT_ENABLED;"), 'isMt5OrderTransportAllowed must return MT5_ORDER_TRANSPORT_ENABLED');
 });
 
@@ -505,16 +507,16 @@ await runTest('incorrect LOCAL_BRIDGE_URL is absent from connector child env', (
   assert.strictEqual(childEnv.FEF_LOCAL_BRIDGE_URL, 'http://127.0.0.1:5556');
 });
 
-// 38. ARMED_WITH_CONFIRMATION is canonical
-  await runTest('ARMED_WITH_CONFIRMATION is canonical', () => {
+// 38. READ_ONLY is canonical
+  await runTest('READ_ONLY is canonical', () => {
     const policySource = fs.readFileSync(path.resolve(ROOT_DIR, 'src/lib/execution/execution-policy.ts'), 'utf8');
-    assert(policySource.includes("export const CANONICAL_EXECUTION_MODE = 'ARMED_WITH_CONFIRMATION'"), 'CANONICAL_EXECUTION_MODE must be ARMED_WITH_CONFIRMATION');
+    assert(policySource.includes("export const CANONICAL_EXECUTION_MODE = 'READ_ONLY'"), 'CANONICAL_EXECUTION_MODE must be READ_ONLY');
   });
 
-  // 39. MT5_ORDER_TRANSPORT_ENABLED is true
-  await runTest('MT5_ORDER_TRANSPORT_ENABLED is true', () => {
+  // 39. MT5_ORDER_TRANSPORT_ENABLED is false
+  await runTest('MT5_ORDER_TRANSPORT_ENABLED is false', () => {
     const policySource = fs.readFileSync(path.resolve(ROOT_DIR, 'src/lib/execution/execution-policy.ts'), 'utf8');
-    assert(policySource.includes("export const MT5_ORDER_TRANSPORT_ENABLED = true"), 'MT5_ORDER_TRANSPORT_ENABLED must be true');
+    assert(policySource.includes("export const MT5_ORDER_TRANSPORT_ENABLED = false"), 'MT5_ORDER_TRANSPORT_ENABLED must be false');
   });
 
   // 40. Supervisor launches canonical V1 bridge script (mt5-http-bridge-service.js)

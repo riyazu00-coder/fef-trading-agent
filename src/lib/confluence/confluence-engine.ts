@@ -177,8 +177,8 @@ export class CortexConfluenceEngine {
     let totalDomainWeight = 0;
     let bullishDomainWeight = 0;
     let bearishDomainWeight = 0;
-    const supportingDomains: EvidenceDomainFamily[] = [];
-    const opposingDomains: EvidenceDomainFamily[] = [];
+    const bullishDomains: EvidenceDomainFamily[] = [];
+    const bearishDomains: EvidenceDomainFamily[] = [];
 
     for (const [family, dData] of Array.from(domainMap.entries())) {
       const familyBaseWeight = DOMAIN_WEIGHTS[family] || 0.05;
@@ -192,10 +192,10 @@ export class CortexConfluenceEngine {
       // Each domain family gets at most ONE aggregate vote weighted by its scaled weight
       if (dData.bullishTrustSum > dData.bearishTrustSum * 1.3) {
         bullishDomainWeight += scaledFamilyWeight;
-        supportingDomains.push(family);
+        bullishDomains.push(family);
       } else if (dData.bearishTrustSum > dData.bullishTrustSum * 1.3) {
         bearishDomainWeight += scaledFamilyWeight;
-        opposingDomains.push(family);
+        bearishDomains.push(family);
       } else if (dData.bullishTrustSum > 0 && dData.bearishTrustSum > 0) {
         criticalConflicts.push(`Internal conflict in domain ${family} (opposing agent assessments).`);
       }
@@ -222,7 +222,7 @@ export class CortexConfluenceEngine {
     }
 
     if (conflictScore >= 30) {
-      criticalConflicts.push(`Major inter-domain disagreement: ${supportingDomains.join(', ')} vs ${opposingDomains.join(', ')}.`);
+      criticalConflicts.push(`Major inter-domain disagreement: ${bullishDomains.join(', ')} vs ${bearishDomains.join(', ')}.`);
     }
 
     // 5. Data Readiness (HIGH | MODERATE | LIMITED | INSUFFICIENT)
@@ -251,6 +251,19 @@ export class CortexConfluenceEngine {
       directionalThesis = 'MIXED';
     } else {
       directionalThesis = 'NEUTRAL';
+    }
+
+    const supportingDomains: EvidenceDomainFamily[] = [];
+    const opposingDomains: EvidenceDomainFamily[] = [];
+    if (directionalThesis === 'BULLISH') {
+      supportingDomains.push(...bullishDomains);
+      opposingDomains.push(...bearishDomains);
+    } else if (directionalThesis === 'BEARISH') {
+      supportingDomains.push(...bearishDomains);
+      opposingDomains.push(...bullishDomains);
+    } else {
+      supportingDomains.push(...bullishDomains);
+      opposingDomains.push(...bearishDomains);
     }
 
     // Chart Vision Disagreement Check (Vision is an evidence input, NOT a competing council)
@@ -285,16 +298,15 @@ export class CortexConfluenceEngine {
       normInputs.hasBlueprint === false ||
       dataReadiness === 'INSUFFICIENT' ||
       dataReadiness === 'LIMITED' ||
-      dataReadiness === 'MODERATE' ||
-      uniqueActiveFamilies < 4 ||
-      conflictScore > 15 ||
+      uniqueActiveFamilies < 2 ||
+      conflictScore > 20 ||
       opposingDomains.length > 0 ||
-      coverageScore < 60
+      coverageScore < 25
     ) {
       presentationPosture = 'WAIT';
-    } else if (directionalThesis === 'BULLISH' && conflictScore <= 15 && agreementScore >= 65) {
+    } else if (directionalThesis === 'BULLISH' && conflictScore <= 20 && agreementScore >= 60) {
       presentationPosture = 'WATCH FOR BUY';
-    } else if (directionalThesis === 'BEARISH' && conflictScore <= 15 && agreementScore >= 65) {
+    } else if (directionalThesis === 'BEARISH' && conflictScore <= 20 && agreementScore >= 60) {
       presentationPosture = 'WATCH FOR SELL';
     } else {
       presentationPosture = 'WAIT';
@@ -306,9 +318,9 @@ export class CortexConfluenceEngine {
     if (presentationPosture === 'WAIT') {
       // Truthfulness invariant: WAIT posture strictly yields 0% confidence
       confidence = 0;
-    } else if (uniqueActiveFamilies >= 4 && dataReadiness === 'HIGH') {
+    } else if (uniqueActiveFamilies >= 2 && (dataReadiness === 'HIGH' || dataReadiness === 'MODERATE')) {
       // Base confidence scales with agreement and coverage
-      confidence = Math.round((agreementScore * 0.6) + (coverageScore * 0.4));
+      confidence = Math.round((agreementScore * 0.65) + (coverageScore * 0.35));
       // Conflict penalty
       if (conflictScore > 0) {
         confidence = Math.max(10, confidence - Math.round(conflictScore * 0.5));

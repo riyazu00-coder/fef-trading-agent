@@ -23,17 +23,9 @@ import { workerStateManager, AssetSnapshotSummary } from '../src/lib/worker/work
 import { MARKET_REGISTRY } from '../src/lib/registry/market-registry';
 import { LiveMarketAsset } from '../src/lib/providers/real-market-api';
 import { candidateIntakeCoordinator } from '../src/lib/telegram/candidate-intake-coordinator';
+import { CANONICAL_26_UNIVERSE, LocalMarketDataProvider } from '../src/lib/providers/local-market-data-provider';
 
-const MONITORED_SYMBOLS = [
-  'XAUUSD',
-  'EURUSD',
-  'GBPUSD',
-  'USDJPY',
-  'USOIL',
-  'BTCUSD',
-  'US100',
-  'US500'
-];
+const MONITORED_SYMBOLS = [...CANONICAL_26_UNIVERSE];
 
 export class BackgroundAutonomousWorker {
   private isRunning: boolean = false;
@@ -87,55 +79,84 @@ export class BackgroundAutonomousWorker {
       const snapshots: Record<string, AssetSnapshotSummary> = {};
       const marketQuotes: Record<string, { price: number; change24h: number }> = {};
 
+      let localProvider: LocalMarketDataProvider | null = null;
+      try {
+        localProvider = new LocalMarketDataProvider();
+      } catch {
+        localProvider = null;
+      }
+
       for (const sym of MONITORED_SYMBOLS) {
-        const def = MARKET_REGISTRY[sym];
-        const primaryProvider = providerRegistry.getPrimaryMarketProvider();
-        let quote = primaryProvider ? await primaryProvider.getQuote(sym) : null;
+        let profile: AssetIntelligenceProfile | null = null;
+        let quotePrice: number = 0;
+        let quoteChange: number = 0;
+        let authority: string = 'REFERENCE_FEED';
 
-        const livePrice = quote?.mid || def?.basePrice || 0;
-        const liveChange = quote?.changePercent24h || def?.typicalDailyChangePct || 0;
+        if (localProvider) {
+          try {
+            profile = await localProvider.assembleLocalAssetIntelligence(sym, 'M15');
+            if (profile) {
+              quotePrice = profile.currentPrice;
+              authority = 'Exness MT5 Broker (Local SQLite)';
+            }
+          } catch {
+            profile = null;
+          }
+        }
 
-        marketQuotes[sym] = {
-          price: livePrice,
-          change24h: liveChange,
-        };
+        if (!profile) {
+          const def = MARKET_REGISTRY[sym];
+          const primaryProvider = providerRegistry.getPrimaryMarketProvider();
+          let quote = primaryProvider ? await primaryProvider.getQuote(sym) : null;
 
-        const liveAsset: LiveMarketAsset = {
-          symbol: sym,
-          name: def?.displayName || sym,
-          price: livePrice,
-          bid: quote?.bid || livePrice,
-          ask: quote?.ask || livePrice,
-          spread: quote?.spread || def?.typicalSpread || 0,
-          change24h: liveChange,
-          high24h: quote?.high24h || livePrice,
-          low24h: quote?.low24h || livePrice,
-          volume: '$24.8B',
-          sparkline: '0,20 140,20',
-          source: quote ? quote.providerId : (def?.feedProvider || 'Market Feed'),
-          lastUpdated: iso,
-          category: def?.category || 'FOREX',
-          feedStatus: quote ? 'LIVE' : 'DATA LIMITED',
-          classification: quote ? quote.classification : 'DATA LIMITED',
-        };
+          const livePrice = quote?.mid || def?.basePrice || 0;
+          const liveChange = quote?.changePercent24h || def?.typicalDailyChangePct || 0;
+          quotePrice = livePrice;
+          quoteChange = liveChange;
+          authority = quote ? quote.providerId : 'REFERENCE_FEED';
 
-        // Synthesize Multi-Timeframe Intelligence Profile
-        const profile = generateAssetIntelligence(
-          sym,
-          liveAsset,
-          'H1',
-          undefined, // Candles are evaluated if connected or retrieved from broker/independent provider
-          quote ? quote.classification : 'UNAVAILABLE',
-          quote ? quote.providerId : 'NONE',
-          now
-        );
+          const liveAsset: LiveMarketAsset = {
+            symbol: sym,
+            name: def?.displayName || sym,
+            price: livePrice,
+            bid: quote?.bid || livePrice,
+            ask: quote?.ask || livePrice,
+            spread: quote?.spread || def?.typicalSpread || 0,
+            change24h: liveChange,
+            high24h: quote?.high24h || livePrice,
+            low24h: quote?.low24h || livePrice,
+            volume: '$24.8B',
+            sparkline: '0,20 140,20',
+            source: quote ? quote.providerId : (def?.feedProvider || 'Market Feed'),
+            lastUpdated: iso,
+            category: def?.category || 'FOREX',
+            feedStatus: quote ? 'LIVE' : 'DATA LIMITED',
+            classification: quote ? quote.classification : 'DATA LIMITED',
+          };
+
+          // Synthesize Multi-Timeframe Intelligence Profile
+          profile = generateAssetIntelligence(
+            sym,
+            liveAsset,
+            'M15',
+            undefined, // Candles are evaluated if connected or retrieved from broker/independent provider
+            quote ? quote.classification : 'UNAVAILABLE',
+            quote ? quote.providerId : 'NONE',
+            now
+          );
+        }
 
         profiles[sym] = profile;
+
+        marketQuotes[sym] = {
+          price: quotePrice,
+          change24h: quoteChange,
+        };
 
         snapshots[sym] = {
           symbol: sym,
           timestamp: iso,
-          marketDataAuthority: quote ? quote.providerId : 'REFERENCE_FEED',
+          marketDataAuthority: authority,
           decisionPosture: profile.decisionPosture,
           directionalBias: profile.directionalBias,
           confidence: profile.confidence,

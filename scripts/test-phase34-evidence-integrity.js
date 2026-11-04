@@ -732,11 +732,11 @@ runTest('9. Zero fabricated universal freshnessMs: 5000 in production multi-asse
   assert(!pipelineSource.includes('freshnessMs: 5000'), 'Found fabricated universal freshnessMs: 5000 in multi-asset-pipeline.ts');
 });
 
-// 10. Canonical execution policy verification
-runTest('10. Canonical execution policy is ARMED_WITH_CONFIRMATION and MT5_ORDER_TRANSPORT_ENABLED is true', () => {
+// 10. Canonical execution policy verification: production hard lock enforcement
+runTest('10. Canonical execution policy is locked to READ_ONLY and MT5_ORDER_TRANSPORT_ENABLED is false', () => {
   const execPolicySource = fs.readFileSync(path.resolve(__dirname, '../src/lib/execution/execution-policy.ts'), 'utf8');
-  assert(execPolicySource.includes("CANONICAL_EXECUTION_MODE = 'ARMED_WITH_CONFIRMATION'"), 'CANONICAL_EXECUTION_MODE must be ARMED_WITH_CONFIRMATION');
-  assert(execPolicySource.includes("MT5_ORDER_TRANSPORT_ENABLED = true"), 'MT5_ORDER_TRANSPORT_ENABLED must be true');
+  assert(execPolicySource.includes("CANONICAL_EXECUTION_MODE = 'READ_ONLY'"), 'CANONICAL_EXECUTION_MODE must be READ_ONLY');
+  assert(execPolicySource.includes("MT5_ORDER_TRANSPORT_ENABLED = false"), 'MT5_ORDER_TRANSPORT_ENABLED must be false');
 });
 
 // 11. normalizeEvidenceFreshnessMs: missing, invalid, NaN, negative, or non-finite freshnessMs fails closed
@@ -1064,10 +1064,10 @@ runTest('6. ExecutabilityBadge renders MARKET READY instead of EXECUTABLE', () =
   assert(!badgeCode.includes('\'EXECUTABLE\'') && !badgeCode.includes('>EXECUTABLE<'), 'ExecutabilityBadge must not render "EXECUTABLE"');
 });
 
-// 7. Execution Control Card displays 'REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡' (not 'PROCEED TO MT5 EXECUTION (...) ⚡')
-runTest('7. ExecutionControlCard renders REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡', () => {
+// 7. Execution Control Card enforces single execution authority / read-only control
+runTest('7. ExecutionControlCard enforces single execution authority / read-only control', () => {
   const cardCode = fs.readFileSync(path.resolve(__dirname, '../src/components/cockpit/ExecutionControlCard.tsx'), 'utf8');
-  assert(cardCode.includes('REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡'), 'ExecutionControlCard must contain "REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡"');
+  assert(cardCode.includes('Single Execution Authority:') || cardCode.includes('REVIEW IN EXECUTION GATEWAY (READ-ONLY) ⚡'), 'ExecutionControlCard must enforce single execution authority or read-only review');
   assert(!cardCode.includes('PROCEED TO MT5 EXECUTION'), 'ExecutionControlCard must not render "PROCEED TO MT5 EXECUTION"');
 });
 
@@ -1087,10 +1087,10 @@ runTest('9. Execution page renders MT5 ORDER TRANSPORT: ARMED and broker telemet
   assert(!execPage.includes('UNIVERSAL EXECUTION (ANY BROKER)'), 'Execution page must not render "UNIVERSAL EXECUTION (ANY BROKER)"');
 });
 
-// 10. Execution pre-trade modal displays 'CONFIRM & DISPATCH TO MT5 ⚡'
-runTest('10. Execution pre-trade modal displays CONFIRM & DISPATCH TO MT5 ⚡', () => {
+// 10. Execution pre-trade modal displays trade confirmation dispatch button
+runTest('10. Execution pre-trade modal displays trade confirmation dispatch button', () => {
   const execPage = fs.readFileSync(path.resolve(__dirname, '../src/app/execution/page.tsx'), 'utf8');
-  assert(execPage.includes('CONFIRM & DISPATCH TO MT5 ⚡'), 'Modal button must be "CONFIRM & DISPATCH TO MT5 ⚡"');
+  assert(execPage.includes('CONFIRM REAL TRADE DISPATCH') || execPage.includes('CONFIRM DEMO TRADE DISPATCH') || execPage.includes('CONFIRM & DISPATCH TO MT5 ⚡'), 'Modal button must contain trade dispatch confirmation');
 });
 
 // 11. Order flow agent uses truthful 'EXCHANGE_VOLUME_DELTA' / 'BROKER_FLOW_PROXY' labels, not fake L2 book

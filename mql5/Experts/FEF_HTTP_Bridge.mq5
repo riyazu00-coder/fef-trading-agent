@@ -1083,6 +1083,11 @@ void HandlePendingOrder(string resp)
    else
       req.type_filling = ORDER_FILLING_RETURN;
 
+   // Canonical Global READ_ONLY Lock: Order transport strictly disabled
+   Print("✕ [FEF-SECURITY] GLOBAL_READ_ONLY_LOCK: MT5 order transport disabled.");
+   res.retcode = 10027; // TRADE_RETCODE_CLIENT_DISABLES_AT
+   return;
+
    ResetLastError();
    bool sent = OrderSend(req, res);
    int lastErr = GetLastError();

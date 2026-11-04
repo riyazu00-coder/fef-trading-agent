@@ -12,16 +12,19 @@ import {
 interface NotificationCenterDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  initialNotifications?: RadarNotification[];
 }
 
-export const NotificationCenterDrawer: React.FC<NotificationCenterDrawerProps> = ({ isOpen, onClose }) => {
+export const NotificationCenterDrawer: React.FC<NotificationCenterDrawerProps> = ({ isOpen, onClose, initialNotifications }) => {
   const { setActiveSymbol } = useActiveAsset();
-  const [notifications, setNotifications] = useState<RadarNotification[]>([]);
+  const [notifications, setNotifications] = useState<RadarNotification[]>(initialNotifications || []);
   const [filter, setFilter] = useState<'ALL' | 'OPPORTUNITIES' | 'RISK'>('ALL');
 
   useEffect(() => {
     // Initial load
-    setNotifications(getStoredNotifications());
+    if (!initialNotifications || initialNotifications.length === 0) {
+      setNotifications(getStoredNotifications());
+    }
 
     // Subscribe to new incoming alerts
     const unsubscribe = subscribeRadarNotifications((newNotif) => {

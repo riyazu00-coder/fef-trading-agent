@@ -144,10 +144,11 @@ export function evaluateRadarTransitions(opportunities: RadarOpportunityItem[]):
   for (const opp of opportunities) {
     const prev = lastKnownStates.get(opp.symbol);
 
-    // Actionable opportunities if state is BUY or SELL (closed markets produce MONITOR NEXT OPEN / PRE-OPEN WATCH)
-    const isOpportunityState = opp.tradeExecutable && (opp.state.includes('BUY') || opp.state.includes('SELL'));
-    const isDevelopingClosed = !opp.tradeExecutable && (opp.state === 'MONITOR NEXT OPEN' || opp.state === 'PRE-OPEN WATCH' || opp.state === 'WAIT (MARKET CLOSED)') && opp.opportunityScore >= 75;
-    const isDevelopingOpen = opp.tradeExecutable && (opp.state.includes('WATCH') || (opp.opportunityScore >= 60 && !opp.state.includes('BUY') && !opp.state.includes('SELL') && opp.state !== 'NO TRADE'));
+    // Actionable opportunities if state is BUY or SELL (market closed produces MONITOR NEXT OPEN / PRE-OPEN WATCH)
+    const isMarketClosed = opp.marketState === 'CLOSED' || opp.marketState === 'DAILY_BREAK' || opp.marketState === 'WEEKEND_CLOSED';
+    const isOpportunityState = !isMarketClosed && (opp.state.includes('BUY') || opp.state.includes('SELL'));
+    const isDevelopingClosed = isMarketClosed && (opp.state === 'MONITOR NEXT OPEN' || opp.state === 'PRE-OPEN WATCH' || opp.state === 'WAIT (MARKET CLOSED)') && opp.opportunityScore >= 75;
+    const isDevelopingOpen = !isMarketClosed && (opp.state.includes('WATCH') || (opp.opportunityScore >= 60 && !opp.state.includes('BUY') && !opp.state.includes('SELL') && opp.state !== 'NO TRADE'));
     const isStrong = opp.state.includes('STRONG');
     const meetsThreshold = opp.opportunityScore >= 75 && opp.aiConfidence >= 78;
     const catalyst = opp.catalysts?.[0] || 'Multi-agent structural alignment confirmed across HTF & LTF.';

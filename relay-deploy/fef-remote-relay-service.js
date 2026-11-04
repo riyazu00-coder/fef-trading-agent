@@ -569,6 +569,17 @@ const server = http.createServer(async (req, res) => {
     const deviceId = executeMatch[1];
     const device = registeredDevices.get(deviceId);
 
+    // Canonical Global READ_ONLY Lock: Order transport strictly disabled
+    return sendJson(res, 403, {
+      success: false,
+      status: 'REJECTED',
+      operatingMode: 'READ_ONLY',
+      error: {
+        code: 'GLOBAL_READ_ONLY_LOCK',
+        message: 'FEF CORTEX V1.1.2-S is READ_ONLY / TELEMETRY ONLY. Relay execution dispatch is disabled.'
+      }
+    }, allowedOrigin);
+
     // Single-User Execution Gate: Allow ONLY authorized single-user device for MANUAL DEMO execution
     if (deviceId !== ENV_DEVICE_ID) {
       return sendJson(res, 403, {

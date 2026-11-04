@@ -242,6 +242,25 @@ async function handleIncomingRemoteCommand(command) {
     return;
   }
 
+  // 1b. Canonical Global READ_ONLY Lock: Order transport strictly disabled
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'COMMAND_ACK',
+      ack: {
+        requestId: reqId,
+        deviceId: REMOTE_DEVICE_ID,
+        status: 'REJECTED',
+        success: false,
+        error: {
+          code: 'GLOBAL_READ_ONLY_LOCK',
+          message: 'FEF CORTEX V1.1.2-S is READ_ONLY / TELEMETRY ONLY. Connector execution forwarding is disabled.',
+        },
+        timestamp: Date.now(),
+      }
+    }));
+  }
+  return;
+
   // 2. REAL Account Hard Lock (Physical Safety Guard)
   if (command.accountMode === 'REAL' || command.tradeMode === 'REAL') {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -703,24 +722,24 @@ async function persistLocalTelemetryCycle() {
     }
   }
 
-  // 4. Timeframe-aware closed candle collection
+  // 4. Timeframe-aware closed candle collection across all canonical assets
   candleTickCount++;
-  const primarySyncSymbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'US100', 'USOIL', 'BTCUSD'];
+  const primarySyncSymbols = CANONICAL_SYMBOLS;
   const candleSnapshots = [];
 
   const shouldSyncFastTfs = candleTickCount === 1 || candleTickCount % 60 === 0 || (!initialCandlesSynced && candleTickCount % 5 === 0);
   const shouldSyncSlowTfs = candleTickCount === 1 || candleTickCount % 180 === 0 || (!initialCandlesSynced && candleTickCount % 5 === 0);
 
-  // Fast timeframes (M15, M30) on start (tick 1) and every 60 ticks (~2 min)
+  // Fast timeframes (M1, M5, M15, M30) on start (tick 1) and every 60 ticks (~2 min)
   if (shouldSyncFastTfs) {
     for (const sym of primarySyncSymbols) {
-      for (const tf of ['M15', 'M30']) {
+      for (const tf of ['M1', 'M5', 'M15', 'M30']) {
         const rawBars = await fetchLocalBridgeCandles(sym, tf);
-        if (rawBars && rawBars.length >= 15) {
+        if (rawBars && rawBars.length >= 10) {
           const validBars = rawBars
             .filter((b) => b && b.open > 0 && b.high >= b.low && b.close > 0)
             .slice(-50); // Bounded 50 closed bars
-          if (validBars.length >= 15) {
+          if (validBars.length >= 10) {
             candleSnapshots.push({
               canonicalSymbol: sym,
               brokerSymbol: sym,
@@ -737,11 +756,7 @@ async function persistLocalTelemetryCycle() {
 
   // Higher timeframes (H1, H4, D1) on start (tick 1) and every 180 ticks (~6 min)
   if (shouldSyncSlowTfs) {
-    const rotatingBatchStart = ((candleTickCount / 180) * 4) % CANONICAL_SYMBOLS.length;
-    const additionalSymbols = CANONICAL_SYMBOLS.slice(rotatingBatchStart, rotatingBatchStart + 4);
-    const syncTargetSymbols = Array.from(new Set([...primarySyncSymbols, ...additionalSymbols]));
-
-    for (const sym of syncTargetSymbols) {
+    for (const sym of primarySyncSymbols) {
       for (const tf of ['H1', 'H4', 'D1']) {
         const rawBars = await fetchLocalBridgeCandles(sym, tf);
         if (rawBars && rawBars.length >= 10) {
@@ -817,7 +832,7 @@ async function persistLocalTelemetryCycle() {
       // Periodic candle pruning (once every hour or ~1800 cycles)
       if (candleTickCount % 1800 === 0) {
         try {
-          localRepo.pruneCandles(CANONICAL_SYMBOLS, ['M15', 'M30', 'H1', 'H4', 'D1'], 500);
+          localRepo.pruneCandles(CANONICAL_SYMBOLS, ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'], 500);
         } catch {}
       }
     }
