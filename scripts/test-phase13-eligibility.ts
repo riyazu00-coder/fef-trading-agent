@@ -132,8 +132,11 @@ async function runEligibilityTests() {
     direction: 'SHORT',
     entryZone: { low: 2750.0, high: 2752.0, midpoint: 2751.0, source: 'OB', rationale: 'Bearish OB' },
     stopLoss: { price: 2757.0, rationale: 'Swing high', bufferAtrMultiplier: 1.2, distance: 6.0 },
-    targets: [{ targetIndex: 1, label: 'TP1', price: 2736.0, source: 'LOW', rationale: 'TP1', rewardDistance: 15.0, riskReward: 2.5 }],
-    riskReward: { ratio: 2.5, formatted: '2.5:1', meetsMinimumThreshold: true },
+    targets: [
+      { targetIndex: 1, label: 'TP1', price: 2736.0, source: 'LOW', rationale: 'TP1', rewardDistance: 15.0, riskReward: 2.5 },
+      { targetIndex: 2, label: 'TP2', price: 2724.0, source: 'MAJOR_LOW', rationale: 'TP2', rewardDistance: 27.0, riskReward: 4.5 },
+    ],
+    riskReward: { ratio: 4.5, formatted: '4.5:1', meetsMinimumThreshold: true },
   });
   const res4 = evaluateSignalEligibility(sellDecision, sellSetup, validTelemetry, new Set());
   assertTest(4, 'Fully validated SELL setup passes as ELIGIBLE', res4.isEligible && res4.status === 'ELIGIBLE' && res4.payload?.direction === 'SELL');

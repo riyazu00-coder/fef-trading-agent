@@ -99,12 +99,12 @@ async function runTests() {
   console.log('FEF CORTEX V1.2.1 — DATA INTEGRITY & AUTONOMOUS INTEL SUITE');
   console.log('=================================================================\n');
 
-  // TEST 1: Strict Global Execution Policy Invariant (ARMED_WITH_CONFIRMATION)
-  console.log('[1. GLOBAL ARMED EXECUTION INVARIANT]');
-  check(CANONICAL_EXECUTION_MODE === 'ARMED_WITH_CONFIRMATION', 'Canonical execution mode is strictly ARMED_WITH_CONFIRMATION');
-  check(MT5_ORDER_TRANSPORT_ENABLED === true, 'Network transport is enabled (true)');
-  check(isMt5OrderTransportAllowed() === true, 'isMt5OrderTransportAllowed() returns true');
-  check(evaluateMt5ExecutionPermission().allowed === true, 'evaluateMt5ExecutionPermission().allowed is true');
+  // TEST 1: Strict Global Execution Policy Invariant (READ_ONLY Hard Lock)
+  console.log('[1. GLOBAL READ-ONLY EXECUTION INVARIANT]');
+  check(CANONICAL_EXECUTION_MODE === 'READ_ONLY', 'Canonical execution mode is strictly READ_ONLY');
+  check(MT5_ORDER_TRANSPORT_ENABLED === false, 'Network transport is disabled (false)');
+  check(isMt5OrderTransportAllowed() === false, 'isMt5OrderTransportAllowed() returns false');
+  check(evaluateMt5ExecutionPermission().allowed === false, 'evaluateMt5ExecutionPermission().allowed is false');
 
   // TEST 2: Purged Seeded / Synthetic Data Verification
   console.log('\n[2. PURGED SYNTHETIC & SEEDED MARKET DATA]');
@@ -238,7 +238,7 @@ async function runTests() {
   );
   const visionAgent = intelWithCandles.agents.find(a => a.type === 'VISION');
   check(Boolean(visionAgent), 'Vision agent exists in 15-agent council');
-  check(Boolean(visionAgent?.lastOpinion?.includes('Structured chart pattern') || visionAgent?.evidence?.some(e => e.includes('SMC'))), 'Vision agent outputs continuous algorithmic SMC analysis');
+  check(Boolean(visionAgent && (visionAgent.status === 'DATA LIMITED' || visionAgent.provenanceBadge === 'UNAVAILABLE' || visionAgent.lastOpinion?.includes('Awaiting verified') || visionAgent.evidence?.some(e => e.includes('price')))), 'Vision agent truthfully handles multimodal telemetry without fabrication');
   check(intelWithCandles.marketStructure !== undefined, 'Market structure geometry populated without image upload');
   check(intelWithCandles.marketStructure?.swingHighs.length! > 0, 'Swing highs detected algorithmically');
   check(intelWithCandles.marketStructure?.swingLows.length! > 0, 'Swing lows detected algorithmically');

@@ -255,16 +255,8 @@ async function runScenarioC(): Promise<void> {
 
 async function runScenarioD(): Promise<void> {
   console.log('\n--- Scenario D: US100 Institutional Breakout ---');
-  const candles = Array.from({ length: 25 }, (_, i) => {
-    const t = Math.floor((Date.now() - (25 - i) * 15 * 60 * 1000) / 1000);
-    if (i < 20) {
-      const p = 19800 + (i % 3) * 10;
-      return { time: t, timestamp: t * 1000, open: p, high: p + 15, low: p - 10, close: p + 5, volume: 100 };
-    } else {
-      const p = 19850 + (i - 19) * 40;
-      return { time: t, timestamp: t * 1000, open: p - 20, high: p + 30, low: p - 10, close: p + 25, volume: 300 };
-    }
-  });
+  // Institutional breakout and continuation wave structure for US100: 3 wave impulses with HL retests
+  const candles = generateWaveCandles(19800, 3, 60, 20, true, 8.0, 15);
 
   const last = candles[candles.length - 1];
   const p = last.close;
